@@ -416,6 +416,10 @@ class Morph {
 	}
 
 	#insertBefore(parent: ParentNode, node: Node, insertionPoint: ChildNode): void {
+		if ("moveBefore" in parent && typeof parent.moveBefore === "function") {
+			return parent.moveBefore(node, insertionPoint);
+		}
+
 		if (node === insertionPoint) return;
 
 		if (isElement(node)) {

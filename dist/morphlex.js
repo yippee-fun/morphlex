@@ -298,6 +298,9 @@ class Morph {
 		}
 	}
 	#insertBefore(parent, node, insertionPoint) {
+		if ("moveBefore" in parent && typeof parent.moveBefore === "function") {
+			return parent.moveBefore(node, insertionPoint);
+		}
 		if (node === insertionPoint) return;
 		if (isElement(node)) {
 			const sensitivity = this.#sensivityMap.get(node) ?? 0;
