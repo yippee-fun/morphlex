@@ -76,12 +76,13 @@ function parseChildNodeFromString(string: string): ChildNode {
 	const parser = new DOMParser()
 	const doc = parser.parseFromString(string, "text/html")
 
-	if (doc.childNodes.length === 1) return doc.body.firstChild as ChildNode
+	const firstChild = doc.body.firstChild
+	if (firstChild) return firstChild
 	else throw new Error("[Morphlex] The string was not a valid HTML node.")
 }
 
 // Feature detection for moveBefore support (cached for performance)
-const supportsMoveBefore = typeof Element.prototype.moveBefore === "function"
+const supportsMoveBefore = typeof Element !== "undefined" && typeof Element.prototype.moveBefore === "function"
 
 class Morph {
 	readonly #idMap: IdMap
@@ -312,8 +313,6 @@ class Morph {
 				} else this.#morphOtherNode(pair)
 			} else if (refChild) {
 				this.#appendChild(element, refChild.cloneNode(true))
-			} else if (child) {
-				this.#removeNode(child)
 			}
 		}
 
@@ -362,16 +361,9 @@ class Morph {
 			currentNode = currentNode.nextSibling
 		}
 
-		if (nextMatchByTagName) {
-			this.#insertBefore(parent, nextMatchByTagName, child)
-			this.#morphNode([nextMatchByTagName, reference])
-		} else {
-			const newNode = reference.cloneNode(true)
-			if (this.#beforeNodeAdded?.(newNode) ?? true) {
-				this.#insertBefore(parent, newNode, child)
-				this.#afterNodeAdded?.(newNode)
-			}
-		}
+		// nextMatchByTagName is always set (at minimum to child itself since they have matching tag names)
+		this.#insertBefore(parent, nextMatchByTagName!, child)
+		this.#morphNode([nextMatchByTagName!, reference])
 
 		this.#afterNodeMorphed?.(child, writableNode(reference))
 	}

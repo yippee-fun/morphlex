@@ -1,1 +1,4 @@
-Don’t create a summary document.
+- Don’t create a summary document.
+- Running all the tests with `bun run test` is cheap, so do it all the time.
+- Try to maintain 100% test coverage. Use `bun run test --coverage`.
+- I’m using `jj` so you can use that to look at your diff, but please don’t commit unless I ask you to.
