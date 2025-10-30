@@ -73,6 +73,9 @@ function parseChildNodeFromString(string: string): ChildNode {
 	else throw new Error("[Morphlex] The string was not a valid HTML node.")
 }
 
+// Feature detection for moveBefore support (cached for performance)
+const supportsMoveBefore = typeof Element.prototype.moveBefore === "function"
+
 class Morph {
 	readonly #idMap: IdMap
 
@@ -380,7 +383,12 @@ class Morph {
 	#insertBefore(parent: ParentNode, node: Node, insertionPoint: ChildNode): void {
 		if (node === insertionPoint) return
 
-		parent.insertBefore(node, insertionPoint)
+		// Use moveBefore when available (more efficient for moving existing nodes)
+		if (supportsMoveBefore) {
+			;(parent as any).moveBefore(node, insertionPoint)
+		} else {
+			parent.insertBefore(node, insertionPoint)
+		}
 	}
 
 	#appendChild(node: ParentNode, newNode: Node): void {
