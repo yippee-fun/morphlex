@@ -567,7 +567,7 @@ describe("Morphlex - Coverage Tests", () => {
 					addedNode = node
 					return true
 				},
-				afterNodeAdded: (node) => {
+				afterNodeAdded: () => {
 					afterAddedCalled = true
 				},
 			})
@@ -647,11 +647,11 @@ describe("Morphlex - Coverage Tests", () => {
 				let afterAddCalled = false
 
 				morph(parent, reference, {
-					beforeNodeAdded: (node) => {
+					beforeNodeAdded: () => {
 						beforeAddCalled = true
 						return true
 					},
-					afterNodeAdded: (node) => {
+					afterNodeAdded: () => {
 						afterAddCalled = true
 					},
 				})
@@ -715,7 +715,7 @@ describe("Morphlex - Coverage Tests", () => {
 						addedNode = node
 						return true
 					},
-					afterNodeAdded: (node) => {
+					afterNodeAdded: () => {
 						// Lines 388-389
 					},
 				})
@@ -789,11 +789,11 @@ describe("Morphlex - Coverage Tests", () => {
 				let afterCalled = false
 
 				morph(parent, reference, {
-					beforeNodeAdded: (node) => {
+					beforeNodeAdded: () => {
 						beforeCalled = true
 						return true // Line 387: insertBefore is called
 					},
-					afterNodeAdded: (node) => {
+					afterNodeAdded: () => {
 						afterCalled = true // Line 389
 					},
 				})

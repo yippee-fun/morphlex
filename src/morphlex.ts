@@ -154,7 +154,8 @@ class Morph {
 
 			while (current) {
 				const idSet: IdSet | undefined = this.#idMap.get(current)
-				idSet ? idSet.add(id) : this.#idMap.set(current, new Set([id]))
+				if (idSet) idSet.add(id)
+				else this.#idMap.set(current, new Set([id]))
 				if (current === node) break
 				current = current.parentElement
 			}
@@ -218,7 +219,8 @@ class Morph {
 
 			// If the child is in the reference map already, we don't need to add it later.
 			// If it's not in the map, we need to remove it from the node.
-			refChild ? refChildNodesMap.delete(key) : this.#removeNode(child)
+			if (refChild) refChildNodesMap.delete(key)
+			else this.#removeNode(child)
 		}
 
 		// Any remaining nodes in the map should be appended to the head.
