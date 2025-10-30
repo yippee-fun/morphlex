@@ -167,6 +167,12 @@ class Morph {
 
 	// This is where we actually morph the nodes. The `morph` function (above) exists only to set up the `idMap`.
 	#morphNode(pair: NodeReferencePair<ChildNode>): void {
+		const [node, reference] = pair
+
+		if (node.nodeType === 3 && reference.nodeType === 3) {
+			if (node.textContent === reference.textContent) return
+		}
+
 		if (isMatchingElementPair(pair)) this.#morphMatchingElementNode(pair)
 		else this.#morphOtherNode(pair)
 	}
