@@ -183,13 +183,13 @@ class Morph {
             const child = reference.children[i];
             refChildNodesMap.set(child.outerHTML, child);
         }
-        const nodeChildrenLength = node.children.length;
-        for (let i = 0; i < nodeChildrenLength; i++) {
+        // Iterate backwards to safely remove children without affecting indices
+        for (let i = node.children.length - 1; i >= 0; i--) {
             const child = node.children[i];
             const key = child.outerHTML;
             const refChild = refChildNodesMap.get(key);
-            // If the child is in the reference map already, we don’t need to add it later.
-            // If it’s not in the map, we need to remove it from the node.
+            // If the child is in the reference map already, we don't need to add it later.
+            // If it's not in the map, we need to remove it from the node.
             refChild ? refChildNodesMap.delete(key) : this.#removeNode(child);
         }
         // Any remaining nodes in the map should be appended to the head.

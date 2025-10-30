@@ -18,17 +18,10 @@
 	"scripts": {
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"test:ui": "vitest --ui",
-		"build": "bun run tsc && bun run prettier --write ./src ./dist",
-		"watch": "bun run tsc -w",
-		"lint": "bun run prettier --check ./src ./dist ./test",
-		"minify": "bun run terser dist/morphlex.js -o dist/morphlex.min.js --config-file terser-config.json",
-		"prepare": "bun run build && bun run minify",
-		"ship": "bun run prepare && bun run test && bun run lint && npm publish",
-		"format": "bun run prettier --write ./src ./dist ./test",
-		"size": "bun run prepare && bun run gzip-size ./dist/morphlex.min.js --raw --include-original"
+		"test:ui": "vitest --ui"
 	},
 	"devDependencies": {
+		"@vitest/coverage-v8": "^4.0.5",
 		"@vitest/ui": "^4.0.5",
 		"gzip-size-cli": "^5.1.0",
 		"happy-dom": "^20.0.10",
