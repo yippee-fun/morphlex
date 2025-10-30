@@ -1,6 +1,5 @@
 type IdSet = Set<string>
 type IdMap = WeakMap<ReadonlyNode<Node>, IdSet>
-type SensivityMap = WeakMap<ReadonlyNode<Node>, number>
 
 // Maps to a type that can only read properties
 type StrongReadonly<T> = { readonly [K in keyof T as T[K] extends Function ? never : K]: T[K] }
@@ -76,7 +75,6 @@ function parseChildNodeFromString(string: string): ChildNode {
 
 class Morph {
 	readonly #idMap: IdMap
-	readonly #sensivityMap: SensivityMap
 
 	readonly #ignoreActiveValue: boolean
 	readonly #preserveModifiedValues: boolean
@@ -93,7 +91,6 @@ class Morph {
 
 	constructor(options: Options = {}) {
 		this.#idMap = new WeakMap()
-		this.#sensivityMap = new WeakMap()
 
 		this.#ignoreActiveValue = options.ignoreActiveValue || false
 		this.#preserveModifiedValues = options.preserveModifiedValues || false
@@ -139,38 +136,6 @@ class Morph {
 	#buildMaps([node, reference]: NodeReferencePair<ParentNode>): void {
 		this.#mapIdSets(node)
 		this.#mapIdSets(reference)
-		this.#mapSensivity(node)
-	}
-
-	#mapSensivity(node: ReadonlyNode<ParentNode>): void {
-		const sensitiveElements = node.querySelectorAll("audio,canvas,embed,iframe,input,object,textarea,video")
-
-		const sensitiveElementsLength = sensitiveElements.length
-		for (let i = 0; i < sensitiveElementsLength; i++) {
-			const sensitiveElement = sensitiveElements[i]
-			let sensivity = 0
-
-			if (isInput(sensitiveElement) || isTextArea(sensitiveElement)) {
-				sensivity++
-
-				if (sensitiveElement.value !== sensitiveElement.defaultValue) sensivity++
-				if (sensitiveElement === document.activeElement) sensivity++
-			} else {
-				sensivity += 3
-
-				if (isMedia(sensitiveElement) && !sensitiveElement.ended) {
-					if (!sensitiveElement.paused) sensivity++
-					if (sensitiveElement.currentTime > 0) sensivity++
-				}
-			}
-
-			let current: ReadonlyNode<Element> | null = sensitiveElement
-			while (current) {
-				this.#sensivityMap.set(current, (this.#sensivityMap.get(current) || 0) + sensivity)
-				if (current === node) break
-				current = current.parentElement
-			}
-		}
 	}
 
 	// For each node with an ID, push that ID into the IdSet on the IdMap, for each of its parent elements.
@@ -413,25 +378,6 @@ class Morph {
 	#insertBefore(parent: ParentNode, node: Node, insertionPoint: ChildNode): void {
 		if (node === insertionPoint) return
 
-		if (isElement(node)) {
-			const sensitivity = this.#sensivityMap.get(node) ?? 0
-
-			if (sensitivity > 0) {
-				let previousNode = node.previousSibling
-
-				while (previousNode) {
-					const previousNodeSensitivity = this.#sensivityMap.get(previousNode) ?? 0
-
-					if (previousNodeSensitivity < sensitivity) {
-						parent.insertBefore(previousNode, node.nextSibling)
-
-						if (previousNode === insertionPoint) return
-						previousNode = node.previousSibling
-					} else break
-				}
-			}
-		}
-
 		parent.insertBefore(node, insertionPoint)
 	}
 
@@ -467,12 +413,6 @@ function isElement(node: Node): node is Element
 function isElement(node: ReadonlyNode<Node>): node is ReadonlyNode<Element>
 function isElement(node: Node | ReadonlyNode<Node>): boolean {
 	return node.nodeType === 1
-}
-
-function isMedia(element: Element): element is HTMLMediaElement
-function isMedia(element: ReadonlyNode<Element>): element is ReadonlyNode<HTMLMediaElement>
-function isMedia(element: Element | ReadonlyNode<Element>): boolean {
-	return element.localName === "video" || element.localName === "audio"
 }
 
 function isInput(element: Element): element is HTMLInputElement
