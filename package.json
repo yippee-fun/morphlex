@@ -19,14 +19,21 @@
 		"build": "bun run build.ts",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"test:ui": "vitest --ui"
+		"test:ui": "vitest --ui",
+		"test:browser": "vitest run -c vitest.config.browser.ts",
+		"test:browser:watch": "vitest -c vitest.config.browser.ts",
+		"test:all": "vitest run && vitest run -c vitest.config.browser.ts"
 	},
 	"devDependencies": {
+		"@playwright/test": "^1.56.1",
 		"@types/bun": "^1.3.1",
+		"@vitest/browser": "^4.0.5",
+		"@vitest/browser-playwright": "^4.0.5",
 		"@vitest/coverage-v8": "^4.0.5",
 		"@vitest/ui": "^4.0.5",
 		"gzip-size-cli": "^5.1.0",
 		"happy-dom": "^20.0.10",
+		"playwright": "^1.56.1",
 		"prettier": "^3.2.5",
 		"terser": "^5.28.1",
 		"typescript": "^5.4.2",
