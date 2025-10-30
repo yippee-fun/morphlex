@@ -107,8 +107,6 @@ class Morph {
 		this.#afterAttributeUpdated = options.afterAttributeUpdated;
 		this.#beforePropertyUpdated = options.beforePropertyUpdated;
 		this.#afterPropertyUpdated = options.afterPropertyUpdated;
-
-		Object.freeze(this);
 	}
 
 	morph(pair: NodeReferencePair<ChildNode>): void {
@@ -142,9 +140,6 @@ class Morph {
 		this.#mapIdSets(node);
 		this.#mapIdSets(reference);
 		this.#mapSensivity(node);
-
-		Object.freeze(this.#idMap);
-		Object.freeze(this.#sensivityMap);
 	}
 
 	#mapSensivity(node: ReadonlyNode<ParentNode>): void {
