@@ -1,13 +1,14 @@
 {
-  "printWidth": 130,
-  "useTabs": true,
-  "overrides": [
-    {
-      "files": "*.md",
-      "options": {
-        "useTabs": false,
-        "tabWidth": 2
-      }
-    }
-  ]
+	"printWidth": 130,
+	"semi": false,
+	"useTabs": true,
+	"overrides": [
+		{
+			"files": "*.md",
+			"options": {
+				"useTabs": false,
+				"tabWidth": 2
+			}
+		}
+	]
 }

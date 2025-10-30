@@ -24,10 +24,10 @@ The easiest way to try out Morphlex is to import it directly from UNPKG.
 
 ```html
 <script type="module">
-  import { morph } from "https://www.unpkg.com/morphlex@0.0.16/dist/morphlex.min.js";
+  import { morph } from "https://www.unpkg.com/morphlex@0.0.16/dist/morphlex.min.js"
 
-  morph(currentNode, referenceNode);
-  morphInner(currentNode, referenceNode);
+  morph(currentNode, referenceNode)
+  morphInner(currentNode, referenceNode)
 </script>
 ```
 
@@ -38,9 +38,9 @@ npm install morphlex --save
 ```
 
 ```javascript
-import { morph } from "morphlex";
+import { morph } from "morphlex"
 
-morph(currentNode, referenceNode);
+morph(currentNode, referenceNode)
 ```
 
 The `currentNode` will be morphed into the state of the `referenceNode`. The `referenceNode` will not be mutated in this process.
