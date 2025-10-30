@@ -281,11 +281,11 @@ describe("Morphlex Vitest Suite", () => {
 			let afterAddCalled = false;
 
 			morph(original, reference, {
-				beforeNodeAdded: (node) => {
+				beforeNodeAdded: () => {
 					beforeAddCalled = true;
 					return true;
 				},
-				afterNodeAdded: (node) => {
+				afterNodeAdded: () => {
 					afterAddCalled = true;
 				},
 			});
@@ -306,11 +306,11 @@ describe("Morphlex Vitest Suite", () => {
 			let afterRemoveCalled = false;
 
 			morph(original, reference, {
-				beforeNodeRemoved: (node) => {
+				beforeNodeRemoved: () => {
 					beforeRemoveCalled = true;
 					return true;
 				},
-				afterNodeRemoved: (node) => {
+				afterNodeRemoved: () => {
 					afterRemoveCalled = true;
 				},
 			});
@@ -328,7 +328,7 @@ describe("Morphlex Vitest Suite", () => {
 			let callbackCalled = false;
 
 			morph(original, reference, {
-				afterAttributeUpdated: (element, attrName, prevValue) => {
+				afterAttributeUpdated: (element, attrName) => {
 					if (attrName === "data-test") {
 						callbackCalled = true;
 					}

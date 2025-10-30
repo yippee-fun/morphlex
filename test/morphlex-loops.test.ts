@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { morph, morphInner } from "../src/morphlex";
+import { morph } from "../src/morphlex";
 
 describe("Morphlex - Infinite Loop Bug Detection", () => {
 	let container: HTMLElement;

@@ -4,7 +4,6 @@
 		"module": "esnext",
 		"moduleResolution": "node",
 		"noUnusedLocals": true,
-		"rootDir": "src",
 		"strict": true,
 		"target": "es2022",
 		"removeComments": false,
@@ -15,5 +14,7 @@
 		"esModuleInterop": true,
 		"allowSyntheticDefaultImports": true,
 		"sourceMap": true
-	}
+	},
+	"include": ["src/**/*"],
+	"exclude": ["node_modules", "dist", "coverage", "test", "**/*.test.ts", "**/*.spec.ts", "vitest.config.ts"]
 }
