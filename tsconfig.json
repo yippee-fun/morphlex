@@ -8,6 +8,7 @@
 		"target": "es2022",
 		"removeComments": false,
 		"outDir": "dist",
+		"skipLibCheck": true,
 		"baseUrl": ".",
 		"noEmit": false,
 		"declaration": true,

@@ -1,3 +1,10 @@
+// Type declaration for moveBefore API (not yet in TypeScript DOM types)
+declare global {
+	interface Element {
+		moveBefore?(node: Node, child: Node | null): Node
+	}
+}
+
 type IdSet = Set<string>
 type IdMap = WeakMap<ReadonlyNode<Node>, IdSet>
 
