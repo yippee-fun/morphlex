@@ -349,10 +349,10 @@
 			<div class="controls">
 				<div class="control-group">
 					<label for="iterations">Iterations:</label>
-					<input type="number" id="iterations" value="1000" min="100" max="10000" step="100" />
+					<input type="number" id="iterations" value="5000" min="1000" max="50000" step="1000" />
 
 					<label for="warmup">Warmup:</label>
-					<input type="number" id="warmup" value="100" min="10" max="1000" step="10" />
+					<input type="number" id="warmup" value="500" min="100" max="5000" step="100" />
 
 					<button id="runBtn">🚀 Run Benchmark</button>
 					<button id="stopBtn" class="stop" style="display: none">⏹ Stop</button>
@@ -407,34 +407,57 @@
 					// Allow browser to settle
 					await new Promise((resolve) => setTimeout(resolve, 10))
 
-					// Actual benchmark
-					const times = []
-					for (let i = 0; i < this.iterations; i++) {
-						const { from, to } = testCase.setup()
-						sandbox.appendChild(from)
+					// First, do a quick test to see how fast the operation is
+					const testRun = testCase.setup()
+					sandbox.appendChild(testRun.from)
+					const testStart = performance.now()
+					morphFn(testRun.from, testRun.to)
+					const testEnd = performance.now()
+					sandbox.innerHTML = ""
+					const singleOpTime = testEnd - testStart
 
+					// If operation is very fast (< 0.1ms), batch multiple operations per measurement
+					const batchSize = singleOpTime < 0.1 ? Math.min(100, Math.ceil(0.1 / Math.max(singleOpTime, 0.001))) : 1
+
+					// Actual benchmark - use higher precision timing with batching
+					const times = []
+					const actualIterations = Math.ceil(this.iterations / batchSize)
+
+					for (let i = 0; i < actualIterations; i++) {
+						// Prepare batch
+						const batch = []
+						for (let j = 0; j < batchSize; j++) {
+							batch.push(testCase.setup())
+						}
+
+						// Measure batch execution
 						const start = performance.now()
-						morphFn(from, to)
+						for (let j = 0; j < batchSize; j++) {
+							sandbox.appendChild(batch[j].from)
+							morphFn(batch[j].from, batch[j].to)
+							sandbox.innerHTML = ""
+						}
 						const end = performance.now()
 
-						times.push(end - start)
-						sandbox.innerHTML = ""
+						const elapsed = (end - start) / batchSize // Average per operation
+						times.push(elapsed)
 					}
 
-					// Calculate statistics
+					// Calculate statistics with better precision
 					const totalTime = times.reduce((a, b) => a + b, 0)
 					const averageTime = totalTime / times.length
 					const sorted = [...times].sort((a, b) => a - b)
 					const median = sorted[Math.floor(sorted.length / 2)]
 					const min = sorted[0]
 					const max = sorted[sorted.length - 1]
-					const opsPerSecond = 1000 / averageTime
+					// Prevent infinity and provide more precision
+					const opsPerSecond = averageTime > 0 ? 1000 / averageTime : 0
 
 					return {
 						library,
 						testName: testCase.name,
-						iterations: this.iterations,
-						totalTime,
+						iterations: actualIterations * batchSize,
+						totalTime: totalTime,
 						averageTime,
 						median,
 						min,
@@ -635,15 +658,15 @@
 						<div class="library-name">${result.library}</div>
 						<div class="metrics">
 							<div class="metric">
-								<div class="metric-value">${result.averageTime.toFixed(3)}</div>
+								<div class="metric-value">${result.averageTime < 0.001 ? result.averageTime.toExponential(2) : result.averageTime.toFixed(4)}</div>
 								<div class="metric-label">ms/op</div>
 							</div>
 							<div class="metric">
-								<div class="metric-value">${Math.round(result.opsPerSecond)}</div>
+								<div class="metric-value">${result.opsPerSecond > 1000000 ? result.opsPerSecond.toExponential(2) : result.opsPerSecond.toFixed(1)}</div>
 								<div class="metric-label">ops/sec</div>
 							</div>
 							<div class="metric">
-								<div class="metric-value">${result.median.toFixed(3)}</div>
+								<div class="metric-value">${result.median < 0.001 ? result.median.toExponential(2) : result.median.toFixed(4)}</div>
 								<div class="metric-label">median ms</div>
 							</div>
 						</div>
@@ -705,7 +728,7 @@
 					cardEl.className = "summary-card"
 					cardEl.innerHTML = `
 					<div class="summary-library">${index === 0 ? "🏆 " : ""}${data.library}</div>
-					<div class="summary-score">${data.avgTime.toFixed(3)}ms</div>
+					<div class="summary-score">${data.avgTime < 0.001 ? data.avgTime.toExponential(2) : data.avgTime.toFixed(4)}ms</div>
 					<div style="font-size: 0.9rem; margin-top: 0.5rem;">
 						${data.wins} test${data.wins !== 1 ? "s" : ""} won
 					</div>
