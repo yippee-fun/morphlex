@@ -129,6 +129,9 @@ class Morph {
 	}
 
 	private morphOneToOne(from: ChildNode, to: ChildNode): void {
+		// Fast path: if nodes are exactly the same object, skip morphing
+		if (from.isSameNode?.(to)) return
+
 		if (!(this.options.beforeNodeMorphed?.(from, to) ?? true)) return
 
 		const pair: PairOfNodes<ChildNode> = [from, to]
@@ -167,20 +170,31 @@ class Morph {
 	}
 
 	private morphAttributes([from, to]: PairOfMatchingElements<Element>): void {
-		// Remove any excess attributes from the element that aren’t present in the reference.
-		for (const { name, value } of from.attributes) {
-			if (!to.hasAttribute(name) && (this.options.beforeAttributeUpdated?.(from, name, null) ?? true)) {
-				from.removeAttribute(name)
-				this.options.afterAttributeUpdated?.(from, name, value)
-			}
-		}
+		const toAttrs = to.attributes
+		const fromAttrs = from.attributes
 
-		// Copy attributes from the reference to the element, if they don’t already match.
-		for (const { name, value } of to.attributes) {
+		// First pass: update/add attributes from reference (iterate forwards)
+		for (let i = 0; i < toAttrs.length; i++) {
+			const attr = toAttrs[i]!
+			const name = attr.name
+			const value = attr.value
 			const oldValue = from.getAttribute(name)
+
 			if (oldValue !== value && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
 				from.setAttribute(name, value)
 				this.options.afterAttributeUpdated?.(from, name, oldValue)
+			}
+		}
+
+		// Second pass: remove excess attributes (iterate backwards for efficiency)
+		for (let i = fromAttrs.length - 1; i >= 0; i--) {
+			const attr = fromAttrs[i]!
+			const name = attr.name
+			const value = attr.value
+
+			if (!to.hasAttribute(name) && (this.options.beforeAttributeUpdated?.(from, name, null) ?? true)) {
+				from.removeAttribute(name)
+				this.options.afterAttributeUpdated?.(from, name, value)
 			}
 		}
 	}
@@ -264,6 +278,11 @@ class Morph {
 			const toChildNode = toChildNodes[i]!
 
 			if (fromChildNode) {
+				// Fast path: if nodes are exactly the same, skip morphing
+				if (fromChildNode.isSameNode?.(toChildNode)) {
+					continue
+				}
+
 				if (isElement(toChildNode)) {
 					this.searchSiblingsToMorphChildElement(fromChildNode, toChildNode, from)
 				} else {
