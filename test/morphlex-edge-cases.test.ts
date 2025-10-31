@@ -7,8 +7,9 @@ describe("Morphlex Edge Cases & Error Handling", () => {
 			const div = document.createElement("div")
 			div.innerHTML = "<span>test</span>"
 
-			// Empty string should throw an error because doc.body.firstChild will be null
-			expect(() => morph(div.firstChild!, "")).toThrow("[Morphlex] The string was not a valid HTML node.")
+			// Empty string should remove the node (morphing to empty NodeList)
+			morph(div.firstChild!, "")
+			expect(div.firstChild).toBeNull()
 		})
 
 		it("should throw error when morphInner receives empty string", () => {
@@ -16,17 +17,19 @@ describe("Morphlex Edge Cases & Error Handling", () => {
 			div.innerHTML = "<span>content</span>"
 
 			// morphInner with empty string should throw an error
-			// because parseChildNodeFromString returns null for empty body
-			expect(() => morphInner(div, "")).toThrow("[Morphlex] The string was not a valid HTML node.")
+			// because parseString returns empty fragment
+			expect(() => morphInner(div, "")).toThrow("[Morphlex] The string was not a valid HTML element.")
 		})
 
 		it("should work with valid HTML strings", () => {
-			const div = document.createElement("div")
-			div.innerHTML = "<span>old</span>"
+			const parent = document.createElement("div")
+			const span = document.createElement("span")
+			span.textContent = "old"
+			parent.appendChild(span)
 
-			expect(() => morph(div.firstChild!, "<div>new</div>")).not.toThrow()
-			expect(div.firstChild?.nodeName).toBe("DIV")
-			expect(div.firstChild?.textContent).toBe("new")
+			morph(span, "<div>new</div>")
+			expect(parent.firstChild?.nodeName).toBe("DIV")
+			expect(parent.firstChild?.textContent).toBe("new")
 		})
 	})
 

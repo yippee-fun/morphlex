@@ -4,3 +4,4 @@
 - Try to maintain 100% test coverage. Use `bun run test --coverage`.
 - I’m using `jj` so you can use that to look at your diff, but please don’t commit unless I ask you to.
 - Make sure you leave things in a good state. No diagnostics warnings. No type errors.
+- We use tabs for indentation and spaces for alignment

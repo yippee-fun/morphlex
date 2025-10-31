@@ -35,7 +35,7 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 	if (typeof to === "string") {
 		const fragment = parseString(to)
 
-		if (fragment.firstChild && fragment.childNodes.length === 1) {
+		if (fragment.firstChild && fragment.childNodes.length === 1 && isElement(fragment.firstChild)) {
 			to = fragment.firstChild
 		} else {
 			throw new Error("[Morphlex] The string was not a valid HTML element.")
@@ -46,7 +46,7 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 	if (isElementPair(pair) && isMatchingElementPair(pair)) {
 		new Morph(options).morphChildren(pair)
 	} else {
-		throw new Error("[Morphlex] The nodes are not matching elements.")
+		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
 	}
 }
 
@@ -254,22 +254,33 @@ class Morph {
 
 	private morphChildNodes([from, to]: PairOfMatchingElements<Element>): void {
 		const fromChildNodes = from.childNodes
-		const toChildNodes = to.childNodes
+		const toChildNodes = Array.from(to.childNodes)
 
+		// Process all reference nodes
 		for (let i = 0; i < toChildNodes.length; i++) {
 			const fromChildNode = fromChildNodes[i]
 			const toChildNode = toChildNodes[i]!
 
-			if (fromChildNode && toChildNode) {
+			if (fromChildNode) {
 				if (isElement(toChildNode)) {
 					this.searchSiblingsToMorphChildElement(fromChildNode, toChildNode, from)
 				} else {
-					// TODO
+					this.morphOneToOne(fromChildNode, toChildNode)
 				}
-			} else if (toChildNode) {
-				this.appendChild(from, toChildNode)
-			} else if (fromChildNode) {
-				this.removeNode(fromChildNode)
+			} else {
+				// Add new node at the end
+				if (this.options.beforeNodeAdded?.(toChildNode) ?? true) {
+					moveBefore(from, toChildNode, null)
+					this.options.afterNodeAdded?.(toChildNode)
+				}
+			}
+		}
+
+		// Remove any excess nodes from the original
+		while (from.childNodes.length > toChildNodes.length) {
+			const lastChild = from.lastChild
+			if (lastChild) {
+				this.removeNode(lastChild)
 			}
 		}
 	}
@@ -311,10 +322,10 @@ class Morph {
 		}
 
 		if (bestMatch) {
-			if (!(this.options.beforeNodeMorphed?.(bestMatch, to) ?? true)) return
-			moveBefore(parent, bestMatch, from)
-			this.options.afterNodeMorphed?.(bestMatch, to)
-			this.morphMatchingElements([bestMatch, to] as PairOfMatchingElements<Element>)
+			if (bestMatch !== from) {
+				moveBefore(parent, bestMatch, from)
+			}
+			this.morphOneToOne(bestMatch, to)
 		} else {
 			this.morphOneToOne(from, to)
 		}
@@ -331,11 +342,10 @@ class Morph {
 
 	private replaceNode(node: ChildNode, newNode: ChildNode): void {
 		if (this.options.beforeNodeAdded?.(newNode) ?? true) {
-			moveBefore(node.parentNode || document, node, newNode)
+			moveBefore(node.parentNode || document, newNode, node)
 			this.options.afterNodeAdded?.(newNode)
+			this.removeNode(node)
 		}
-
-		this.removeNode(node)
 	}
 
 	private appendChild(parent: ParentNode, newChild: ChildNode): void {
