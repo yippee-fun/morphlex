@@ -286,6 +286,7 @@ class Morph {
 					matches.set(node, candidate)
 					unmatched.delete(node)
 					candidates.delete(candidate)
+					break
 				}
 			}
 		}
@@ -301,6 +302,7 @@ class Morph {
 					matches.set(node, candidate)
 					unmatched.delete(node)
 					candidates.delete(candidate)
+					break
 				}
 			}
 		}
@@ -319,6 +321,7 @@ class Morph {
 						matches.set(node, candidate)
 						unmatched.delete(node)
 						candidates.delete(candidate)
+						break
 					}
 				}
 			}
@@ -336,85 +339,44 @@ class Morph {
 						matches.set(node, candidate)
 						unmatched.delete(node)
 						candidates.delete(candidate)
+						break
 					}
 				}
 			} else {
 				for (const candidate of candidates) {
-					if (nodeType === candidate.nodeType && node.nodeValue === candidate.nodeValue) {
+					if (nodeType === candidate.nodeType) {
 						matches.set(node, candidate)
 						unmatched.delete(node)
 						candidates.delete(candidate)
+						break
 					}
 				}
 			}
 		}
 
-		let prevNode: ChildNode | null = null
-		// remove remaining nodes in reverse order
-		for (let i = toChildNodes.length - 1; i >= 0; i--) {
+		// Process nodes in forward order to maintain proper positioning
+		let insertionPoint: ChildNode | null = parent.firstChild
+		for (let i = 0; i < toChildNodes.length; i++) {
 			const node = toChildNodes[i]!
 			const match = matches.get(node)
 			if (match) {
-				moveBefore(parent, match, prevNode)
+				moveBefore(parent, match, insertionPoint)
 				this.morphOneToOne(match, node)
-				prevNode = match
+				insertionPoint = match.nextSibling
 			} else {
-				moveBefore(parent, node, prevNode)
-				prevNode = node
+				if (this.options.beforeNodeAdded?.(node) ?? true) {
+					moveBefore(parent, node, insertionPoint)
+					this.options.afterNodeAdded?.(node)
+					insertionPoint = node.nextSibling
+				}
 			}
 		}
 
-		const numberOfNodesToRemove = from.childNodes.length - toChildNodes.length
-		for (let i = fromChildNodes.length - 1; i >= numberOfNodesToRemove; i--) {
-			this.removeNode(from.childNodes[i]!)
+		// Remove any remaining unmatched candidates
+		for (const candidate of candidates) {
+			this.removeNode(candidate)
 		}
 	}
-
-	// private searchSiblingsToMorphChildElement(from: ChildNode, to: Element, parent: ParentNode): void {
-	// 	const id = to.id
-	// 	const idSet = this.idMap.get(to)
-	// 	const idSetArray = idSet ? [...idSet] : []
-
-	// 	let currentNode: ChildNode | null = from
-	// 	let bestMatch: Element | null = null
-	// 	let idSetMatches: number = 0
-
-	// 	while (currentNode) {
-	// 		if (isElement(currentNode) && currentNode.localName === to.localName) {
-	// 			// If we found an exact match, this is the best option.
-	// 			if (id && id !== "" && id === currentNode.id) {
-	// 				bestMatch = currentNode
-	// 				break
-	// 			}
-
-	// 			// Try to find the node with the best idSet match
-	// 			const currentIdSet = this.idMap.get(currentNode)
-	// 			if (currentIdSet) {
-	// 				const numberOfMatches = idSetArray.filter((id) => currentIdSet.has(id)).length
-	// 				if (numberOfMatches > idSetMatches) {
-	// 					bestMatch = currentNode
-	// 					idSetMatches = numberOfMatches
-	// 				}
-	// 			}
-
-	// 			// The fallback is to just use the next element with the same localName
-	// 			if (!bestMatch) {
-	// 				bestMatch = currentNode
-	// 			}
-	// 		}
-
-	// 		currentNode = currentNode.nextSibling
-	// 	}
-
-	// 	if (bestMatch) {
-	// 		if (bestMatch !== from) {
-	// 			moveBefore(parent, bestMatch, from)
-	// 		}
-	// 		this.morphOneToOne(bestMatch, to)
-	// 	} else {
-	// 		this.morphOneToOne(from, to)
-	// 	}
-	// }
 
 	private updateProperty<N extends Node, P extends keyof N>(node: N, propertyName: P, newValue: N[P]): void {
 		const oldValue = node[propertyName]
