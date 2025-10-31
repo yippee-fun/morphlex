@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Morphlex Benchmark Suite</title>
+		<style>
+			:root {
+				--primary: #6366f1;
+				--success: #10b981;
+				--warning: #f59e0b;
+				--danger: #ef4444;
+				--dark: #1f2937;
+				--light: #f3f4f6;
+				--white: #ffffff;
+			}
+
+			* {
+				margin: 0;
+				padding: 0;
+				box-sizing: border-box;
+			}
+
+			body {
+				font-family:
+					system-ui,
+					-apple-system,
+					BlinkMacSystemFont,
+					"Segoe UI",
+					Roboto,
+					Oxygen,
+					Ubuntu,
+					sans-serif;
+				background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+				min-height: 100vh;
+				padding: 2rem;
+			}
+
+			.container {
+				max-width: 1200px;
+				margin: 0 auto;
+			}
+
+			header {
+				text-align: center;
+				color: var(--white);
+				margin-bottom: 2rem;
+			}
+
+			h1 {
+				font-size: 3rem;
+				margin-bottom: 0.5rem;
+				text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+			}
+
+			.subtitle {
+				font-size: 1.2rem;
+				opacity: 0.95;
+			}
+
+			.controls {
+				background: var(--white);
+				border-radius: 12px;
+				padding: 1.5rem;
+				margin-bottom: 2rem;
+				box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+			}
+
+			.control-group {
+				display: flex;
+				gap: 1rem;
+				align-items: center;
+				flex-wrap: wrap;
+			}
+
+			label {
+				font-weight: 600;
+				color: var(--dark);
+			}
+
+			input[type="number"] {
+				padding: 0.5rem;
+				border: 2px solid var(--light);
+				border-radius: 6px;
+				font-size: 1rem;
+				width: 120px;
+			}
+
+			button {
+				padding: 0.75rem 2rem;
+				background: var(--primary);
+				color: var(--white);
+				border: none;
+				border-radius: 6px;
+				font-size: 1rem;
+				font-weight: 600;
+				cursor: pointer;
+				transition:
+					transform 0.2s,
+					box-shadow 0.2s;
+			}
+
+			button:hover:not(:disabled) {
+				transform: translateY(-2px);
+				box-shadow: 0 5px 15px rgba(99, 102, 241, 0.4);
+			}
+
+			button:disabled {
+				background: var(--light);
+				color: #9ca3af;
+				cursor: not-allowed;
+			}
+
+			button.stop {
+				background: var(--danger);
+			}
+
+			.status {
+				margin-left: auto;
+				padding: 0.5rem 1rem;
+				border-radius: 20px;
+				background: var(--light);
+				font-weight: 600;
+				color: var(--dark);
+			}
+
+			.status.running {
+				background: var(--warning);
+				color: var(--white);
+				animation: pulse 1s infinite;
+			}
+
+			.status.complete {
+				background: var(--success);
+				color: var(--white);
+			}
+
+			@keyframes pulse {
+				0%,
+				100% {
+					opacity: 1;
+				}
+				50% {
+					opacity: 0.7;
+				}
+			}
+
+			.results {
+				background: var(--white);
+				border-radius: 12px;
+				padding: 1.5rem;
+				box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+			}
+
+			.test-case {
+				margin-bottom: 2rem;
+				padding: 1.5rem;
+				background: var(--light);
+				border-radius: 8px;
+			}
+
+			.test-case h3 {
+				color: var(--primary);
+				margin-bottom: 0.5rem;
+			}
+
+			.test-description {
+				color: #6b7280;
+				margin-bottom: 1rem;
+			}
+
+			.library-result {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding: 0.75rem;
+				margin: 0.5rem 0;
+				background: var(--white);
+				border-radius: 6px;
+				transition: transform 0.2s;
+			}
+
+			.library-result:hover {
+				transform: translateX(5px);
+				box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+			}
+
+			.library-name {
+				font-weight: 600;
+				min-width: 150px;
+			}
+
+			.metrics {
+				display: flex;
+				gap: 2rem;
+				flex: 1;
+				justify-content: center;
+			}
+
+			.metric {
+				text-align: center;
+			}
+
+			.metric-value {
+				font-size: 1.2rem;
+				font-weight: 700;
+				color: var(--primary);
+			}
+
+			.metric-label {
+				font-size: 0.8rem;
+				color: #9ca3af;
+				text-transform: uppercase;
+				letter-spacing: 0.5px;
+			}
+
+			.rank {
+				min-width: 50px;
+				text-align: center;
+				font-weight: 700;
+			}
+
+			.rank-1 {
+				color: #fbbf24;
+				font-size: 1.5rem;
+			}
+
+			.rank-2 {
+				color: #9ca3af;
+				font-size: 1.3rem;
+			}
+
+			.rank-3 {
+				color: #cd7f32;
+				font-size: 1.2rem;
+			}
+
+			.summary {
+				margin-top: 2rem;
+				padding: 2rem;
+				background: linear-gradient(135deg, var(--primary), #8b5cf6);
+				border-radius: 12px;
+				color: var(--white);
+			}
+
+			.summary h2 {
+				margin-bottom: 1.5rem;
+				text-align: center;
+			}
+
+			.summary-grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+				gap: 1.5rem;
+			}
+
+			.summary-card {
+				background: rgba(255, 255, 255, 0.15);
+				backdrop-filter: blur(10px);
+				padding: 1.5rem;
+				border-radius: 8px;
+				text-align: center;
+			}
+
+			.summary-library {
+				font-size: 1.2rem;
+				font-weight: 700;
+				margin-bottom: 0.5rem;
+			}
+
+			.summary-score {
+				font-size: 2rem;
+				font-weight: 900;
+			}
+
+			.progress-bar {
+				width: 100%;
+				height: 6px;
+				background: var(--light);
+				border-radius: 3px;
+				overflow: hidden;
+				margin-top: 1rem;
+			}
+
+			.progress-fill {
+				height: 100%;
+				background: var(--success);
+				border-radius: 3px;
+				transition: width 0.3s ease;
+			}
+
+			#sandbox {
+				display: none;
+			}
+
+			.error {
+				background: #fee;
+				border: 2px solid var(--danger);
+				color: var(--danger);
+				padding: 1rem;
+				border-radius: 8px;
+				margin: 1rem 0;
+			}
+
+			.chart-container {
+				margin: 2rem 0;
+				padding: 1.5rem;
+				background: var(--white);
+				border-radius: 8px;
+			}
+
+			.bar-chart {
+				display: flex;
+				flex-direction: column;
+				gap: 0.5rem;
+			}
+
+			.bar-row {
+				display: flex;
+				align-items: center;
+				gap: 1rem;
+			}
+
+			.bar-label {
+				min-width: 120px;
+				font-weight: 600;
+			}
+
+			.bar {
+				height: 30px;
+				background: linear-gradient(90deg, var(--primary), #8b5cf6);
+				border-radius: 4px;
+				display: flex;
+				align-items: center;
+				padding: 0 0.5rem;
+				color: var(--white);
+				font-weight: 600;
+				font-size: 0.9rem;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<header>
+				<h1>⚡ Morphlex Benchmark Suite</h1>
+				<p class="subtitle">Performance comparison of DOM morphing libraries</p>
+			</header>
+
+			<div class="controls">
+				<div class="control-group">
+					<label for="iterations">Iterations:</label>
+					<input type="number" id="iterations" value="1000" min="100" max="10000" step="100" />
+
+					<label for="warmup">Warmup:</label>
+					<input type="number" id="warmup" value="100" min="10" max="1000" step="10" />
+
+					<button id="runBtn">🚀 Run Benchmark</button>
+					<button id="stopBtn" class="stop" style="display: none">⏹ Stop</button>
+
+					<div class="status" id="status">Ready</div>
+				</div>
+				<div class="progress-bar">
+					<div class="progress-fill" id="progress" style="width: 0%"></div>
+				</div>
+			</div>
+
+			<div class="results" id="results">
+				<p style="text-align: center; color: #9ca3af; padding: 2rem">Click "Run Benchmark" to start testing...</p>
+			</div>
+		</div>
+
+		<div id="sandbox"></div>
+
+		<script type="module">
+			// For file:// protocol, we'll use unpkg for morphlex as well
+			// To test your local morphlex build instead:
+			// 1. Run 'bun run build' to build morphlex
+			// 2. Start a local server: 'npx serve ..' or 'python -m http.server' in the morphlex root
+			// 3. Change the import below to: '../dist/morphlex.min.js'
+			import { morph as morphlex } from "https://unpkg.com/morphlex@0.0.16/dist/morphlex.min.js"
+			import { Idiomorph } from "https://unpkg.com/idiomorph@0.7.4/dist/idiomorph.esm.js"
+			import morphdom from "https://unpkg.com/morphdom@2.7.7/dist/morphdom-esm.js"
+			// Try loading nanomorph from jsdelivr with ESM
+			import nanomorph from "https://cdn.jsdelivr.net/npm/nanomorph@5.4.3/+esm"
+			// Alpine morph requires Alpine.js to be loaded, so we'll skip it
+
+			const sandbox = document.getElementById("sandbox")
+			let isRunning = false
+			let stopRequested = false
+
+			class BrowserBenchmark {
+				constructor(iterations = 1000, warmupIterations = 100) {
+					this.iterations = iterations
+					this.warmupIterations = warmupIterations
+					this.results = []
+				}
+
+				async runSingleBenchmark(library, testCase, morphFn) {
+					// Warmup
+					for (let i = 0; i < this.warmupIterations; i++) {
+						const { from, to } = testCase.setup()
+						sandbox.appendChild(from)
+						morphFn(from, to)
+						sandbox.innerHTML = ""
+					}
+
+					// Allow browser to settle
+					await new Promise((resolve) => setTimeout(resolve, 10))
+
+					// Actual benchmark
+					const times = []
+					for (let i = 0; i < this.iterations; i++) {
+						const { from, to } = testCase.setup()
+						sandbox.appendChild(from)
+
+						const start = performance.now()
+						morphFn(from, to)
+						const end = performance.now()
+
+						times.push(end - start)
+						sandbox.innerHTML = ""
+					}
+
+					// Calculate statistics
+					const totalTime = times.reduce((a, b) => a + b, 0)
+					const averageTime = totalTime / times.length
+					const sorted = [...times].sort((a, b) => a - b)
+					const median = sorted[Math.floor(sorted.length / 2)]
+					const min = sorted[0]
+					const max = sorted[sorted.length - 1]
+					const opsPerSecond = 1000 / averageTime
+
+					return {
+						library,
+						testName: testCase.name,
+						iterations: this.iterations,
+						totalTime,
+						averageTime,
+						median,
+						min,
+						max,
+						opsPerSecond,
+					}
+				}
+
+				async runTestCase(testCase, onProgress) {
+					const results = []
+					const libraries = [
+						{ name: "morphlex", fn: (from, to) => morphlex(from, to) },
+						{ name: "idiomorph", fn: (from, to) => Idiomorph.morph(from, to) },
+						{ name: "morphdom", fn: (from, to) => morphdom(from, to.cloneNode(true)) },
+						{ name: "nanomorph", fn: (from, to) => nanomorph(from, to.cloneNode(true)) },
+					]
+
+					for (const lib of libraries) {
+						if (stopRequested) break
+
+						try {
+							const result = await this.runSingleBenchmark(lib.name, testCase, lib.fn)
+							results.push(result)
+							this.results.push(result)
+							if (onProgress) onProgress(result)
+						} catch (error) {
+							console.error(`Error running ${lib.name}:`, error)
+							results.push({
+								library: lib.name,
+								testName: testCase.name,
+								error: error.message,
+							})
+						}
+
+						// Small delay between libraries
+						await new Promise((resolve) => setTimeout(resolve, 50))
+					}
+
+					return results
+				}
+			}
+
+			// Test cases
+			const testCases = [
+				{
+					name: "Simple Text Update",
+					description: "Morphing a single text node change",
+					setup: () => {
+						const from = document.createElement("div")
+						from.innerHTML = "<p>Hello World</p>"
+						const to = document.createElement("div")
+						to.innerHTML = "<p>Hello Morphlex</p>"
+						return { from: from.firstElementChild, to: to.firstElementChild }
+					},
+				},
+				{
+					name: "Attribute Changes",
+					description: "Updating multiple attributes on elements",
+					setup: () => {
+						const from = document.createElement("div")
+						from.innerHTML = `
+						<div class="old-class" data-value="1">
+							<span id="test" title="old">Content</span>
+						</div>
+					`
+						const to = document.createElement("div")
+						to.innerHTML = `
+						<div class="new-class" data-value="2" data-new="true">
+							<span id="test" title="new" aria-label="label">Content</span>
+						</div>
+					`
+						return { from: from.firstElementChild, to: to.firstElementChild }
+					},
+				},
+				{
+					name: "List Reordering",
+					description: "Reordering items in a list with IDs",
+					setup: () => {
+						const from = document.createElement("ul")
+						from.innerHTML = `
+						<li id="item-1">First</li>
+						<li id="item-2">Second</li>
+						<li id="item-3">Third</li>
+						<li id="item-4">Fourth</li>
+						<li id="item-5">Fifth</li>
+					`
+						const to = document.createElement("ul")
+						to.innerHTML = `
+						<li id="item-3">Third</li>
+						<li id="item-1">First</li>
+						<li id="item-5">Fifth</li>
+						<li id="item-2">Second</li>
+						<li id="item-4">Fourth</li>
+					`
+						return { from, to }
+					},
+				},
+				{
+					name: "Large List",
+					description: "Morphing a list with 50 items",
+					setup: () => {
+						const from = document.createElement("ul")
+						for (let i = 1; i <= 50; i++) {
+							const li = document.createElement("li")
+							li.id = `item-${i}`
+							li.textContent = `Item ${i}`
+							from.appendChild(li)
+						}
+						const to = document.createElement("ul")
+						const indices = Array.from({ length: 50 }, (_, i) => i + 1)
+						// Simple shuffle
+						for (let i = indices.length - 1; i > 0; i--) {
+							const j = Math.floor(Math.random() * (i + 1))
+							;[indices[i], indices[j]] = [indices[j], indices[i]]
+						}
+						for (const i of indices.slice(0, 45)) {
+							const li = document.createElement("li")
+							li.id = `item-${i}`
+							li.textContent = i % 3 === 0 ? `Modified Item ${i}` : `Item ${i}`
+							to.appendChild(li)
+						}
+						return { from, to }
+					},
+				},
+				{
+					name: "Deep Nesting",
+					description: "Morphing deeply nested structures",
+					setup: () => {
+						const from = document.createElement("div")
+						from.innerHTML = `
+						<div id="root">
+							<section id="s1">
+								<article id="a1">
+									<header id="h1">
+										<h1>Title</h1>
+										<p>Subtitle</p>
+									</header>
+									<div id="content">
+										<p>Paragraph 1</p>
+										<p>Paragraph 2</p>
+									</div>
+								</article>
+							</section>
+						</div>
+					`
+						const to = document.createElement("div")
+						to.innerHTML = `
+						<div id="root">
+							<section id="s1">
+								<article id="a1">
+									<header id="h1">
+										<h1>New Title</h1>
+										<p>New Subtitle</p>
+									</header>
+									<div id="content">
+										<p>Modified Paragraph 1</p>
+										<p>Paragraph 2</p>
+										<p>Paragraph 3</p>
+									</div>
+								</article>
+							</section>
+						</div>
+					`
+						return { from: from.firstElementChild, to: to.firstElementChild }
+					},
+				},
+			]
+
+			// UI Functions
+			function updateProgress(current, total) {
+				const percent = (current / total) * 100
+				document.getElementById("progress").style.width = `${percent}%`
+			}
+
+			function renderResult(testResults, container) {
+				// Sort by performance
+				const sorted = [...testResults].sort((a, b) => {
+					if (a.error) return 1
+					if (b.error) return -1
+					return a.averageTime - b.averageTime
+				})
+
+				sorted.forEach((result, index) => {
+					const resultEl = document.createElement("div")
+					resultEl.className = "library-result"
+
+					if (result.error) {
+						resultEl.innerHTML = `
+						<div class="library-name">${result.library}</div>
+						<div class="error">Error: ${result.error}</div>
+					`
+					} else {
+						const rankClass = index === 0 ? "rank-1" : index === 1 ? "rank-2" : index === 2 ? "rank-3" : ""
+						const rankEmoji = index === 0 ? "🏆" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`
+
+						resultEl.innerHTML = `
+						<div class="rank ${rankClass}">${rankEmoji}</div>
+						<div class="library-name">${result.library}</div>
+						<div class="metrics">
+							<div class="metric">
+								<div class="metric-value">${result.averageTime.toFixed(3)}</div>
+								<div class="metric-label">ms/op</div>
+							</div>
+							<div class="metric">
+								<div class="metric-value">${Math.round(result.opsPerSecond)}</div>
+								<div class="metric-label">ops/sec</div>
+							</div>
+							<div class="metric">
+								<div class="metric-value">${result.median.toFixed(3)}</div>
+								<div class="metric-label">median ms</div>
+							</div>
+						</div>
+					`
+					}
+
+					container.appendChild(resultEl)
+				})
+			}
+
+			function renderSummary(allResults) {
+				// Group by library
+				const libraryStats = {}
+
+				allResults.forEach((result) => {
+					if (!result.error) {
+						if (!libraryStats[result.library]) {
+							libraryStats[result.library] = {
+								totalTime: 0,
+								count: 0,
+								wins: 0,
+							}
+						}
+						libraryStats[result.library].totalTime += result.averageTime
+						libraryStats[result.library].count++
+					}
+				})
+
+				// Count wins
+				testCases.forEach((testCase) => {
+					const testResults = allResults.filter((r) => r.testName === testCase.name && !r.error)
+					if (testResults.length > 0) {
+						const winner = testResults.reduce((min, r) => (r.averageTime < min.averageTime ? r : min))
+						if (libraryStats[winner.library]) {
+							libraryStats[winner.library].wins++
+						}
+					}
+				})
+
+				// Calculate averages and sort
+				const summaryData = Object.entries(libraryStats)
+					.map(([library, stats]) => ({
+						library,
+						avgTime: stats.totalTime / stats.count,
+						wins: stats.wins,
+					}))
+					.sort((a, b) => a.avgTime - b.avgTime)
+
+				// Create summary element
+				const summaryEl = document.createElement("div")
+				summaryEl.className = "summary"
+				summaryEl.innerHTML = "<h2>📊 Overall Performance Summary</h2>"
+
+				const gridEl = document.createElement("div")
+				gridEl.className = "summary-grid"
+
+				summaryData.forEach((data, index) => {
+					const cardEl = document.createElement("div")
+					cardEl.className = "summary-card"
+					cardEl.innerHTML = `
+					<div class="summary-library">${index === 0 ? "🏆 " : ""}${data.library}</div>
+					<div class="summary-score">${data.avgTime.toFixed(3)}ms</div>
+					<div style="font-size: 0.9rem; margin-top: 0.5rem;">
+						${data.wins} test${data.wins !== 1 ? "s" : ""} won
+					</div>
+				`
+					gridEl.appendChild(cardEl)
+				})
+
+				summaryEl.appendChild(gridEl)
+
+				// Add bar chart
+				const chartEl = document.createElement("div")
+				chartEl.className = "chart-container"
+				chartEl.innerHTML = "<h3>Relative Performance (lower is better)</h3>"
+
+				const barChartEl = document.createElement("div")
+				barChartEl.className = "bar-chart"
+
+				const maxTime = Math.max(...summaryData.map((d) => d.avgTime))
+				summaryData.forEach((data) => {
+					const barRow = document.createElement("div")
+					barRow.className = "bar-row"
+					barRow.innerHTML = `
+					<div class="bar-label">${data.library}</div>
+					<div class="bar" style="width: ${(data.avgTime / maxTime) * 100}%">
+						${data.avgTime.toFixed(3)}ms
+					</div>
+				`
+					barChartEl.appendChild(barRow)
+				})
+
+				chartEl.appendChild(barChartEl)
+				summaryEl.appendChild(chartEl)
+
+				return summaryEl
+			}
+
+			// Event handlers
+			document.getElementById("runBtn").addEventListener("click", async () => {
+				if (isRunning) return
+
+				isRunning = true
+				stopRequested = false
+				const runBtn = document.getElementById("runBtn")
+				const stopBtn = document.getElementById("stopBtn")
+				const statusEl = document.getElementById("status")
+				const resultsEl = document.getElementById("results")
+
+				runBtn.style.display = "none"
+				stopBtn.style.display = "inline-block"
+				statusEl.textContent = "Running..."
+				statusEl.className = "status running"
+				resultsEl.innerHTML = ""
+
+				const iterations = parseInt(document.getElementById("iterations").value)
+				const warmup = parseInt(document.getElementById("warmup").value)
+
+				const benchmark = new BrowserBenchmark(iterations, warmup)
+				let testIndex = 0
+				const totalTests = testCases.length * 4 // 4 libraries per test
+				let completedTests = 0
+
+				for (const testCase of testCases) {
+					if (stopRequested) break
+
+					const testEl = document.createElement("div")
+					testEl.className = "test-case"
+					testEl.innerHTML = `
+					<h3>${testCase.name}</h3>
+					<div class="test-description">${testCase.description}</div>
+				`
+					resultsEl.appendChild(testEl)
+
+					const testResults = await benchmark.runTestCase(testCase, (result) => {
+						completedTests++
+						updateProgress(completedTests, totalTests)
+					})
+
+					renderResult(testResults, testEl)
+					testIndex++
+				}
+
+				if (!stopRequested && benchmark.results.length > 0) {
+					resultsEl.appendChild(renderSummary(benchmark.results))
+				}
+
+				isRunning = false
+				runBtn.style.display = "inline-block"
+				stopBtn.style.display = "none"
+				statusEl.textContent = stopRequested ? "Stopped" : "Complete"
+				statusEl.className = stopRequested ? "status" : "status complete"
+				updateProgress(100, 100)
+			})
+
+			document.getElementById("stopBtn").addEventListener("click", () => {
+				stopRequested = true
+			})
+		</script>
+	</body>
+</html>
