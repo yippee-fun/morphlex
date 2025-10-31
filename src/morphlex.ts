@@ -298,7 +298,7 @@ class Morph {
 			if (id === "") continue
 
 			for (const candidate of candidates) {
-				if (isElement(candidate) && id === candidate.id) {
+				if (isElement(candidate) && node.localName === candidate.localName && id === candidate.id) {
 					matches.set(node, candidate)
 					unmatched.delete(node)
 					candidates.delete(candidate)
