@@ -41,7 +41,7 @@ function parseElementFromString(string: string): Element {
 
 function parseChildNodeFromString(string: string): ChildNode {
 	const template = document.createElement("template")
-	template.innerHTML = string
+	template.innerHTML = string.trim()
 
 	const firstChild = template.content.firstChild
 	if (firstChild) return firstChild
