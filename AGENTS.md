@@ -1,6 +1,6 @@
 - I’m using bun to manage packages.
 - Don’t create a summary document.
-- Running all the tests with `bun run test` is cheap, so do it all the time. Don’t do too much before running tests.
+- Running all the tests with `bun run test` is cheap, so do it all the time. Don’t do too much before running tests. You can also run browser tests with `bun run test:browser`.
 - Try to maintain 100% test coverage. Use `bun run test --coverage`.
 - I’m using `jj` so you can use that to look at your diff, but please don’t commit unless I ask you to.
 - Make sure you leave things in a good state. No diagnostics warnings. No type errors.
