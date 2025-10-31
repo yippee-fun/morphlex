@@ -14,7 +14,8 @@
 		"declaration": true,
 		"esModuleInterop": true,
 		"allowSyntheticDefaultImports": true,
-		"sourceMap": true
+		"sourceMap": true,
+		"noUncheckedIndexedAccess": true
 	},
 	"include": ["src/**/*"],
 	"exclude": ["node_modules", "dist", "coverage", "test", "**/*.test.ts", "**/*.spec.ts", "vitest.config.ts"]
