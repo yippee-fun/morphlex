@@ -59,8 +59,10 @@ function parseString(string: string): DocumentFragment {
 
 function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): void {
 	if (node === insertionPoint) return
+	if (node.parentNode === parent && node.nextSibling === insertionPoint) return
 
-	if ("moveBefore" in parent && typeof parent.moveBefore === "function") {
+	// Use moveBefore when available and the node is already in the same parent
+	if ("moveBefore" in parent && typeof parent.moveBefore === "function" && node.parentNode === parent) {
 		parent.moveBefore(node, insertionPoint)
 	} else {
 		parent.insertBefore(node, insertionPoint)
