@@ -279,11 +279,9 @@ class Morph {
 		}
 
 		// Remove any excess nodes from the original
-		while (from.childNodes.length > toChildNodes.length) {
-			const lastChild = from.lastChild
-			if (lastChild) {
-				this.removeNode(lastChild)
-			}
+		// We iterate backwards through excess nodes and attempt to remove each one
+		for (let i = from.childNodes.length - 1; i >= toChildNodes.length; i--) {
+			this.removeNode(from.childNodes[i]!)
 		}
 	}
 

@@ -253,6 +253,101 @@ describe("Morphlex - Infinite Loop Bug Detection", () => {
 	})
 
 	describe("Edge case loops", () => {
+		it("should not infinite loop when beforeNodeRemoved returns false", () => {
+			const parent = document.createElement("div")
+
+			// Create a custom element parent
+			const customElement = document.createElement("my-component")
+			const child1 = document.createElement("span")
+			child1.textContent = "child1"
+			const child2 = document.createElement("span")
+			child2.textContent = "child2"
+
+			customElement.appendChild(child1)
+			customElement.appendChild(child2)
+			parent.appendChild(customElement)
+
+			// Reference only has one child in the custom element
+			const reference = document.createElement("div")
+			const refCustomElement = document.createElement("my-component")
+			const refChild1 = document.createElement("span")
+			refChild1.textContent = "child1"
+			refCustomElement.appendChild(refChild1)
+			reference.appendChild(refCustomElement)
+
+			const startTime = Date.now()
+
+			// This should cause an infinite loop if not handled correctly
+			// because child2 can't be removed (beforeNodeRemoved returns false)
+			// but the algorithm keeps trying to remove it
+			morph(parent, reference, {
+				beforeNodeRemoved: (oldNode: Node) => {
+					let parent = oldNode.parentElement
+
+					while (parent) {
+						if (parent.tagName && parent.tagName.includes("-")) return false
+						parent = parent.parentElement
+					}
+
+					return true
+				},
+			})
+
+			const endTime = Date.now()
+
+			// Should complete quickly without infinite loop
+			expect(endTime - startTime).toBeLessThan(1000)
+			// child2 should still be there since it couldn't be removed
+			expect(customElement.children.length).toBe(2)
+		})
+
+		it("should remove removable nodes even when some nodes cannot be removed", () => {
+			const parent = document.createElement("div")
+
+			// Create a custom element parent
+			const customElement = document.createElement("my-component")
+			const child1 = document.createElement("span")
+			child1.textContent = "child1"
+			const child2 = document.createElement("span")
+			child2.textContent = "child2"
+			const child3 = document.createElement("span")
+			child3.textContent = "child3"
+
+			customElement.appendChild(child1)
+			customElement.appendChild(child2)
+			parent.appendChild(customElement)
+			parent.appendChild(child3) // This one is outside the custom element
+
+			// Reference only has child1 in custom element, no child3
+			const reference = document.createElement("div")
+			const refCustomElement = document.createElement("my-component")
+			const refChild1 = document.createElement("span")
+			refChild1.textContent = "child1"
+			refCustomElement.appendChild(refChild1)
+			reference.appendChild(refCustomElement)
+
+			morph(parent, reference, {
+				beforeNodeRemoved: (oldNode: Node) => {
+					let parent = oldNode.parentElement
+
+					while (parent) {
+						if (parent.tagName && parent.tagName.includes("-")) return false
+						parent = parent.parentElement
+					}
+
+					return true
+				},
+			})
+
+			// child2 should still be there (inside custom element, can't be removed)
+			expect(customElement.children.length).toBe(2)
+			expect(customElement.children[1].textContent).toBe("child2")
+
+			// child3 should be removed (outside custom element)
+			expect(parent.children.length).toBe(1)
+			expect(parent.children[0]).toBe(customElement)
+		})
+
 		it("should not infinite loop when node equals insertionPoint", () => {
 			const parent = document.createElement("div")
 			const child = document.createElement("span")
