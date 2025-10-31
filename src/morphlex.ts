@@ -363,11 +363,19 @@ class Morph {
 				moveBefore(parent, match, insertionPoint)
 				this.morphOneToOne(match, node)
 				insertionPoint = match.nextSibling
+				// Skip over any nodes that will be removed to avoid unnecessary moves
+				while (insertionPoint && candidates.has(insertionPoint)) {
+					insertionPoint = insertionPoint.nextSibling
+				}
 			} else {
 				if (this.options.beforeNodeAdded?.(node) ?? true) {
 					moveBefore(parent, node, insertionPoint)
 					this.options.afterNodeAdded?.(node)
 					insertionPoint = node.nextSibling
+					// Skip over any nodes that will be removed to avoid unnecessary moves
+					while (insertionPoint && candidates.has(insertionPoint)) {
+						insertionPoint = insertionPoint.nextSibling
+					}
 				}
 			}
 		}
