@@ -97,7 +97,7 @@ describe("Morphlex Edge Cases & Error Handling", () => {
 
 		it("should trigger line 402 by moving an element in browsers with moveBefore", () => {
 			// Mock moveBefore if it doesn't exist
-			const originalMoveBefore = Element.prototype.moveBefore
+			const originalMoveBefore = (Element.prototype as any).moveBefore
 			if (!originalMoveBefore) {
 				// Since moveBefore doesn't exist in happy-dom, we can't test line 402
 				// This line is only reachable in real browsers that support moveBefore
