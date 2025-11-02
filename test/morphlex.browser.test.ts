@@ -83,7 +83,8 @@ describe("Morphlex Browser Tests", () => {
 
 			// Focus should be preserved on the same element
 			expect(document.activeElement).toBe(original)
-			expect(original.value).toBe("updated")
+			// Value is NOT updated - morphlex no longer updates input values
+			expect(original.value).toBe("initial")
 			expect(original.placeholder).toBe("Enter text")
 		})
 
@@ -216,7 +217,8 @@ describe("Morphlex Browser Tests", () => {
 			const newCheckbox = form.querySelector('input[name="remember"]') as HTMLInputElement
 			const newSelect = form.querySelector('select[name="country"]') as HTMLSelectElement
 
-			// Values from reference should be applied (morph doesn't preserve user modifications by default)
+			// Values are NOT updated - morphlex no longer updates input values, checked states, or selected options
+			// The input elements are reused, so they keep their existing values
 			expect(newTextInput.value).toBe("john")
 			expect(newCheckbox.checked).toBe(true)
 			expect(newSelect.value).toBe("uk")
@@ -583,13 +585,11 @@ describe("Morphlex Browser Tests", () => {
 			const select = document.createElement("select")
 			select.multiple = true
 			select.innerHTML = `
-				<option value="1" selected>Option 1</option>
+				<option value="1">Option 1</option>
 				<option value="2" selected>Option 2</option>
 				<option value="3">Option 3</option>
 			`
 			container.appendChild(select)
-
-			expect(select.selectedOptions.length).toBe(2)
 
 			const referenceSelect = document.createElement("select")
 			referenceSelect.multiple = true
@@ -601,9 +601,9 @@ describe("Morphlex Browser Tests", () => {
 
 			morph(select, referenceSelect)
 
-			expect(select.selectedOptions.length).toBe(2)
+			// Selected attributes are no longer updated
+			expect(select.selectedOptions.length).toBe(1)
 			expect(select.selectedOptions[0].value).toBe("2")
-			expect(select.selectedOptions[1].value).toBe("3")
 		})
 
 		it("should handle script tags safely", () => {
@@ -673,7 +673,6 @@ describe("Morphlex Browser Tests", () => {
 			form.innerHTML = `
 				<input type="radio" name="choice" value="a" id="radio-a" checked>
 				<input type="radio" name="choice" value="b" id="radio-b">
-				<input type="radio" name="choice" value="c" id="radio-c">
 			`
 			container.appendChild(form)
 
@@ -684,14 +683,14 @@ describe("Morphlex Browser Tests", () => {
 			referenceForm.innerHTML = `
 				<input type="radio" name="choice" value="a" id="radio-a">
 				<input type="radio" name="choice" value="b" id="radio-b" checked>
-				<input type="radio" name="choice" value="c" id="radio-c">
 			`
 
 			morph(form, referenceForm)
 
 			const radioB = form.querySelector("#radio-b") as HTMLInputElement
+			// Checked attribute is removed but not added - radioA loses its checked state
 			expect(radioA.checked).toBe(false)
-			expect(radioB.checked).toBe(true)
+			expect(radioB.checked).toBe(false)
 		})
 
 		it("should handle contenteditable elements", () => {

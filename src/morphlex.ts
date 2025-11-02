@@ -10,20 +10,16 @@ type PairOfNodes<N extends Node> = [N, N]
 type PairOfMatchingElements<E extends Element> = Branded<PairOfNodes<E>, "MatchingElementPair">
 
 interface Options {
-	ignoreActiveValue?: boolean
-	preserveModifiedValues?: boolean
-	beforeNodeMorphed?: (node: Node, referenceNode: Node) => boolean
-	afterNodeMorphed?: (node: Node, referenceNode: Node) => void
+	beforeNodeVisited?: (fromNode: Node, toNode: Node) => boolean
+	afterNodeVisited?: (fromNode: Node, toNode: Node) => void
 	beforeNodeAdded?: (node: Node) => boolean
 	afterNodeAdded?: (node: Node) => void
 	beforeNodeRemoved?: (node: Node) => boolean
 	afterNodeRemoved?: (node: Node) => void
 	beforeAttributeUpdated?: (element: Element, attributeName: string, newValue: string | null) => boolean
 	afterAttributeUpdated?: (element: Element, attributeName: string, previousValue: string | null) => void
-	beforePropertyUpdated?: (node: Node, propertyName: PropertyKey, newValue: unknown) => boolean
-	afterPropertyUpdated?: (node: Node, propertyName: PropertyKey, previousValue: unknown) => void
-	beforeChildrenMorphed?: (parent: ParentNode) => boolean
-	afterChildrenMorphed?: (parent: ParentNode) => void
+	beforeChildrenVisited?: (parent: ParentNode) => boolean
+	afterChildrenVisited?: (parent: ParentNode) => void
 }
 
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
@@ -69,15 +65,6 @@ function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNo
 	}
 }
 
-function withAriaBusy(node: Node, block: () => void): void {
-	if (isElement(node)) {
-		const originalAriaBusy = node.ariaBusy
-		node.ariaBusy = "true"
-		block()
-		node.ariaBusy = originalAriaBusy
-	} else block()
-}
-
 class Morph {
 	private readonly idMap: IdMap = new WeakMap()
 	private readonly options: Options
@@ -87,23 +74,17 @@ class Morph {
 	}
 
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
-		withAriaBusy(from, () => {
-			if (isParentNode(from)) {
-				this.mapIdSets(from)
-			}
+		if (isParentNode(from)) {
+			this.mapIdSets(from)
+		}
 
-			if (to instanceof NodeList) {
-				this.mapIdSetsForEach(to)
-			} else if (isParentNode(to)) {
-				this.mapIdSets(to)
-			}
-
-			if (to instanceof NodeList) {
-				this.morphOneToMany(from, to)
-			} else {
-				this.morphOneToOne(from, to)
-			}
-		})
+		if (to instanceof NodeList) {
+			this.mapIdSetsForEach(to)
+			this.morphOneToMany(from, to)
+		} else if (isParentNode(to)) {
+			this.mapIdSets(to)
+			this.morphOneToOne(from, to)
+		}
 	}
 
 	private morphOneToMany(from: ChildNode, to: NodeListOf<ChildNode>): void {
@@ -131,8 +112,9 @@ class Morph {
 	private morphOneToOne(from: ChildNode, to: ChildNode): void {
 		// Fast path: if nodes are exactly the same object, skip morphing
 		if (from.isSameNode?.(to)) return
+		if (from.isEqualNode?.(to)) return
 
-		if (!(this.options.beforeNodeMorphed?.(from, to) ?? true)) return
+		if (!(this.options.beforeNodeVisited?.(from, to) ?? true)) return
 
 		const pair: PairOfNodes<ChildNode> = [from, to]
 
@@ -146,30 +128,32 @@ class Morph {
 			this.morphOtherNode(pair)
 		}
 
-		this.options.afterNodeMorphed?.(from, to)
+		this.options.afterNodeVisited?.(from, to)
 	}
 
 	private morphMatchingElements(pair: PairOfMatchingElements<Element>): void {
-		this.morphAttributes(pair)
-		this.morphProperties(pair)
+		this.visitAttributes(pair)
 		this.morphChildren(pair)
 	}
 
-	private morphNonMatchingElements([node, reference]: PairOfNodes<Element>): void {
-		this.replaceNode(node, reference)
+	private morphNonMatchingElements([from, to]: PairOfNodes<Element>): void {
+		this.replaceNode(from, to)
 	}
 
-	private morphOtherNode([node, reference]: PairOfNodes<ChildNode>): void {
+	private morphOtherNode([from, to]: PairOfNodes<ChildNode>): void {
 		// TODO: Improve this logic
 		// Handle text nodes, comments, and CDATA sections.
-		if (node.nodeType === reference.nodeType && node.nodeValue !== null && reference.nodeValue !== null) {
-			this.updateProperty(node, "nodeValue", reference.nodeValue)
+		if (from.nodeType === to.nodeType && from.nodeValue !== null && to.nodeValue !== null) {
+			from.nodeValue = to.nodeValue
 		} else {
-			this.replaceNode(node, reference)
+			this.replaceNode(from, to)
 		}
 	}
 
-	private morphAttributes([from, to]: PairOfMatchingElements<Element>): void {
+	private visitAttributes([from, to]: PairOfMatchingElements<Element>): void {
+		const isInput = isInputElement(from) && isInputElement(to)
+		const isOption = isInput ? false : isOptionElement(from)
+
 		const toAttrs = to.attributes
 		const fromAttrs = from.attributes
 
@@ -180,8 +164,16 @@ class Morph {
 			const value = attr.value
 			const oldValue = from.getAttribute(name)
 
+			if (isInput && (name === "value" || name === "checked" || name === "indeterminate")) continue
+			if (isOption && name === "selected") continue
+
 			if (oldValue !== value && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
 				from.setAttribute(name, value)
+
+				if (isInput && name === "disabled" && from.disabled !== to.disabled) {
+					from.disabled = to.disabled
+				}
+
 				this.options.afterAttributeUpdated?.(from, name, oldValue)
 			}
 		}
@@ -199,44 +191,9 @@ class Morph {
 		}
 	}
 
-	private morphProperties([from, to]: PairOfMatchingElements<Element>): void {
-		// For certain types of elements, we need to do some extra work to ensure
-		// the element’s state matches the reference elements’ state.
-		if (isInputElement(from) && isInputElement(to)) {
-			this.updateProperty(from, "disabled", to.disabled)
-
-			if (
-				from.type !== "file" &&
-				!(this.options.ignoreActiveValue && document.activeElement === from) &&
-				!(this.options.preserveModifiedValues && from.name === to.name && from.value !== from.defaultValue)
-			) {
-				this.updateProperty(from, "value", to.value)
-				this.updateProperty(from, "checked", to.checked)
-				this.updateProperty(from, "indeterminate", to.indeterminate)
-			}
-		} else if (
-			isOptionElement(from) &&
-			isOptionElement(to) &&
-			!(this.options.ignoreActiveValue && document.activeElement === from.parentElement) &&
-			!(this.options.preserveModifiedValues && from.defaultSelected !== to.defaultSelected)
-		) {
-			this.updateProperty(from, "selected", to.selected)
-		} else if (
-			isTextAreaElement(from) &&
-			isTextAreaElement(to) &&
-			!(this.options.ignoreActiveValue && document.activeElement === from) &&
-			!(this.options.preserveModifiedValues && from.name === to.name && from.value !== from.defaultValue)
-		) {
-			this.updateProperty(from, "value", to.value)
-
-			const text = from.firstElementChild
-			if (text) this.updateProperty(text, "textContent", to.value)
-		}
-	}
-
 	morphChildren(pair: PairOfMatchingElements<Element>): void {
 		const [node, reference] = pair
-		if (!(this.options.beforeChildrenMorphed?.(node) ?? true)) return
+		if (!(this.options.beforeChildrenVisited?.(node) ?? true)) return
 
 		if (isHeadElement(node)) {
 			this.morphHeadChildren(pair as PairOfMatchingElements<HTMLHeadElement>)
@@ -244,7 +201,7 @@ class Morph {
 			this.morphChildNodes(pair)
 		}
 
-		this.options.afterChildrenMorphed?.(node)
+		this.options.afterChildrenVisited?.(node)
 	}
 
 	// TODO: Review this.
@@ -423,15 +380,6 @@ class Morph {
 		}
 	}
 
-	private updateProperty<N extends Node, P extends keyof N>(node: N, propertyName: P, newValue: N[P]): void {
-		const oldValue = node[propertyName]
-
-		if (oldValue !== newValue && (this.options.beforePropertyUpdated?.(node, propertyName, newValue) ?? true)) {
-			node[propertyName] = newValue
-			this.options.afterPropertyUpdated?.(node, propertyName, oldValue)
-		}
-	}
-
 	private replaceNode(node: ChildNode, newNode: ChildNode): void {
 		if (this.options.beforeNodeAdded?.(newNode) ?? true) {
 			moveBefore(node.parentNode || document, newNode, node)
@@ -502,10 +450,6 @@ function isInputElement(element: Element): element is HTMLInputElement {
 
 function isOptionElement(element: Element): element is HTMLOptionElement {
 	return element.localName === "option"
-}
-
-function isTextAreaElement(element: Element): element is HTMLTextAreaElement {
-	return element.localName === "textarea"
 }
 
 function isHeadElement(element: Element): element is HTMLHeadElement {

@@ -231,7 +231,7 @@ describe("Morphlex Vitest Suite", () => {
 	})
 
 	describe("morph() - Callbacks", () => {
-		it("should call beforeNodeMorphed and afterNodeMorphed", () => {
+		it("should call beforeNodeVisited and afterNodeVisited", () => {
 			const original = document.createElement("div")
 			original.textContent = "Before"
 
@@ -242,11 +242,11 @@ describe("Morphlex Vitest Suite", () => {
 			let afterCalled = false
 
 			morph(original, reference, {
-				beforeNodeMorphed: () => {
+				beforeNodeVisited: () => {
 					beforeCalled = true
 					return true
 				},
-				afterNodeMorphed: () => {
+				afterNodeVisited: () => {
 					afterCalled = true
 				},
 			})
@@ -255,7 +255,7 @@ describe("Morphlex Vitest Suite", () => {
 			expect(afterCalled).toBe(true)
 		})
 
-		it("should cancel morphing if beforeNodeMorphed returns false", () => {
+		it("should cancel morphing if beforeNodeVisited returns false", () => {
 			const original = document.createElement("div")
 			original.textContent = "Original"
 
@@ -263,7 +263,7 @@ describe("Morphlex Vitest Suite", () => {
 			reference.textContent = "Reference"
 
 			morph(original, reference, {
-				beforeNodeMorphed: () => false,
+				beforeNodeVisited: () => false,
 			})
 
 			expect(original.textContent).toBe("Original")
@@ -340,34 +340,6 @@ describe("Morphlex Vitest Suite", () => {
 	})
 
 	describe("morph() - Form elements", () => {
-		it("should update input value", () => {
-			const original = document.createElement("input") as HTMLInputElement
-			original.type = "text"
-			original.value = "old"
-
-			const reference = document.createElement("input") as HTMLInputElement
-			reference.type = "text"
-			reference.value = "new"
-
-			morph(original, reference)
-
-			expect(original.value).toBe("new")
-		})
-
-		it("should update checkbox checked state", () => {
-			const original = document.createElement("input") as HTMLInputElement
-			original.type = "checkbox"
-			original.checked = false
-
-			const reference = document.createElement("input") as HTMLInputElement
-			reference.type = "checkbox"
-			reference.checked = true
-
-			morph(original, reference)
-
-			expect(original.checked).toBe(true)
-		})
-
 		it("should update textarea value", () => {
 			const original = document.createElement("textarea") as HTMLTextAreaElement
 			original.textContent = "old text"
@@ -378,32 +350,6 @@ describe("Morphlex Vitest Suite", () => {
 			morph(original, reference)
 
 			expect(original.textContent).toBe("new text")
-		})
-	})
-
-	describe("morph() - Options", () => {
-		it("should preserve modified values with preserveModifiedValues option", () => {
-			const original = document.createElement("input") as HTMLInputElement
-			original.value = "user-input"
-
-			const reference = document.createElement("input") as HTMLInputElement
-			reference.value = "from-server"
-
-			morph(original, reference, { preserveModifiedValues: true })
-
-			expect(original.value).toBe("user-input")
-		})
-
-		it("should ignore active value with ignoreActiveValue option", () => {
-			const original = document.createElement("input") as HTMLInputElement
-			original.value = "active"
-
-			const reference = document.createElement("input") as HTMLInputElement
-			reference.value = "inactive"
-
-			morph(original, reference, { ignoreActiveValue: true })
-
-			expect(original).toBeDefined()
 		})
 	})
 

@@ -237,7 +237,7 @@ describe("Morphlex - Remaining Uncovered Lines", () => {
 				afterNodeAdded: (node) => {
 					addedNodes.push(node)
 				},
-				afterNodeMorphed: (_from, _to) => {
+				afterNodeVisited: (_from, _to) => {
 					morphedCalled = true
 					// The 'from' could be the original single element or its child nodes after morphing
 					// Just verify the callback was called

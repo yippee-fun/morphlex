@@ -22,7 +22,8 @@
 		"test:ui": "vitest --ui",
 		"test:browser": "vitest run -c vitest.config.browser.ts",
 		"test:browser:watch": "vitest -c vitest.config.browser.ts",
-		"test:all": "vitest run && vitest run -c vitest.config.browser.ts"
+		"test:all": "vitest run && vitest run -c vitest.config.browser.ts",
+		"serve": "bun --bun vite --open /benchmark/"
 	},
 	"devDependencies": {
 		"@types/bun": "^1.3.1",

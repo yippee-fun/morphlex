@@ -372,12 +372,12 @@
 		<div id="sandbox"></div>
 
 		<script type="module">
-			// For file:// protocol, we'll use unpkg for morphlex as well
-			// To test your local morphlex build instead:
+			// Using local morphlex build
+			// To run this benchmark:
 			// 1. Run 'bun run build' to build morphlex
-			// 2. Start a local server: 'npx serve ..' or 'python -m http.server' in the morphlex root
-			// 3. Change the import below to: '../dist/morphlex.min.js'
-			import { morph as morphlex } from "https://unpkg.com/morphlex@0.0.16/dist/morphlex.min.js"
+			// 2. Start a local server: 'bun run --bun vite' or 'python -m http.server' in the morphlex root
+			// 3. Open http://localhost:5173/benchmark/ (or appropriate port)
+			import { morph as morphlex } from "../dist/morphlex.min.js"
 			import { Idiomorph } from "https://unpkg.com/idiomorph@0.7.4/dist/idiomorph.esm.js"
 			import morphdom from "https://unpkg.com/morphdom@2.7.7/dist/morphdom-esm.js"
 			// Try loading nanomorph from jsdelivr with ESM
@@ -387,6 +387,79 @@
 			const sandbox = document.getElementById("sandbox")
 			let isRunning = false
 			let stopRequested = false
+
+			// DOM Operation Counter using MutationObserver
+			class DOMOperationCounter {
+				constructor() {
+					this.reset()
+				}
+
+				reset() {
+					this.counts = {
+						childList: 0,
+						attributes: 0,
+						characterData: 0,
+						addedNodes: 0,
+						removedNodes: 0,
+						total: 0,
+					}
+					this.attributeNames = new Map() // Map of attribute name -> count
+				}
+
+				start(targetNode) {
+					this.reset()
+					this.observer = new MutationObserver((mutations) => {
+						this.processMutations(mutations)
+					})
+
+					this.observer.observe(targetNode, {
+						childList: true,
+						attributes: true,
+						characterData: true,
+						subtree: true,
+						attributeOldValue: false,
+						characterDataOldValue: false,
+					})
+				}
+
+				processMutations(mutations) {
+					for (const mutation of mutations) {
+						if (mutation.type === "childList") {
+							this.counts.childList++
+							this.counts.addedNodes += mutation.addedNodes.length
+							this.counts.removedNodes += mutation.removedNodes.length
+						} else if (mutation.type === "attributes") {
+							this.counts.attributes++
+							// Track the attribute name
+							if (mutation.attributeName) {
+								const count = this.attributeNames.get(mutation.attributeName) || 0
+								this.attributeNames.set(mutation.attributeName, count + 1)
+							}
+						} else if (mutation.type === "characterData") {
+							this.counts.characterData++
+						}
+						this.counts.total++
+					}
+				}
+
+				stop() {
+					if (this.observer) {
+						// Process any pending mutations that haven't been delivered yet
+						const pendingMutations = this.observer.takeRecords()
+						this.processMutations(pendingMutations)
+						this.observer.disconnect()
+						this.observer = null
+					}
+					return {
+						...this.counts,
+						attributeNames: Array.from(this.attributeNames.entries()).sort((a, b) => b[1] - a[1]),
+					}
+				}
+
+				getCounts() {
+					return { ...this.counts }
+				}
+			}
 
 			class BrowserBenchmark {
 				constructor(iterations = 1000, warmupIterations = 100) {
@@ -422,6 +495,15 @@
 					// Actual benchmark - use higher precision timing with batching
 					const times = []
 					const actualIterations = Math.ceil(this.iterations / batchSize)
+
+					// Measure DOM operations for a single operation (not batched)
+					const domCounter = new DOMOperationCounter()
+					const domTestSetup = testCase.setup()
+					sandbox.appendChild(domTestSetup.from)
+					domCounter.start(domTestSetup.from)
+					morphFn(domTestSetup.from, domTestSetup.to)
+					const domOperations = domCounter.stop()
+					sandbox.innerHTML = ""
 
 					for (let i = 0; i < actualIterations; i++) {
 						// Prepare batch
@@ -463,6 +545,7 @@
 						min,
 						max,
 						opsPerSecond,
+						domOperations,
 					}
 				}
 
@@ -534,23 +617,23 @@
 				},
 				{
 					name: "List Reordering",
-					description: "Reordering items in a list with IDs",
+					description: "Reordering items in a list",
 					setup: () => {
 						const from = document.createElement("ul")
 						from.innerHTML = `
-						<li id="item-1">First</li>
-						<li id="item-2">Second</li>
-						<li id="item-3">Third</li>
-						<li id="item-4">Fourth</li>
-						<li id="item-5">Fifth</li>
+						<li>First</li>
+						<li>Second</li>
+						<li>Third</li>
+						<li>Fourth</li>
+						<li>Fifth</li>
 					`
 						const to = document.createElement("ul")
 						to.innerHTML = `
-						<li id="item-3">Third</li>
-						<li id="item-1">First</li>
-						<li id="item-5">Fifth</li>
-						<li id="item-2">Second</li>
-						<li id="item-4">Fourth</li>
+						<li>Third</li>
+						<li>First</li>
+						<li>Fifth</li>
+						<li>Second</li>
+						<li>Fourth</li>
 					`
 						return { from, to }
 					},
@@ -562,7 +645,6 @@
 						const from = document.createElement("ul")
 						for (let i = 1; i <= 50; i++) {
 							const li = document.createElement("li")
-							li.id = `item-${i}`
 							li.textContent = `Item ${i}`
 							from.appendChild(li)
 						}
@@ -575,8 +657,70 @@
 						}
 						for (const i of indices.slice(0, 45)) {
 							const li = document.createElement("li")
-							li.id = `item-${i}`
 							li.textContent = i % 3 === 0 ? `Modified Item ${i}` : `Item ${i}`
+							to.appendChild(li)
+						}
+						return { from, to }
+					},
+				},
+				{
+					name: "Large List - Add One Item",
+					description: "Adding a single item to a list of 100 items",
+					setup: () => {
+						const from = document.createElement("ul")
+						for (let i = 1; i <= 100; i++) {
+							const li = document.createElement("li")
+							li.textContent = `Item ${i}`
+							from.appendChild(li)
+						}
+						const to = document.createElement("ul")
+						for (let i = 1; i <= 100; i++) {
+							const li = document.createElement("li")
+							li.textContent = `Item ${i}`
+							to.appendChild(li)
+						}
+						// Add new item at position 50
+						const newLi = document.createElement("li")
+						newLi.textContent = "New Item"
+						to.insertBefore(newLi, to.children[50])
+						return { from, to }
+					},
+				},
+				{
+					name: "Large List - Remove One Item",
+					description: "Removing a single item from a list of 100 items",
+					setup: () => {
+						const from = document.createElement("ul")
+						for (let i = 1; i <= 100; i++) {
+							const li = document.createElement("li")
+							li.textContent = `Item ${i}`
+							from.appendChild(li)
+						}
+						const to = document.createElement("ul")
+						for (let i = 1; i <= 100; i++) {
+							if (i === 50) continue // Skip item 50
+							const li = document.createElement("li")
+							li.textContent = `Item ${i}`
+							to.appendChild(li)
+						}
+						return { from, to }
+					},
+				},
+				{
+					name: "Large List - Resort All Items",
+					description: "Resorting all items in a list of 100 items",
+					setup: () => {
+						const from = document.createElement("ul")
+						for (let i = 1; i <= 100; i++) {
+							const li = document.createElement("li")
+							li.textContent = `Item ${i}`
+							from.appendChild(li)
+						}
+						const to = document.createElement("ul")
+						// Reverse the order
+						for (let i = 100; i >= 1; i--) {
+							const li = document.createElement("li")
+							li.textContent = `Item ${i}`
 							to.appendChild(li)
 						}
 						return { from, to }
@@ -588,39 +732,39 @@
 					setup: () => {
 						const from = document.createElement("div")
 						from.innerHTML = `
-						<div id="root">
-							<section id="s1">
-								<article id="a1">
-									<header id="h1">
-										<h1>Title</h1>
-										<p>Subtitle</p>
-									</header>
-									<div id="content">
-										<p>Paragraph 1</p>
-										<p>Paragraph 2</p>
-									</div>
-								</article>
-							</section>
-						</div>
-					`
+					<div>
+						<section>
+							<article>
+								<header>
+									<h1>Title</h1>
+									<p>Subtitle</p>
+								</header>
+								<div>
+									<p>Paragraph 1</p>
+									<p>Paragraph 2</p>
+								</div>
+							</article>
+						</section>
+					</div>
+				`
 						const to = document.createElement("div")
 						to.innerHTML = `
-						<div id="root">
-							<section id="s1">
-								<article id="a1">
-									<header id="h1">
-										<h1>New Title</h1>
-										<p>New Subtitle</p>
-									</header>
-									<div id="content">
-										<p>Modified Paragraph 1</p>
-										<p>Paragraph 2</p>
-										<p>Paragraph 3</p>
-									</div>
-								</article>
-							</section>
-						</div>
-					`
+					<div>
+						<section>
+							<article>
+								<header>
+									<h1>New Title</h1>
+									<p>New Subtitle</p>
+								</header>
+								<div>
+									<p>Modified Paragraph 1</p>
+									<p>Paragraph 2</p>
+									<p>Paragraph 3</p>
+								</div>
+							</article>
+						</section>
+					</div>
+				`
 						return { from: from.firstElementChild, to: to.firstElementChild }
 					},
 				},
@@ -632,55 +776,21 @@
 				document.getElementById("progress").style.width = `${percent}%`
 			}
 
-			function renderResult(testResults, container) {
-				// Sort by performance
-				const sorted = [...testResults].sort((a, b) => {
-					if (a.error) return 1
-					if (b.error) return -1
-					return a.averageTime - b.averageTime
-				})
+			function displayResults(allResults) {
+				const resultsEl = document.getElementById("results")
+				resultsEl.innerHTML = ""
 
-				sorted.forEach((result, index) => {
-					const resultEl = document.createElement("div")
-					resultEl.className = "library-result"
-
-					if (result.error) {
-						resultEl.innerHTML = `
-						<div class="library-name">${result.library}</div>
-						<div class="error">Error: ${result.error}</div>
-					`
-					} else {
-						const rankClass = index === 0 ? "rank-1" : index === 1 ? "rank-2" : index === 2 ? "rank-3" : ""
-						const rankEmoji = index === 0 ? "🏆" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`
-
-						resultEl.innerHTML = `
-						<div class="rank ${rankClass}">${rankEmoji}</div>
-						<div class="library-name">${result.library}</div>
-						<div class="metrics">
-							<div class="metric">
-								<div class="metric-value">${result.averageTime < 0.001 ? result.averageTime.toExponential(2) : result.averageTime.toFixed(4)}</div>
-								<div class="metric-label">ms/op</div>
-							</div>
-							<div class="metric">
-								<div class="metric-value">${result.opsPerSecond > 1000000 ? result.opsPerSecond.toExponential(2) : result.opsPerSecond.toFixed(1)}</div>
-								<div class="metric-label">ops/sec</div>
-							</div>
-							<div class="metric">
-								<div class="metric-value">${result.median < 0.001 ? result.median.toExponential(2) : result.median.toFixed(4)}</div>
-								<div class="metric-label">median ms</div>
-							</div>
-						</div>
-					`
+				// Group results by test case
+				const testGroups = {}
+				allResults.forEach((result) => {
+					if (!testGroups[result.testName]) {
+						testGroups[result.testName] = []
 					}
-
-					container.appendChild(resultEl)
+					testGroups[result.testName].push(result)
 				})
-			}
 
-			function renderSummary(allResults) {
-				// Group by library
+				// Calculate overall stats first for summary
 				const libraryStats = {}
-
 				allResults.forEach((result) => {
 					if (!result.error) {
 						if (!libraryStats[result.library]) {
@@ -696,8 +806,8 @@
 				})
 
 				// Count wins
-				testCases.forEach((testCase) => {
-					const testResults = allResults.filter((r) => r.testName === testCase.name && !r.error)
+				Object.keys(testGroups).forEach((testName) => {
+					const testResults = allResults.filter((r) => r.testName === testName && !r.error)
 					if (testResults.length > 0) {
 						const winner = testResults.reduce((min, r) => (r.averageTime < min.averageTime ? r : min))
 						if (libraryStats[winner.library]) {
@@ -706,63 +816,114 @@
 					}
 				})
 
-				// Calculate averages and sort
 				const summaryData = Object.entries(libraryStats)
 					.map(([library, stats]) => ({
 						library,
 						avgTime: stats.totalTime / stats.count,
 						wins: stats.wins,
+						totalTests: stats.count,
 					}))
 					.sort((a, b) => a.avgTime - b.avgTime)
 
-				// Create summary element
-				const summaryEl = document.createElement("div")
-				summaryEl.className = "summary"
-				summaryEl.innerHTML = "<h2>📊 Overall Performance Summary</h2>"
+				// Create summary section
+				const summary = document.createElement("div")
+				summary.className = "summary"
+				summary.innerHTML = "<h2>🏆 Overall Results</h2>"
 
-				const gridEl = document.createElement("div")
-				gridEl.className = "summary-grid"
+				const summaryGrid = document.createElement("div")
+				summaryGrid.className = "summary-grid"
 
 				summaryData.forEach((data, index) => {
-					const cardEl = document.createElement("div")
-					cardEl.className = "summary-card"
-					cardEl.innerHTML = `
-					<div class="summary-library">${index === 0 ? "🏆 " : ""}${data.library}</div>
-					<div class="summary-score">${data.avgTime < 0.001 ? data.avgTime.toExponential(2) : data.avgTime.toFixed(4)}ms</div>
-					<div style="font-size: 0.9rem; margin-top: 0.5rem;">
-						${data.wins} test${data.wins !== 1 ? "s" : ""} won
-					</div>
-				`
-					gridEl.appendChild(cardEl)
+					const card = document.createElement("div")
+					card.className = "summary-card"
+					const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`
+					const avgTime = data.avgTime < 0.001 ? data.avgTime.toExponential(2) : data.avgTime.toFixed(4)
+
+					card.innerHTML = `
+						<div style="font-size: 2rem; margin-bottom: 0.5rem">${medal}</div>
+						<div class="summary-library">${data.library}</div>
+						<div class="summary-score">${avgTime} ms</div>
+						<div style="margin-top: 0.5rem; font-size: 0.9rem">
+							${data.wins} wins / ${data.totalTests} tests
+						</div>
+					`
+					summaryGrid.appendChild(card)
 				})
 
-				summaryEl.appendChild(gridEl)
+				summary.appendChild(summaryGrid)
+				resultsEl.appendChild(summary)
 
-				// Add bar chart
-				const chartEl = document.createElement("div")
-				chartEl.className = "chart-container"
-				chartEl.innerHTML = "<h3>Relative Performance (lower is better)</h3>"
+				// Display each test case
+				Object.entries(testGroups).forEach(([testName, results]) => {
+					const testCase = document.createElement("div")
+					testCase.className = "test-case"
 
-				const barChartEl = document.createElement("div")
-				barChartEl.className = "bar-chart"
+					const testDesc = testCases.find((t) => t.name === testName)
+					testCase.innerHTML = `
+						<h3>${testName}</h3>
+						<p class="test-description">${testDesc ? testDesc.description : ""}</p>
+					`
 
-				const maxTime = Math.max(...summaryData.map((d) => d.avgTime))
-				summaryData.forEach((data) => {
-					const barRow = document.createElement("div")
-					barRow.className = "bar-row"
-					barRow.innerHTML = `
-					<div class="bar-label">${data.library}</div>
-					<div class="bar" style="width: ${(data.avgTime / maxTime) * 100}%">
-						${data.avgTime.toFixed(3)}ms
-					</div>
-				`
-					barChartEl.appendChild(barRow)
+					// Sort by performance
+					const sorted = [...results].sort((a, b) => {
+						if (a.error) return 1
+						if (b.error) return -1
+						return a.averageTime - b.averageTime
+					})
+
+					// Create visual results for each library
+					sorted.forEach((result, index) => {
+						const libResult = document.createElement("div")
+						libResult.className = "library-result"
+
+						if (result.error) {
+							libResult.innerHTML = `
+								<div class="library-name">${result.library}</div>
+								<div class="error">ERROR: ${result.error}</div>
+							`
+						} else {
+							const msOp = result.averageTime < 0.001 ? result.averageTime.toExponential(2) : result.averageTime.toFixed(4)
+							const opsPerSec =
+								result.opsPerSecond > 1000000
+									? result.opsPerSecond.toExponential(2)
+									: Math.round(result.opsPerSecond).toLocaleString()
+
+							const dom = result.domOperations
+							const rankBadge = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : ""
+
+							libResult.innerHTML = `
+								<div class="library-name">${result.library}</div>
+								<div class="metrics">
+									<div class="metric">
+										<div class="metric-value">${msOp}</div>
+										<div class="metric-label">ms/op</div>
+									</div>
+									<div class="metric">
+										<div class="metric-value">${opsPerSec}</div>
+										<div class="metric-label">ops/sec</div>
+									</div>
+									<div class="metric">
+										<div class="metric-value">${dom ? dom.total : "N/A"}</div>
+										<div class="metric-label">DOM ops</div>
+									</div>
+									<div class="metric">
+										<div class="metric-value">${dom ? dom.addedNodes + dom.removedNodes : "N/A"}</div>
+										<div class="metric-label">nodes +/-</div>
+									</div>
+									<div class="metric">
+										<div class="metric-value">${dom ? dom.attributes : "N/A"}</div>
+										<div class="metric-label">attrs</div>
+									</div>
+								</div>
+								<div class="rank rank-${index + 1}">${rankBadge}</div>
+							`
+						}
+
+						testCase.appendChild(libResult)
+					})
+
+					resultsEl.appendChild(testCase)
 				})
-
-				chartEl.appendChild(barChartEl)
-				summaryEl.appendChild(chartEl)
-
-				return summaryEl
 			}
 
 			// Event handlers
@@ -786,32 +947,20 @@
 				const warmup = parseInt(document.getElementById("warmup").value)
 
 				const benchmark = new BrowserBenchmark(iterations, warmup)
-				let testIndex = 0
 				const totalTests = testCases.length * 4 // 4 libraries per test
 				let completedTests = 0
 
 				for (const testCase of testCases) {
 					if (stopRequested) break
 
-					const testEl = document.createElement("div")
-					testEl.className = "test-case"
-					testEl.innerHTML = `
-					<h3>${testCase.name}</h3>
-					<div class="test-description">${testCase.description}</div>
-				`
-					resultsEl.appendChild(testEl)
-
-					const testResults = await benchmark.runTestCase(testCase, (result) => {
+					await benchmark.runTestCase(testCase, (result) => {
 						completedTests++
 						updateProgress(completedTests, totalTests)
 					})
-
-					renderResult(testResults, testEl)
-					testIndex++
 				}
 
 				if (!stopRequested && benchmark.results.length > 0) {
-					resultsEl.appendChild(renderSummary(benchmark.results))
+					displayResults(benchmark.results)
 				}
 
 				isRunning = false

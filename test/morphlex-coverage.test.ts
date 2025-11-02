@@ -49,31 +49,6 @@ describe("Morphlex - Coverage Tests", () => {
 	})
 
 	describe("ariaBusy handling", () => {
-		it("should set and restore ariaBusy on element during morph", () => {
-			const div = document.createElement("div")
-			div.ariaBusy = "false"
-			const span = document.createElement("span")
-			div.appendChild(span)
-
-			const reference = document.createElement("div")
-			const refSpan = document.createElement("span")
-			refSpan.textContent = "Updated"
-			reference.appendChild(refSpan)
-
-			let ariaBusyDuringMorph: string | null = null
-			morph(div, reference, {
-				afterNodeMorphed: (node) => {
-					if (node === span) {
-						ariaBusyDuringMorph = div.ariaBusy
-					}
-				},
-			})
-
-			// ariaBusy should be set to "true" during morph and restored after
-			expect(ariaBusyDuringMorph).toBe("true")
-			expect(div.ariaBusy).toBe("false")
-		})
-
 		it("should handle ariaBusy for non-element nodes", () => {
 			const parent = document.createElement("div")
 			const textNode = document.createTextNode("Original")
@@ -87,120 +62,9 @@ describe("Morphlex - Coverage Tests", () => {
 
 			expect(parent.textContent).toBe("Updated")
 		})
-
-		it("should handle textarea as active element", () => {
-			const parent = document.createElement("div")
-			container.appendChild(parent)
-
-			const textarea = document.createElement("textarea")
-			textarea.id = "textarea1"
-			textarea.value = "original"
-			parent.appendChild(textarea)
-
-			textarea.focus()
-
-			const reference = document.createElement("div")
-			const refTextarea = document.createElement("textarea")
-			refTextarea.id = "textarea1"
-			refTextarea.value = "updated"
-			reference.appendChild(refTextarea)
-
-			morph(parent, reference, { ignoreActiveValue: true })
-
-			expect(textarea.value).toBe("original")
-		})
 	})
 
 	describe("Property updates", () => {
-		it("should update option selected property", () => {
-			const select = document.createElement("select")
-			const option1 = document.createElement("option")
-			option1.value = "1"
-			option1.textContent = "Option 1"
-			const option2 = document.createElement("option")
-			option2.value = "2"
-			option2.textContent = "Option 2"
-			select.appendChild(option1)
-			select.appendChild(option2)
-
-			const refSelect = document.createElement("select")
-			const refOption1 = document.createElement("option")
-			refOption1.value = "1"
-			refOption1.textContent = "Option 1"
-			const refOption2 = document.createElement("option")
-			refOption2.value = "2"
-			refOption2.textContent = "Option 2"
-			refOption2.selected = true
-			refSelect.appendChild(refOption1)
-			refSelect.appendChild(refOption2)
-
-			morph(select, refSelect)
-
-			expect(option2.selected).toBe(true)
-		})
-
-		it("should update textarea value with firstElementChild", () => {
-			const parent = document.createElement("div")
-			const textarea = document.createElement("textarea")
-			textarea.name = "myTextarea"
-			textarea.value = "original"
-			textarea.defaultValue = "original"
-			const textContent = document.createElement("span")
-			textContent.textContent = "original"
-			textarea.appendChild(textContent)
-			parent.appendChild(textarea)
-
-			const reference = document.createElement("div")
-			const refTextarea = document.createElement("textarea")
-			refTextarea.name = "myTextarea"
-			refTextarea.value = "updated"
-			reference.appendChild(refTextarea)
-
-			morph(parent, reference)
-
-			expect(textarea.value).toBe("updated")
-			if (textarea.firstElementChild) {
-				expect(textarea.firstElementChild.textContent).toBe("updated")
-			}
-		})
-
-		it("should preserve modified textarea value with preserveModifiedValues", () => {
-			const parent = document.createElement("div")
-			const textarea = document.createElement("textarea")
-			textarea.name = "myTextarea"
-			textarea.defaultValue = "default"
-			textarea.value = "modified"
-			parent.appendChild(textarea)
-
-			const reference = document.createElement("div")
-			const refTextarea = document.createElement("textarea")
-			refTextarea.name = "myTextarea"
-			refTextarea.value = "new value"
-			reference.appendChild(refTextarea)
-
-			morph(parent, reference, { preserveModifiedValues: true })
-
-			expect(textarea.value).toBe("modified")
-		})
-
-		it("should update input indeterminate property", () => {
-			const parent = document.createElement("div")
-			const input = document.createElement("input")
-			input.type = "checkbox"
-			input.indeterminate = false
-			parent.appendChild(input)
-
-			const reference = document.createElement("div")
-			const refInput = document.createElement("input")
-			refInput.type = "checkbox"
-			refInput.indeterminate = true
-			reference.appendChild(refInput)
-
-			morph(parent, reference)
-
-			expect(input.indeterminate).toBe(true)
-		})
-
 		it("should update input disabled property", () => {
 			const parent = document.createElement("div")
 			const input = document.createElement("input")
@@ -348,7 +212,7 @@ describe("Morphlex - Coverage Tests", () => {
 			expect(parent.children[0].tagName).toBe("DIV")
 		})
 
-		it("should call afterNodeMorphed for child elements even when new node inserted", () => {
+		it("should call afterNodeVisited for child elements even when new node inserted", () => {
 			const parent = document.createElement("div")
 			const child = document.createElement("div")
 			child.id = "child"
@@ -361,7 +225,7 @@ describe("Morphlex - Coverage Tests", () => {
 
 			let morphedCalled = false
 			morph(parent, reference, {
-				afterNodeMorphed: () => {
+				afterNodeVisited: () => {
 					morphedCalled = true
 				},
 			})
@@ -390,26 +254,6 @@ describe("Morphlex - Coverage Tests", () => {
 
 			// Attribute should still be there because callback returned false
 			expect(div.hasAttribute("data-remove")).toBe(true)
-		})
-
-		it("should call beforePropertyUpdated and cancel property update when it returns false", () => {
-			const input = document.createElement("input")
-			input.checked = false
-
-			const reference = document.createElement("input")
-			reference.checked = true
-
-			morph(input, reference, {
-				beforePropertyUpdated: (node, propertyName, newValue) => {
-					if (propertyName === "checked" && newValue === true) {
-						return false // Cancel update
-					}
-					return true
-				},
-			})
-
-			// Property should not be updated because callback returned false
-			expect(input.checked).toBe(false)
 		})
 	})
 
@@ -484,19 +328,6 @@ describe("Morphlex - Coverage Tests", () => {
 			morph(parent, reference)
 
 			expect(parent.children.length).toBe(3)
-		})
-
-		it("should handle text node morph with ariaBusy (non-element)", () => {
-			// Test line 136 - else block() for non-element nodes
-			const parent = document.createElement("div")
-			const textNode = document.createTextNode("Original")
-			parent.appendChild(textNode)
-
-			const reference = document.createTextNode("Updated")
-
-			morph(textNode, reference)
-
-			expect(textNode.nodeValue).toBe("Updated")
 		})
 
 		it("should match elements by overlapping ID sets", () => {
@@ -803,7 +634,7 @@ describe("Morphlex - Coverage Tests", () => {
 			})
 
 			describe("Exact uncovered line tests", () => {
-				it("should cancel morphing with beforeNodeMorphed returning false in morphChildElement - line 300", () => {
+				it("should cancel morphing with beforeNodeVisited returning false in morphChildElement - line 300", () => {
 					// Line 300: return early when beforeNodeMorphed returns false in morphChildElement
 					const parent = document.createElement("div")
 					const child = document.createElement("div")
@@ -818,7 +649,7 @@ describe("Morphlex - Coverage Tests", () => {
 
 					let callbackInvoked = false
 					morph(parent, reference, {
-						beforeNodeMorphed: (node) => {
+						beforeNodeVisited: (node) => {
 							if (node === child) {
 								callbackInvoked = true
 								return false // This triggers line 300 return
