@@ -363,6 +363,10 @@ class Morph {
 
 				for (const candidate of candidates) {
 					if (isElement(candidate) && localName === candidate.localName) {
+						if (isInputElement(candidate) && isInputElement(node) && candidate.type !== node.type) {
+							// Treat inputs with different type as though they are different tags.
+							continue
+						}
 						matches.set(node, candidate)
 						unmatched.delete(node)
 						candidates.delete(candidate)
