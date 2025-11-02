@@ -327,6 +327,33 @@ class Morph {
 			}
 		}
 
+		// Match by huristics
+		for (const node of unmatched) {
+			if (!isElement(node)) continue
+			const className = node.className
+			const name = node.getAttribute("name")
+			const ariaLabel = node.getAttribute("aria-label")
+			const ariaDescription = node.getAttribute("aria-description")
+			const href = node.getAttribute("href")
+
+			for (const candidate of candidates) {
+				if (
+					isElement(candidate) &&
+					node.localName === candidate.localName &&
+					((className !== "" && className === candidate.className) ||
+						(name !== "" && name === candidate.getAttribute("name")) ||
+						(ariaLabel !== "" && ariaLabel === candidate.getAttribute("aria-label")) ||
+						(ariaDescription !== "" && ariaDescription === candidate.getAttribute("aria-description")) ||
+						(href !== "" && href === candidate.getAttribute("href")))
+				) {
+					matches.set(node, candidate)
+					unmatched.delete(node)
+					candidates.delete(candidate)
+					break
+				}
+			}
+		}
+
 		// Match by nodeType
 		for (const node of unmatched) {
 			const nodeType = node.nodeType
