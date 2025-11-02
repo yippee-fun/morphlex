@@ -199,32 +199,38 @@ class Morph {
 		}
 	}
 
-	private morphProperties([element, reference]: PairOfMatchingElements<Element>): void {
+	private morphProperties([from, to]: PairOfMatchingElements<Element>): void {
 		// For certain types of elements, we need to do some extra work to ensure
 		// the element’s state matches the reference elements’ state.
-		if (isInputElement(element) && isInputElement(reference)) {
-			this.updateProperty(element, "checked", reference.checked)
-			this.updateProperty(element, "disabled", reference.disabled)
-			this.updateProperty(element, "indeterminate", reference.indeterminate)
-			if (
-				element.type !== "file" &&
-				!(this.options.ignoreActiveValue && document.activeElement === element) &&
-				!(this.options.preserveModifiedValues && element.name === reference.name && element.value !== element.defaultValue)
-			) {
-				this.updateProperty(element, "value", reference.value)
-			}
-		} else if (isOptionElement(element) && isOptionElement(reference)) {
-			this.updateProperty(element, "selected", reference.selected)
-		} else if (
-			isTextAreaElement(element) &&
-			isTextAreaElement(reference) &&
-			!(this.options.ignoreActiveValue && document.activeElement === element) &&
-			!(this.options.preserveModifiedValues && element.name === reference.name && element.value !== element.defaultValue)
-		) {
-			this.updateProperty(element, "value", reference.value)
+		if (isInputElement(from) && isInputElement(to)) {
+			this.updateProperty(from, "disabled", to.disabled)
 
-			const text = element.firstElementChild
-			if (text) this.updateProperty(text, "textContent", reference.value)
+			if (
+				from.type !== "file" &&
+				!(this.options.ignoreActiveValue && document.activeElement === from) &&
+				!(this.options.preserveModifiedValues && from.name === to.name && from.value !== from.defaultValue)
+			) {
+				this.updateProperty(from, "value", to.value)
+				this.updateProperty(from, "checked", to.checked)
+				this.updateProperty(from, "indeterminate", to.indeterminate)
+			}
+		} else if (
+			isOptionElement(from) &&
+			isOptionElement(to) &&
+			!(this.options.ignoreActiveValue && document.activeElement === from.parentElement) &&
+			!(this.options.preserveModifiedValues && from.defaultSelected !== to.defaultSelected)
+		) {
+			this.updateProperty(from, "selected", to.selected)
+		} else if (
+			isTextAreaElement(from) &&
+			isTextAreaElement(to) &&
+			!(this.options.ignoreActiveValue && document.activeElement === from) &&
+			!(this.options.preserveModifiedValues && from.name === to.name && from.value !== from.defaultValue)
+		) {
+			this.updateProperty(from, "value", to.value)
+
+			const text = from.firstElementChild
+			if (text) this.updateProperty(text, "textContent", to.value)
 		}
 	}
 
