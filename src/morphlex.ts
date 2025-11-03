@@ -1,4 +1,16 @@
 const ParentNodeTypes = new Set([1, 9, 11])
+const DisablableElements = new Set(["input", "button", "select", "textarea", "option", "optgroup", "fieldset"])
+const ValuableElements = new Set(["input", "select", "textarea"])
+const ValueAttributes = new Set([
+	"value",
+	"selected",
+	"checked",
+	"indeterminate",
+	"morph-value",
+	"morph-selected",
+	"morph-checked",
+	"morph-indeterminate",
+])
 
 type IdSet = Set<string>
 type IdMap = WeakMap<Node, IdSet>
@@ -8,6 +20,17 @@ type Branded<T, B extends string> = T & { [brand]: B }
 
 type PairOfNodes<N extends Node> = [N, N]
 type PairOfMatchingElements<E extends Element> = Branded<PairOfNodes<E>, "MatchingElementPair">
+
+type DisablableElement =
+	| HTMLInputElement
+	| HTMLButtonElement
+	| HTMLSelectElement
+	| HTMLTextAreaElement
+	| HTMLOptionElement
+	| HTMLOptGroupElement
+	| HTMLFieldSetElement
+
+type ValuableElement = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
 
 interface Options {
 	beforeNodeVisited?: (fromNode: Node, toNode: Node) => boolean
@@ -148,8 +171,6 @@ class Morph {
 	}
 
 	private morphOtherNode([from, to]: PairOfNodes<ChildNode>): void {
-		// TODO: Improve this logic
-		// Handle text nodes, comments, and CDATA sections.
 		if (from.nodeType === to.nodeType && from.nodeValue !== null && to.nodeValue !== null) {
 			from.nodeValue = to.nodeValue
 		} else {
@@ -158,9 +179,6 @@ class Morph {
 	}
 
 	private visitAttributes([from, to]: PairOfMatchingElements<Element>): void {
-		const isInput = isInputElement(from) && isInputElement(to)
-		const isOption = isOptionElement(from) && isOptionElement(to)
-
 		const toAttrs = to.attributes
 		const fromAttrs = from.attributes
 
@@ -171,39 +189,50 @@ class Morph {
 			const value = attr.value
 			const oldValue = from.getAttribute(name)
 
-			if (isInput) {
-				if (name === "value" || name === "checked" || name === "indeterminate") {
-					continue
-				} else if (name === "morph-value" && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
-					from.setAttribute(name, value)
-					from.value = value
-					this.options.afterAttributeUpdated?.(from, name, oldValue)
-					continue
-				} else if (name === "morph-checked" && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
-					from.setAttribute(name, value)
-					from.checked = value === "true"
-					this.options.afterAttributeUpdated?.(from, name, oldValue)
-					continue
-				} else if (name === "morph-indeterminate" && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
-					from.setAttribute(name, value)
-					from.indeterminate = value === "true"
-					this.options.afterAttributeUpdated?.(from, name, oldValue)
-					continue
+			if (ValueAttributes.has(name)) {
+				if (isValuableElement(from) && isValuableElement(to)) {
+					if (name === "value") {
+						continue
+					} else if (name === "morph-value" && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
+						from.setAttribute(name, value)
+						from.value = value
+						this.options.afterAttributeUpdated?.(from, name, oldValue)
+						continue
+					}
 				}
-			} else if (isOption) {
-				if (name === "selected") {
-					continue
-				} else if (name === "morph-selected") {
-					from.setAttribute(name, value)
-					from.selected = value === "true"
-					this.options.afterAttributeUpdated?.(from, name, oldValue)
+
+				if (isInputElement(from) && isInputElement(to)) {
+					if (name === "checked" || name === "indeterminate") {
+						continue
+					} else if (name === "morph-checked" && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
+						from.setAttribute(name, value)
+						from.checked = value === "true"
+						this.options.afterAttributeUpdated?.(from, name, oldValue)
+						continue
+					} else if (name === "morph-indeterminate" && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
+						from.setAttribute(name, value)
+						from.indeterminate = value === "true"
+						this.options.afterAttributeUpdated?.(from, name, oldValue)
+						continue
+					}
+				}
+
+				if (isOptionElement(from) && isOptionElement(to)) {
+					if (name === "selected") {
+						continue
+					} else if (name === "morph-selected") {
+						from.setAttribute(name, value)
+						from.selected = value === "true"
+						this.options.afterAttributeUpdated?.(from, name, oldValue)
+						continue
+					}
 				}
 			}
 
 			if (oldValue !== value && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
 				from.setAttribute(name, value)
 
-				if (isInput && name === "disabled" && from.disabled !== to.disabled) {
+				if (name === "disabled" && isDisablableElement(from) && isDisablableElement(to) && from.disabled !== to.disabled) {
 					from.disabled = to.disabled
 				}
 
@@ -421,6 +450,14 @@ class Morph {
 			}
 		}
 	}
+}
+
+function isDisablableElement(element: Element): element is DisablableElement {
+	return DisablableElements.has(element.localName)
+}
+
+function isValuableElement(element: Element): element is ValuableElement {
+	return ValuableElements.has(element.localName)
 }
 
 function isMatchingElementPair(pair: PairOfNodes<Element>): pair is PairOfMatchingElements<Element> {
