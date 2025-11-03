@@ -1,3 +1,4 @@
+const SupportsMoveBefore = "moveBefore" in Element.prototype
 const ParentNodeTypes = new Set([1, 9, 11])
 const DisablableElements = new Set(["input", "button", "select", "textarea", "option", "optgroup", "fieldset"])
 const ValuableElements = new Set(["input", "select", "textarea"])
@@ -45,6 +46,10 @@ interface Options {
 	afterChildrenVisited?: (parent: ParentNode) => void
 }
 
+type NodeWithMoveBefore = ParentNode & {
+	moveBefore: (node: ChildNode, before: ChildNode | null) => void
+}
+
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
 	if (typeof to === "string") to = parseString(to).childNodes
 	new Morph(options).morph(from, to)
@@ -78,14 +83,15 @@ function parseString(string: string): DocumentFragment {
 
 function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): void {
 	if (node === insertionPoint) return
-	if (node.parentNode === parent && node.nextSibling === insertionPoint) return
-
-	// Use moveBefore when available and the node is already in the same parent
-	if ("moveBefore" in parent && typeof parent.moveBefore === "function" && node.parentNode === parent) {
-		parent.moveBefore(node, insertionPoint)
-	} else {
-		parent.insertBefore(node, insertionPoint)
+	if (node.parentNode === parent) {
+		if (node.nextSibling === insertionPoint) return
+		if (supportsMoveBefore(parent)) {
+			parent.moveBefore(node, insertionPoint)
+			return
+		}
 	}
+
+	parent.insertBefore(node, insertionPoint)
 }
 
 class Morph {
@@ -134,7 +140,7 @@ class Morph {
 
 	private morphOneToOne(from: ChildNode, to: ChildNode): void {
 		// Fast path: if nodes are exactly the same object, skip morphing
-		if (from.isSameNode?.(to)) return
+		if (from === to) return
 		if (from.isEqualNode?.(to)) return
 
 		if (!(this.options.beforeNodeVisited?.(from, to) ?? true)) return
@@ -298,16 +304,19 @@ class Morph {
 			if (!isElement(node)) continue
 			const idSet = this.idMap.get(node)
 			if (!idSet) continue
-			const idSetArray = [...idSet]
 
-			for (const candidate of candidates) {
+			candidateLoop: for (const candidate of candidates) {
 				if (isElement(candidate)) {
 					const candidateIdSet = this.idMap.get(candidate)
-					if (candidateIdSet && idSetArray.some((id) => candidateIdSet.has(id))) {
-						matches.set(node, candidate)
-						unmatched.delete(node)
-						candidates.delete(candidate)
-						break
+					if (candidateIdSet) {
+						for (const id of idSet) {
+							if (candidateIdSet.has(id)) {
+								matches.set(node, candidate)
+								unmatched.delete(node)
+								candidates.delete(candidate)
+								break candidateLoop
+							}
+						}
 					}
 				}
 			}
@@ -318,8 +327,6 @@ class Morph {
 			if (!isElement(node)) continue
 			const className = node.className
 			const name = node.getAttribute("name")
-			const ariaLabel = node.getAttribute("aria-label")
-			const ariaDescription = node.getAttribute("aria-description")
 			const href = node.getAttribute("href")
 			const src = node.getAttribute("src")
 
@@ -329,8 +336,6 @@ class Morph {
 					node.localName === candidate.localName &&
 					((className !== "" && className === candidate.className) ||
 						(name !== "" && name === candidate.getAttribute("name")) ||
-						(ariaLabel !== "" && ariaLabel === candidate.getAttribute("aria-label")) ||
-						(ariaDescription !== "" && ariaDescription === candidate.getAttribute("aria-description")) ||
 						(href !== "" && href === candidate.getAttribute("href")) ||
 						(src !== "" && src === candidate.getAttribute("src")))
 				) {
@@ -450,6 +455,10 @@ class Morph {
 			}
 		}
 	}
+}
+
+function supportsMoveBefore(_node: ParentNode): _node is NodeWithMoveBefore {
+	return SupportsMoveBefore
 }
 
 function isDisablableElement(element: Element): element is DisablableElement {
