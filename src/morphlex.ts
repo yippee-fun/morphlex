@@ -1,17 +1,5 @@
 const SupportsMoveBefore = "moveBefore" in Element.prototype
 const ParentNodeTypes = new Set([1, 9, 11])
-const DisablableElements = new Set(["input", "button", "select", "textarea", "option", "optgroup", "fieldset"])
-const ValuableElements = new Set(["input", "select", "textarea"])
-const ValueAttributes = new Set([
-	"value",
-	"selected",
-	"checked",
-	"indeterminate",
-	"morph-value",
-	"morph-selected",
-	"morph-checked",
-	"morph-indeterminate",
-])
 
 type IdSet = Set<string>
 type IdMap = WeakMap<Node, IdSet>
@@ -22,18 +10,8 @@ type Branded<T, B extends string> = T & { [brand]: B }
 type PairOfNodes<N extends Node> = [N, N]
 type PairOfMatchingElements<E extends Element> = Branded<PairOfNodes<E>, "MatchingElementPair">
 
-type DisablableElement =
-	| HTMLInputElement
-	| HTMLButtonElement
-	| HTMLSelectElement
-	| HTMLTextAreaElement
-	| HTMLOptionElement
-	| HTMLOptGroupElement
-	| HTMLFieldSetElement
-
-type ValuableElement = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
-
 interface Options {
+	preserveModified?: boolean
 	beforeNodeVisited?: (fromNode: Node, toNode: Node) => boolean
 	afterNodeVisited?: (fromNode: Node, toNode: Node) => void
 	beforeNodeAdded?: (parent: ParentNode, node: Node, insertionPoint: ChildNode | null) => boolean
@@ -52,6 +30,9 @@ type NodeWithMoveBefore = ParentNode & {
 
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
 	if (typeof to === "string") to = parseString(to).childNodes
+
+	if (isParentNode(from)) flagDirtyInputs(from)
+
 	new Morph(options).morph(from, to)
 }
 
@@ -68,9 +49,28 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 
 	const pair: PairOfNodes<Node> = [from, to]
 	if (isElementPair(pair) && isMatchingElementPair(pair)) {
+		if (isParentNode(from)) flagDirtyInputs(from)
 		new Morph(options).visitChildNodes(pair)
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
+	}
+}
+
+function flagDirtyInputs(node: ParentNode): void {
+	for (const el of node.querySelectorAll("input")) {
+		const currentValue = el.value
+
+		if (currentValue !== el.defaultValue) {
+			el.setAttribute("morphlex-dirty", "")
+		}
+	}
+
+	for (const el of node.querySelectorAll("option")) {
+		const currentSelected = el.selected
+
+		if (currentSelected !== el.defaultSelected) {
+			el.setAttribute("morphlex-dirty", "")
+		}
 	}
 }
 
@@ -185,76 +185,74 @@ class Morph {
 	}
 
 	private visitAttributes([from, to]: PairOfMatchingElements<Element>): void {
-		const toAttrs = to.attributes
 		const fromAttrs = from.attributes
 
 		// First pass: update/add attributes from reference (iterate forwards)
-		for (let i = 0; i < toAttrs.length; i++) {
-			const attr = toAttrs[i]!
-			const name = attr.name
-			const value = attr.value
+		for (const { name, value } of to.attributes) {
+			console.log(from, name)
 			const oldValue = from.getAttribute(name)
 
-			if (ValueAttributes.has(name)) {
-				if (isValuableElement(from) && isValuableElement(to)) {
-					if (name === "value") {
-						continue
-					} else if (name === "morph-value" && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
-						from.setAttribute(name, value)
+			// This attribute was only added to trigger attribute morphing.
+			if (name === "morphlex-dirty") {
+				from.removeAttribute(name)
+				continue
+			}
+
+			if (name === "value") {
+				if (isInputElement(from) && from.value !== value) {
+					if (!this.options.preserveModified || from.value === from.defaultValue) {
 						from.value = value
-						this.options.afterAttributeUpdated?.(from, name, oldValue)
-						continue
 					}
 				}
+			}
 
-				if (isInputElement(from) && isInputElement(to)) {
-					if (name === "checked" || name === "indeterminate") {
-						continue
-					} else if (name === "morph-checked" && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
-						from.setAttribute(name, value)
-						from.checked = value === "true"
-						this.options.afterAttributeUpdated?.(from, name, oldValue)
-						continue
-					} else if (name === "morph-indeterminate" && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
-						from.setAttribute(name, value)
-						from.indeterminate = value === "true"
-						this.options.afterAttributeUpdated?.(from, name, oldValue)
-						continue
+			if (name === "selected") {
+				if (isOptionElement(from) && !from.selected) {
+					if (!this.options.preserveModified || from.selected === from.defaultSelected) {
+						from.selected = true
 					}
 				}
+			}
 
-				if (isOptionElement(from) && isOptionElement(to)) {
-					if (name === "selected") {
-						continue
-					} else if (name === "morph-selected") {
-						from.setAttribute(name, value)
-						from.selected = value === "true"
-						this.options.afterAttributeUpdated?.(from, name, oldValue)
-						continue
+			if (name === "checked") {
+				if (isInputElement(from) && !from.checked) {
+					if (!this.options.preserveModified || from.checked === from.defaultChecked) {
+						from.checked = true
 					}
 				}
 			}
 
 			if (oldValue !== value && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
 				from.setAttribute(name, value)
-
-				if (name === "disabled" && isDisablableElement(from) && isDisablableElement(to) && from.disabled !== to.disabled) {
-					from.disabled = to.disabled
-				}
-
 				this.options.afterAttributeUpdated?.(from, name, oldValue)
 			}
 		}
 
 		// Second pass: remove excess attributes (iterate backwards for efficiency)
 		for (let i = fromAttrs.length - 1; i >= 0; i--) {
-			const attr = fromAttrs[i]!
-			const name = attr.name
-			const value = attr.value
+			const { name, value } = fromAttrs[i]!
 
-			if (!to.hasAttribute(name) && (this.options.beforeAttributeUpdated?.(from, name, null) ?? true)) {
-				from.removeAttribute(name)
-				this.options.afterAttributeUpdated?.(from, name, value)
+			if (!to.hasAttribute(name)) {
+				if (name === "selected") {
+					if (isOptionElement(from) && from.selected) {
+						if (!this.options.preserveModified || from.selected === from.defaultSelected) {
+							from.selected = false
+						}
+					}
+				}
+
+				if (name === "checked") {
+					if (isInputElement(from) && from.checked) {
+						if (!this.options.preserveModified || from.checked === from.defaultChecked) {
+							from.checked = false
+						}
+					}
+				}
+
+				if (this.options.beforeAttributeUpdated?.(from, name, null) ?? true) {
+					from.removeAttribute(name)
+					this.options.afterAttributeUpdated?.(from, name, value)
+				}
 			}
 		}
 	}
@@ -266,54 +264,66 @@ class Morph {
 		const fromChildNodes = from.childNodes
 		const toChildNodes = Array.from(to.childNodes)
 
-		const candidates: Set<ChildNode> = new Set(fromChildNodes)
-		const unmatched: Set<ChildNode> = new Set(toChildNodes)
+		const candidateNodes: Set<ChildNode> = new Set()
+		const candidateElements: Set<Element> = new Set()
+
+		const unmatchedNodes: Set<ChildNode> = new Set()
+		const unmatchedElements: Set<Element> = new Set()
 
 		const matches: Map<ChildNode, ChildNode> = new Map()
 
-		// Match by isEqualNode
-		for (const node of unmatched) {
-			for (const candidate of candidates) {
-				if (candidate.isEqualNode(node)) {
-					matches.set(node, candidate)
-					unmatched.delete(node)
-					candidates.delete(candidate)
+		for (const candidate of fromChildNodes) {
+			if (isElement(candidate)) candidateElements.add(candidate)
+			else candidateNodes.add(candidate)
+		}
+
+		for (const node of toChildNodes) {
+			if (isElement(node)) unmatchedElements.add(node)
+			else unmatchedNodes.add(node)
+		}
+
+		// Match elements by isEqualNode
+		for (const element of unmatchedElements) {
+			for (const candidate of candidateElements) {
+				if (candidate.isEqualNode(element)) {
+					matches.set(element, candidate)
+					unmatchedElements.delete(element)
+					candidateElements.delete(candidate)
 					break
 				}
 			}
 		}
 
 		// Match by exact id
-		for (const node of unmatched) {
-			if (!isElement(node)) continue
-			const id = node.id
+		for (const element of unmatchedElements) {
+			const id = element.id
 			if (id === "") continue
 
-			for (const candidate of candidates) {
-				if (isElement(candidate) && node.localName === candidate.localName && id === candidate.id) {
-					matches.set(node, candidate)
-					unmatched.delete(node)
-					candidates.delete(candidate)
+			for (const candidate of candidateElements) {
+				if (element.localName === candidate.localName && id === candidate.id) {
+					matches.set(element, candidate)
+					unmatchedElements.delete(element)
+					candidateElements.delete(candidate)
 					break
 				}
 			}
 		}
 
 		// Match by idSet
-		for (const node of unmatched) {
-			if (!isElement(node)) continue
-			const idSet = this.idMap.get(node)
+		for (const element of unmatchedElements) {
+			if (!isElement(element)) continue
+			const idSet = this.idMap.get(element)
 			if (!idSet) continue
 
-			candidateLoop: for (const candidate of candidates) {
+			candidateLoop: for (const candidate of candidateElements) {
 				if (isElement(candidate)) {
 					const candidateIdSet = this.idMap.get(candidate)
 					if (candidateIdSet) {
 						for (const id of idSet) {
 							if (candidateIdSet.has(id)) {
-								matches.set(node, candidate)
-								unmatched.delete(node)
-								candidates.delete(candidate)
+								matches.set(element, candidate)
+								unmatchedElements.delete(element)
+								candidateElements.delete(candidate)
 								break candidateLoop
 							}
 						}
@@ -323,57 +333,68 @@ class Morph {
 		}
 
 		// Match by huristics
-		for (const node of unmatched) {
-			if (!isElement(node)) continue
-			const className = node.className
-			const name = node.getAttribute("name")
-			const href = node.getAttribute("href")
-			const src = node.getAttribute("src")
+		for (const element of unmatchedElements) {
+			if (!isElement(element)) continue
+			const name = element.getAttribute("name")
+			const href = element.getAttribute("href")
+			const src = element.getAttribute("src")
 
-			for (const candidate of candidates) {
+			for (const candidate of candidateElements) {
 				if (
 					isElement(candidate) &&
-					node.localName === candidate.localName &&
-					((className !== "" && className === candidate.className) ||
-						(name !== "" && name === candidate.getAttribute("name")) ||
+					element.localName === candidate.localName &&
+					((name !== "" && name === candidate.getAttribute("name")) ||
 						(href !== "" && href === candidate.getAttribute("href")) ||
 						(src !== "" && src === candidate.getAttribute("src")))
 				) {
+					matches.set(element, candidate)
+					unmatchedElements.delete(element)
+					candidateElements.delete(candidate)
+					break
+				}
+			}
+		}
+
+		// Match by tagName
+		for (const element of unmatchedElements) {
+			const localName = element.localName
+
+			for (const candidate of candidateElements) {
+				if (localName === candidate.localName) {
+					if (isInputElement(candidate) && isInputElement(element) && candidate.type !== element.type) {
+						// Treat inputs with different type as though they are different tags.
+						continue
+					}
+					matches.set(element, candidate)
+					unmatchedElements.delete(element)
+					candidateElements.delete(candidate)
+					break
+				}
+			}
+		}
+
+		// Match nodes by isEqualNode
+		for (const node of unmatchedNodes) {
+			for (const candidate of candidateNodes) {
+				if (candidate.isEqualNode(node)) {
 					matches.set(node, candidate)
-					unmatched.delete(node)
-					candidates.delete(candidate)
+					unmatchedNodes.delete(node)
+					candidateNodes.delete(candidate)
 					break
 				}
 			}
 		}
 
 		// Match by nodeType
-		for (const node of unmatched) {
+		for (const node of unmatchedNodes) {
 			const nodeType = node.nodeType
 
-			if (isElement(node)) {
-				const localName = node.localName
-
-				for (const candidate of candidates) {
-					if (isElement(candidate) && localName === candidate.localName) {
-						if (isInputElement(candidate) && isInputElement(node) && candidate.type !== node.type) {
-							// Treat inputs with different type as though they are different tags.
-							continue
-						}
-						matches.set(node, candidate)
-						unmatched.delete(node)
-						candidates.delete(candidate)
-						break
-					}
-				}
-			} else {
-				for (const candidate of candidates) {
-					if (nodeType === candidate.nodeType) {
-						matches.set(node, candidate)
-						unmatched.delete(node)
-						candidates.delete(candidate)
-						break
-					}
+			for (const candidate of candidateNodes) {
+				if (nodeType === candidate.nodeType) {
+					matches.set(node, candidate)
+					unmatchedNodes.delete(node)
+					candidateNodes.delete(candidate)
+					break
 				}
 			}
 		}
@@ -388,7 +409,7 @@ class Morph {
 				this.morphOneToOne(match, node)
 				insertionPoint = match.nextSibling
 				// Skip over any nodes that will be removed to avoid unnecessary moves
-				while (insertionPoint && candidates.has(insertionPoint)) {
+				while (insertionPoint && candidateNodes.has(insertionPoint)) {
 					insertionPoint = insertionPoint.nextSibling
 				}
 			} else {
@@ -397,7 +418,7 @@ class Morph {
 					this.options.afterNodeAdded?.(node)
 					insertionPoint = node.nextSibling
 					// Skip over any nodes that will be removed to avoid unnecessary moves
-					while (insertionPoint && candidates.has(insertionPoint)) {
+					while (insertionPoint && candidateNodes.has(insertionPoint)) {
 						insertionPoint = insertionPoint.nextSibling
 					}
 				}
@@ -405,7 +426,11 @@ class Morph {
 		}
 
 		// Remove any remaining unmatched candidates
-		for (const candidate of candidates) {
+		for (const candidate of candidateNodes) {
+			this.removeNode(candidate)
+		}
+
+		for (const candidate of candidateElements) {
 			this.removeNode(candidate)
 		}
 
@@ -459,14 +484,6 @@ class Morph {
 
 function supportsMoveBefore(_node: ParentNode): _node is NodeWithMoveBefore {
 	return SupportsMoveBefore
-}
-
-function isDisablableElement(element: Element): element is DisablableElement {
-	return DisablableElements.has(element.localName)
-}
-
-function isValuableElement(element: Element): element is ValuableElement {
-	return ValuableElements.has(element.localName)
 }
 
 function isMatchingElementPair(pair: PairOfNodes<Element>): pair is PairOfMatchingElements<Element> {
