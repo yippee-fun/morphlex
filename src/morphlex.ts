@@ -40,7 +40,7 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 
 	const pair: PairOfNodes<Node> = [from, to]
 	if (isElementPair(pair) && isMatchingElementPair(pair)) {
-		new Morph(options).morphChildren(pair)
+		new Morph(options).visitChildNodes(pair)
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
 	}
@@ -132,8 +132,15 @@ class Morph {
 	}
 
 	private morphMatchingElements(pair: PairOfMatchingElements<Element>): void {
-		this.visitAttributes(pair)
-		this.morphChildren(pair)
+		const [from, to] = pair
+
+		if (from.hasAttributes() || to.hasAttributes()) {
+			this.visitAttributes(pair)
+		}
+
+		if (from.hasChildNodes() || to.hasChildNodes()) {
+			this.visitChildNodes(pair)
+		}
 	}
 
 	private morphNonMatchingElements([from, to]: PairOfNodes<Element>): void {
@@ -152,7 +159,7 @@ class Morph {
 
 	private visitAttributes([from, to]: PairOfMatchingElements<Element>): void {
 		const isInput = isInputElement(from) && isInputElement(to)
-		const isOption = isInput ? false : isOptionElement(from)
+		const isOption = isOptionElement(from) && isOptionElement(to)
 
 		const toAttrs = to.attributes
 		const fromAttrs = from.attributes
@@ -164,8 +171,34 @@ class Morph {
 			const value = attr.value
 			const oldValue = from.getAttribute(name)
 
-			if (isInput && (name === "value" || name === "checked" || name === "indeterminate")) continue
-			if (isOption && name === "selected") continue
+			if (isInput) {
+				if (name === "value" || name === "checked" || name === "indeterminate") {
+					continue
+				} else if (name === "morph-value" && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
+					from.setAttribute(name, value)
+					from.value = value
+					this.options.afterAttributeUpdated?.(from, name, oldValue)
+					continue
+				} else if (name === "morph-checked" && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
+					from.setAttribute(name, value)
+					from.checked = value === "true"
+					this.options.afterAttributeUpdated?.(from, name, oldValue)
+					continue
+				} else if (name === "morph-indeterminate" && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
+					from.setAttribute(name, value)
+					from.indeterminate = value === "true"
+					this.options.afterAttributeUpdated?.(from, name, oldValue)
+					continue
+				}
+			} else if (isOption) {
+				if (name === "selected") {
+					continue
+				} else if (name === "morph-selected") {
+					from.setAttribute(name, value)
+					from.selected = value === "true"
+					this.options.afterAttributeUpdated?.(from, name, oldValue)
+				}
+			}
 
 			if (oldValue !== value && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
 				from.setAttribute(name, value)
@@ -191,47 +224,8 @@ class Morph {
 		}
 	}
 
-	morphChildren(pair: PairOfMatchingElements<Element>): void {
-		const [node, reference] = pair
-		if (!(this.options.beforeChildrenVisited?.(node) ?? true)) return
-
-		if (isHeadElement(node)) {
-			this.morphHeadChildren(pair as PairOfMatchingElements<HTMLHeadElement>)
-		} else if (node.hasChildNodes() || reference.hasChildNodes()) {
-			this.morphChildNodes(pair)
-		}
-
-		this.options.afterChildrenVisited?.(node)
-	}
-
-	// TODO: Review this.
-	private morphHeadChildren([node, reference]: PairOfMatchingElements<HTMLHeadElement>): void {
-		const refChildNodesMap: Map<string, Element> = new Map()
-
-		// Generate a map of the reference head element’s child nodes, keyed by their outerHTML.
-		const referenceChildrenLength = reference.children.length
-		for (let i = 0; i < referenceChildrenLength; i++) {
-			const child = reference.children[i]!
-			refChildNodesMap.set(child.outerHTML, child)
-		}
-
-		// Iterate backwards to safely remove children without affecting indices
-		for (let i = node.children.length - 1; i >= 0; i--) {
-			const child = node.children[i]!
-			const key = child.outerHTML
-			const refChild = refChildNodesMap.get(key)
-
-			// If the child is in the reference map already, we don't need to add it later.
-			// If it's not in the map, we need to remove it from the node.
-			if (refChild) refChildNodesMap.delete(key)
-			else this.removeNode(child)
-		}
-
-		// Any remaining nodes in the map should be appended to the head.
-		for (const refChild of refChildNodesMap.values()) this.appendChild(node, refChild)
-	}
-
-	private morphChildNodes([from, to]: PairOfMatchingElements<Element>): void {
+	visitChildNodes([from, to]: PairOfMatchingElements<Element>): void {
+		if (!(this.options.beforeChildrenVisited?.(from) ?? true)) return
 		const parent = from
 
 		const fromChildNodes = from.childNodes
@@ -298,6 +292,7 @@ class Morph {
 			const ariaLabel = node.getAttribute("aria-label")
 			const ariaDescription = node.getAttribute("aria-description")
 			const href = node.getAttribute("href")
+			const src = node.getAttribute("src")
 
 			for (const candidate of candidates) {
 				if (
@@ -307,7 +302,8 @@ class Morph {
 						(name !== "" && name === candidate.getAttribute("name")) ||
 						(ariaLabel !== "" && ariaLabel === candidate.getAttribute("aria-label")) ||
 						(ariaDescription !== "" && ariaDescription === candidate.getAttribute("aria-description")) ||
-						(href !== "" && href === candidate.getAttribute("href")))
+						(href !== "" && href === candidate.getAttribute("href")) ||
+						(src !== "" && src === candidate.getAttribute("src")))
 				) {
 					matches.set(node, candidate)
 					unmatched.delete(node)
@@ -378,6 +374,8 @@ class Morph {
 		for (const candidate of candidates) {
 			this.removeNode(candidate)
 		}
+
+		this.options.afterChildrenVisited?.(from)
 	}
 
 	private replaceNode(node: ChildNode, newNode: ChildNode): void {
@@ -387,14 +385,6 @@ class Morph {
 			moveBefore(parent, newNode, insertionPoint)
 			this.options.afterNodeAdded?.(newNode)
 			this.removeNode(node)
-		}
-	}
-
-	private appendChild(parent: ParentNode, newChild: ChildNode): void {
-		const insertionPoint = null
-		if (this.options.beforeNodeAdded?.(parent, newChild, insertionPoint) ?? true) {
-			moveBefore(parent, newChild, insertionPoint)
-			this.options.afterNodeAdded?.(newChild)
 		}
 	}
 
@@ -453,10 +443,6 @@ function isInputElement(element: Element): element is HTMLInputElement {
 
 function isOptionElement(element: Element): element is HTMLOptionElement {
 	return element.localName === "option"
-}
-
-function isHeadElement(element: Element): element is HTMLHeadElement {
-	return element.localName === "head"
 }
 
 function isParentNode(node: Node): node is ParentNode {
