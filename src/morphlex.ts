@@ -12,7 +12,7 @@ type PairOfMatchingElements<E extends Element> = Branded<PairOfNodes<E>, "Matchi
 interface Options {
 	beforeNodeVisited?: (fromNode: Node, toNode: Node) => boolean
 	afterNodeVisited?: (fromNode: Node, toNode: Node) => void
-	beforeNodeAdded?: (node: Node) => boolean
+	beforeNodeAdded?: (parent: ParentNode, node: Node, insertionPoint: ChildNode | null) => boolean
 	afterNodeAdded?: (node: Node) => void
 	beforeNodeRemoved?: (node: Node) => boolean
 	afterNodeRemoved?: (node: Node) => void
@@ -101,7 +101,7 @@ class Morph {
 			const parent = from.parentNode || document
 
 			for (const newNode of newNodes) {
-				if (this.options.beforeNodeAdded?.(newNode) ?? true) {
+				if (this.options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true) {
 					moveBefore(parent, newNode, insertionPoint)
 					this.options.afterNodeAdded?.(newNode)
 				}
@@ -362,7 +362,7 @@ class Morph {
 					insertionPoint = insertionPoint.nextSibling
 				}
 			} else {
-				if (this.options.beforeNodeAdded?.(node) ?? true) {
+				if (this.options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true) {
 					moveBefore(parent, node, insertionPoint)
 					this.options.afterNodeAdded?.(node)
 					insertionPoint = node.nextSibling
@@ -381,16 +381,19 @@ class Morph {
 	}
 
 	private replaceNode(node: ChildNode, newNode: ChildNode): void {
-		if (this.options.beforeNodeAdded?.(newNode) ?? true) {
-			moveBefore(node.parentNode || document, newNode, node)
+		const parent = node.parentNode || document
+		const insertionPoint = node
+		if (this.options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true) {
+			moveBefore(parent, newNode, insertionPoint)
 			this.options.afterNodeAdded?.(newNode)
 			this.removeNode(node)
 		}
 	}
 
 	private appendChild(parent: ParentNode, newChild: ChildNode): void {
-		if (this.options.beforeNodeAdded?.(newChild) ?? true) {
-			moveBefore(parent, newChild, null)
+		const insertionPoint = null
+		if (this.options.beforeNodeAdded?.(parent, newChild, insertionPoint) ?? true) {
+			moveBefore(parent, newChild, insertionPoint)
 			this.options.afterNodeAdded?.(newChild)
 		}
 	}

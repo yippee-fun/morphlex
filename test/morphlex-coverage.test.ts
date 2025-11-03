@@ -683,7 +683,7 @@ describe("Morphlex - Coverage Tests", () => {
 					let afterCalled = false
 
 					morph(parent, reference, {
-						beforeNodeAdded: (node) => {
+						beforeNodeAdded: (_parent, node, _insertionPoint) => {
 							if ((node as Element).tagName === "CUSTOM-ELEMENT") {
 								beforeCalled = true
 								return true // Line 387-388
