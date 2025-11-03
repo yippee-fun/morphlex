@@ -115,8 +115,8 @@ describe("Morphdom-style fixture tests", () => {
 
 			morph(from, to)
 
-			// Input values are no longer updated by morphlex
-			expect((from as HTMLInputElement).value).toBe("Hello")
+			// Input values are updated by default when not modified
+			expect((from as HTMLInputElement).value).toBe("World")
 		})
 
 		it("should add disabled attribute to input", () => {
@@ -182,10 +182,10 @@ describe("Morphdom-style fixture tests", () => {
 
 			morph(from, to)
 
-			// Selected options are no longer updated by morphlex
+			// Selected options are updated by default when not modified
 			const select = from as HTMLSelectElement
-			expect(select.value).toBe("1")
-			expect(select.options[1].selected).toBe(false)
+			expect(select.value).toBe("2")
+			expect(select.options[1].selected).toBe(true)
 		})
 	})
 

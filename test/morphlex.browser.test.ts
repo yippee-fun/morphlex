@@ -601,9 +601,10 @@ describe("Morphlex Browser Tests", () => {
 
 			morph(select, referenceSelect)
 
-			// Selected attributes are no longer updated
-			expect(select.selectedOptions.length).toBe(1)
+			// Selected attributes are updated by default when not modified
+			expect(select.selectedOptions.length).toBe(2)
 			expect(select.selectedOptions[0].value).toBe("2")
+			expect(select.selectedOptions[1].value).toBe("3")
 		})
 
 		it("should handle script tags safely", () => {
@@ -688,9 +689,9 @@ describe("Morphlex Browser Tests", () => {
 			morph(form, referenceForm)
 
 			const radioB = form.querySelector("#radio-b") as HTMLInputElement
-			// Checked attribute is removed but not added - radioA loses its checked state
+			// Checked attributes are updated by default when not modified
 			expect(radioA.checked).toBe(false)
-			expect(radioB.checked).toBe(false)
+			expect(radioB.checked).toBe(true)
 		})
 
 		it("should handle contenteditable elements", () => {

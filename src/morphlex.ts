@@ -185,19 +185,12 @@ class Morph {
 	}
 
 	private visitAttributes([from, to]: PairOfMatchingElements<Element>): void {
-		const fromAttrs = from.attributes
+		if (from.hasAttribute("morphlex-dirty")) {
+			from.removeAttribute("morphlex-dirty")
+		}
 
 		// First pass: update/add attributes from reference (iterate forwards)
 		for (const { name, value } of to.attributes) {
-			console.log(from, name)
-			const oldValue = from.getAttribute(name)
-
-			// This attribute was only added to trigger attribute morphing.
-			if (name === "morphlex-dirty") {
-				from.removeAttribute(name)
-				continue
-			}
-
 			if (name === "value") {
 				if (isInputElement(from) && from.value !== value) {
 					if (!this.options.preserveModified || from.value === from.defaultValue) {
@@ -222,11 +215,15 @@ class Morph {
 				}
 			}
 
+			const oldValue = from.getAttribute(name)
+
 			if (oldValue !== value && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
 				from.setAttribute(name, value)
 				this.options.afterAttributeUpdated?.(from, name, oldValue)
 			}
 		}
+
+		const fromAttrs = from.attributes
 
 		// Second pass: remove excess attributes (iterate backwards for efficiency)
 		for (let i = fromAttrs.length - 1; i >= 0; i--) {
