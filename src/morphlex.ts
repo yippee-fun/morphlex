@@ -101,16 +101,16 @@ function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNo
 }
 
 class Morph {
-	private readonly idMap: IdMap = new WeakMap()
-	private readonly options: Options
+	readonly #idMap: IdMap = new WeakMap()
+	readonly #options: Options
 
 	constructor(options: Options = {}) {
-		this.options = options
+		this.#options = options
 	}
 
 	// Find longest increasing subsequence to minimize moves during reordering
 	// Returns the indices in the sequence that form the LIS
-	private longestIncreasingSubsequence(sequence: Array<number>): Array<number> {
+	#longestIncreasingSubsequence(sequence: Array<number>): Array<number> {
 		const n = sequence.length
 		if (n === 0) return []
 
@@ -167,89 +167,89 @@ class Morph {
 
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
 		if (isParentNode(from)) {
-			this.mapIdSets(from)
+			this.#mapIdSets(from)
 		}
 
 		if (to instanceof NodeList) {
-			this.mapIdSetsForEach(to)
-			this.morphOneToMany(from, to)
+			this.#mapIdSetsForEach(to)
+			this.#morphOneToMany(from, to)
 		} else if (isParentNode(to)) {
-			this.mapIdSets(to)
-			this.morphOneToOne(from, to)
+			this.#mapIdSets(to)
+			this.#morphOneToOne(from, to)
 		}
 	}
 
-	private morphOneToMany(from: ChildNode, to: NodeListOf<ChildNode>): void {
+	#morphOneToMany(from: ChildNode, to: NodeListOf<ChildNode>): void {
 		const length = to.length
 
 		if (length === 0) {
-			this.removeNode(from)
+			this.#removeNode(from)
 		} else if (length === 1) {
-			this.morphOneToOne(from, to[0]!)
+			this.#morphOneToOne(from, to[0]!)
 		} else if (length > 1) {
 			const newNodes = Array.from(to)
-			this.morphOneToOne(from, newNodes.shift()!)
+			this.#morphOneToOne(from, newNodes.shift()!)
 			const insertionPoint = from.nextSibling
 			const parent = from.parentNode || document
 
 			for (const newNode of newNodes) {
-				if (this.options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true) {
+				if (this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true) {
 					moveBefore(parent, newNode, insertionPoint)
-					this.options.afterNodeAdded?.(newNode)
+					this.#options.afterNodeAdded?.(newNode)
 				}
 			}
 		}
 	}
 
-	private morphOneToOne(from: ChildNode, to: ChildNode): void {
+	#morphOneToOne(from: ChildNode, to: ChildNode): void {
 		// Fast path: if nodes are exactly the same object, skip morphing
 		if (from === to) return
 		if (from.isEqualNode?.(to)) return
 
-		if (!(this.options.beforeNodeVisited?.(from, to) ?? true)) return
+		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) return
 
 		const pair: PairOfNodes<ChildNode> = [from, to]
 
 		if (isElementPair(pair)) {
 			if (isMatchingElementPair(pair)) {
-				this.morphMatchingElements(pair)
+				this.#morphMatchingElements(pair)
 			} else {
-				this.morphNonMatchingElements(pair)
+				this.#morphNonMatchingElements(pair)
 			}
 		} else {
-			this.morphOtherNode(pair)
+			this.#morphOtherNode(pair)
 		}
 
-		this.options.afterNodeVisited?.(from, to)
+		this.#options.afterNodeVisited?.(from, to)
 	}
 
-	private morphMatchingElements(pair: PairOfMatchingElements<Element>): void {
+	#morphMatchingElements(pair: PairOfMatchingElements<Element>): void {
 		const [from, to] = pair
 
 		if (from.hasAttributes() || to.hasAttributes()) {
-			this.visitAttributes(pair)
+			this.#visitAttributes(pair)
 		}
 
 		if (isTextAreaElement(from) && isTextAreaElement(to)) {
-			this.visitTextArea(pair as PairOfMatchingElements<HTMLTextAreaElement>)
+			this.#visitTextArea(pair as PairOfMatchingElements<HTMLTextAreaElement>)
 		} else if (from.hasChildNodes() || to.hasChildNodes()) {
 			this.visitChildNodes(pair)
 		}
 	}
 
-	private morphNonMatchingElements([from, to]: PairOfNodes<Element>): void {
-		this.replaceNode(from, to)
+	#morphNonMatchingElements([from, to]: PairOfNodes<Element>): void {
+		this.#replaceNode(from, to)
 	}
 
-	private morphOtherNode([from, to]: PairOfNodes<ChildNode>): void {
+	#morphOtherNode([from, to]: PairOfNodes<ChildNode>): void {
 		if (from.nodeType === to.nodeType && from.nodeValue !== null && to.nodeValue !== null) {
 			from.nodeValue = to.nodeValue
 		} else {
-			this.replaceNode(from, to)
+			this.#replaceNode(from, to)
 		}
 	}
 
-	private visitAttributes([from, to]: PairOfMatchingElements<Element>): void {
+	#visitAttributes([from, to]: PairOfMatchingElements<Element>): void {
 		if (from.hasAttribute("morphlex-dirty")) {
 			from.removeAttribute("morphlex-dirty")
 		}
@@ -258,7 +258,7 @@ class Morph {
 		for (const { name, value } of to.attributes) {
 			if (name === "value") {
 				if (isInputElement(from) && from.value !== value) {
-					if (!this.options.preserveModified || from.value === from.defaultValue) {
+					if (!this.#options.preserveModified || from.value === from.defaultValue) {
 						from.value = value
 					}
 				}
@@ -266,7 +266,7 @@ class Morph {
 
 			if (name === "selected") {
 				if (isOptionElement(from) && !from.selected) {
-					if (!this.options.preserveModified || from.selected === from.defaultSelected) {
+					if (!this.#options.preserveModified || from.selected === from.defaultSelected) {
 						from.selected = true
 					}
 				}
@@ -274,7 +274,7 @@ class Morph {
 
 			if (name === "checked") {
 				if (isInputElement(from) && !from.checked) {
-					if (!this.options.preserveModified || from.checked === from.defaultChecked) {
+					if (!this.#options.preserveModified || from.checked === from.defaultChecked) {
 						from.checked = true
 					}
 				}
@@ -282,9 +282,9 @@ class Morph {
 
 			const oldValue = from.getAttribute(name)
 
-			if (oldValue !== value && (this.options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
+			if (oldValue !== value && (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
 				from.setAttribute(name, value)
-				this.options.afterAttributeUpdated?.(from, name, oldValue)
+				this.#options.afterAttributeUpdated?.(from, name, oldValue)
 			}
 		}
 
@@ -297,7 +297,7 @@ class Morph {
 			if (!to.hasAttribute(name)) {
 				if (name === "selected") {
 					if (isOptionElement(from) && from.selected) {
-						if (!this.options.preserveModified || from.selected === from.defaultSelected) {
+						if (!this.#options.preserveModified || from.selected === from.defaultSelected) {
 							from.selected = false
 						}
 					}
@@ -305,21 +305,21 @@ class Morph {
 
 				if (name === "checked") {
 					if (isInputElement(from) && from.checked) {
-						if (!this.options.preserveModified || from.checked === from.defaultChecked) {
+						if (!this.#options.preserveModified || from.checked === from.defaultChecked) {
 							from.checked = false
 						}
 					}
 				}
 
-				if (this.options.beforeAttributeUpdated?.(from, name, null) ?? true) {
+				if (this.#options.beforeAttributeUpdated?.(from, name, null) ?? true) {
 					from.removeAttribute(name)
-					this.options.afterAttributeUpdated?.(from, name, value)
+					this.#options.afterAttributeUpdated?.(from, name, value)
 				}
 			}
 		}
 	}
 
-	private visitTextArea([from, to]: PairOfMatchingElements<HTMLTextAreaElement>): void {
+	#visitTextArea([from, to]: PairOfMatchingElements<HTMLTextAreaElement>): void {
 		const newTextContent = to.textContent || ""
 		const isModified = from.value !== from.defaultValue
 
@@ -328,13 +328,13 @@ class Morph {
 			from.textContent = newTextContent
 		}
 
-		if (this.options.preserveModified && isModified) return
+		if (this.#options.preserveModified && isModified) return
 
 		from.value = from.defaultValue
 	}
 
 	visitChildNodes([from, to]: PairOfMatchingElements<Element>): void {
-		if (!(this.options.beforeChildrenVisited?.(from) ?? true)) return
+		if (!(this.#options.beforeChildrenVisited?.(from) ?? true)) return
 		const parent = from
 
 		const fromChildNodes = from.childNodes
@@ -388,12 +388,12 @@ class Morph {
 			const element = toChildNodes[i]!
 			if (!isElement(element)) continue
 
-			const idSet = this.idMap.get(element)
+			const idSet = this.#idMap.get(element)
 			if (!idSet) continue
 
 			candidateLoop: for (const candidate of candidateElements) {
 				if (isElement(candidate)) {
-					const candidateIdSet = this.idMap.get(candidate)
+					const candidateIdSet = this.#idMap.get(candidate)
 					if (candidateIdSet) {
 						for (const id of idSet) {
 							if (candidateIdSet.has(id)) {
@@ -500,7 +500,7 @@ class Morph {
 		}
 
 		// Find LIS - these nodes don't need to move
-		const lisIndices = this.longestIncreasingSubsequence(sequence)
+		const lisIndices = this.#longestIncreasingSubsequence(sequence)
 		const shouldNotMove = new Set<number>()
 		for (const idx of lisIndices) {
 			shouldNotMove.add(sequence[idx]!)
@@ -517,7 +517,7 @@ class Morph {
 				if (!shouldNotMove.has(matchIndex)) {
 					moveBefore(parent, match, insertionPoint)
 				}
-				this.morphOneToOne(match, node)
+				this.#morphOneToOne(match, node)
 				insertionPoint = match.nextSibling
 				// Skip over any nodes that will be removed to avoid unnecessary moves
 				while (
@@ -527,9 +527,9 @@ class Morph {
 					insertionPoint = insertionPoint.nextSibling
 				}
 			} else {
-				if (this.options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true) {
+				if (this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true) {
 					moveBefore(parent, node, insertionPoint)
-					this.options.afterNodeAdded?.(node)
+					this.#options.afterNodeAdded?.(node)
 					insertionPoint = node.nextSibling
 					// Skip over any nodes that will be removed to avoid unnecessary moves
 					while (
@@ -544,43 +544,43 @@ class Morph {
 
 		// Remove any remaining unmatched candidates
 		for (const candidate of candidateNodes) {
-			this.removeNode(candidate)
+			this.#removeNode(candidate)
 		}
 
 		for (const candidate of candidateElements) {
-			this.removeNode(candidate)
+			this.#removeNode(candidate)
 		}
 
-		this.options.afterChildrenVisited?.(from)
+		this.#options.afterChildrenVisited?.(from)
 	}
 
-	private replaceNode(node: ChildNode, newNode: ChildNode): void {
+	#replaceNode(node: ChildNode, newNode: ChildNode): void {
 		const parent = node.parentNode || document
 		const insertionPoint = node
-		if (this.options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true) {
+		if (this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true) {
 			moveBefore(parent, newNode, insertionPoint)
-			this.options.afterNodeAdded?.(newNode)
-			this.removeNode(node)
+			this.#options.afterNodeAdded?.(newNode)
+			this.#removeNode(node)
 		}
 	}
 
-	private removeNode(node: ChildNode): void {
-		if (this.options.beforeNodeRemoved?.(node) ?? true) {
+	#removeNode(node: ChildNode): void {
+		if (this.#options.beforeNodeRemoved?.(node) ?? true) {
 			node.remove()
-			this.options.afterNodeRemoved?.(node)
+			this.#options.afterNodeRemoved?.(node)
 		}
 	}
 
-	private mapIdSetsForEach(nodeList: NodeList): void {
+	#mapIdSetsForEach(nodeList: NodeList): void {
 		for (const childNode of nodeList) {
 			if (isParentNode(childNode)) {
-				this.mapIdSets(childNode)
+				this.#mapIdSets(childNode)
 			}
 		}
 	}
 
 	// For each node with an ID, push that ID into the IdSet on the IdMap, for each of its parent elements.
-	private mapIdSets(node: ParentNode): void {
+	#mapIdSets(node: ParentNode): void {
 		for (const elementWithId of node.querySelectorAll("[id]")) {
 			const id = elementWithId.id
 
@@ -589,9 +589,9 @@ class Morph {
 			let currentElement: Element | null = elementWithId
 
 			while (currentElement) {
-				const idSet: IdSet | undefined = this.idMap.get(currentElement)
+				const idSet: IdSet | undefined = this.#idMap.get(currentElement)
 				if (idSet) idSet.add(id)
-				else this.idMap.set(currentElement, new Set([id]))
+				else this.#idMap.set(currentElement, new Set([id]))
 				if (currentElement === node) break
 				currentElement = currentElement.parentElement
 			}
