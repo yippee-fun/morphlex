@@ -9,7 +9,6 @@
 		"removeComments": false,
 		"outDir": "dist",
 		"skipLibCheck": true,
-		"baseUrl": ".",
 		"noEmit": false,
 		"declaration": true,
 		"esModuleInterop": true,

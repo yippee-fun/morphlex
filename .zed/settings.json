@@ -1,4 +1,27 @@
 {
 	"hard_tabs": true,
-	"format_on_save": "on"
+	"format_on_save": "on",
+	"lsp": {
+		"typescript-language-server": {
+			"initialization_options": {
+				"preferences": {
+					"experimental": {
+						"useTsgo": true
+					}
+				}
+			}
+		},
+		"oxc": {
+			"initialization_options": {
+				"options": {
+					"run": "onType",
+					"configPath": null,
+					"tsConfigPath": null,
+					"unusedDisableDirectives": "deny",
+					"typeAware": true,
+					"flags": {}
+				}
+			}
+		}
+	}
 }

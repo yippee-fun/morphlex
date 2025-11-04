@@ -17,6 +17,7 @@
 	},
 	"scripts": {
 		"build": "bun run build.ts",
+		"lint": "bun run oxlint --type-aware",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:ui": "vitest --ui",
@@ -27,14 +28,16 @@
 	},
 	"devDependencies": {
 		"@types/bun": "^1.3.1",
-		"@vitest/browser": "^4.0.5",
-		"@vitest/browser-playwright": "^4.0.5",
-		"@vitest/coverage-v8": "^4.0.5",
-		"@vitest/ui": "^4.0.5",
+		"@typescript/native-preview": "^7.0.0-dev.20251104.1",
+		"@vitest/browser": "^4.0.6",
+		"@vitest/browser-playwright": "^4.0.6",
+		"@vitest/coverage-v8": "^4.0.6",
+		"@vitest/ui": "^4.0.6",
 		"happy-dom": "^20.0.10",
-		"prettier": "^3.2.5",
-		"typescript": "^5.4.2",
-		"typescript-eslint": "^7.0.2",
-		"vitest": "^4.0.5"
+		"oxlint": "^1.25.0",
+		"oxlint-tsgolint": "^0.4.0",
+		"prettier": "^3.6.2",
+		"typescript": "^5.9.3",
+		"vitest": "^4.0.6"
 	}
 }

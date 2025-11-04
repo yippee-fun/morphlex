@@ -13,7 +13,7 @@ await build({
 })
 
 // Generate TypeScript declarations (skip lib check to avoid node type errors)
-await $`tsc --emitDeclarationOnly --declaration --outDir dist --skipLibCheck`
+await $`tsgo --emitDeclarationOnly --declaration --outDir dist --skipLibCheck`
 
 // Calculate and display file sizes
 const minifiedPath = "./dist/morphlex.min.js"
