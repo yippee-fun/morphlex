@@ -1,16 +1,11 @@
 import { test, expect, describe } from "vitest"
-import { morph } from "../src/morphlex"
-
-function parseHTML(html: string): HTMLElement {
-	const tmp = document.createElement("div")
-	tmp.innerHTML = html.trim()
-	return tmp.firstChild as HTMLElement
-}
+import { morph } from "../../src/morphlex"
+import { dom } from "./utils"
 
 describe("text input", () => {
 	test("morphing a modified value with preserveModified enabled", () => {
-		const a = parseHTML(`<input type="text" value="a">`) as HTMLInputElement
-		const b = parseHTML(`<input type="text" value="b">`) as HTMLInputElement
+		const a = dom(`<input type="text" value="a">`) as HTMLInputElement
+		const b = dom(`<input type="text" value="b">`) as HTMLInputElement
 
 		a.value = "c"
 		morph(a, b, { preserveModified: true })
@@ -20,8 +15,8 @@ describe("text input", () => {
 	})
 
 	test("morphing a modified value preserveModified disabled", () => {
-		const a = parseHTML(`<input type="text" value="a">`) as HTMLInputElement
-		const b = parseHTML(`<input type="text" value="b">`) as HTMLInputElement
+		const a = dom(`<input type="text" value="a">`) as HTMLInputElement
+		const b = dom(`<input type="text" value="b">`) as HTMLInputElement
 
 		a.value = "c"
 		morph(a, b, { preserveModified: false })
@@ -31,8 +26,8 @@ describe("text input", () => {
 	})
 
 	test("morphing an unmodified value with preserveModified enabled", () => {
-		const a = parseHTML(`<input type="text" value="a">`) as HTMLInputElement
-		const b = parseHTML(`<input type="text" value="b">`) as HTMLInputElement
+		const a = dom(`<input type="text" value="a">`) as HTMLInputElement
+		const b = dom(`<input type="text" value="b">`) as HTMLInputElement
 
 		morph(a, b, { preserveModified: true })
 
@@ -43,8 +38,8 @@ describe("text input", () => {
 
 describe("checkbox", () => {
 	test("morphing a modified checkbox checked with preserveModified enabled", () => {
-		const a = parseHTML(`<input type="checkbox">`) as HTMLInputElement
-		const b = parseHTML(`<input type="checkbox" checked>`) as HTMLInputElement
+		const a = dom(`<input type="checkbox">`) as HTMLInputElement
+		const b = dom(`<input type="checkbox" checked>`) as HTMLInputElement
 
 		a.checked = true
 		morph(a, b, { preserveModified: true })
@@ -54,8 +49,8 @@ describe("checkbox", () => {
 	})
 
 	test("morphing a modified checkbox checked with preserveModified disabled", () => {
-		const a = parseHTML(`<input type="checkbox">`) as HTMLInputElement
-		const b = parseHTML(`<input type="checkbox" checked>`) as HTMLInputElement
+		const a = dom(`<input type="checkbox">`) as HTMLInputElement
+		const b = dom(`<input type="checkbox" checked>`) as HTMLInputElement
 
 		a.checked = true
 		morph(a, b, { preserveModified: false })
@@ -65,8 +60,8 @@ describe("checkbox", () => {
 	})
 
 	test("morphing an unmodified checkbox with preserveModified enabled", () => {
-		const a = parseHTML(`<input type="checkbox">`) as HTMLInputElement
-		const b = parseHTML(`<input type="checkbox" checked>`) as HTMLInputElement
+		const a = dom(`<input type="checkbox">`) as HTMLInputElement
+		const b = dom(`<input type="checkbox" checked>`) as HTMLInputElement
 
 		morph(a, b, { preserveModified: true })
 
@@ -75,8 +70,8 @@ describe("checkbox", () => {
 	})
 
 	test("morphing a modified checkbox unchecked with preserveModified enabled", () => {
-		const a = parseHTML(`<input type="checkbox" checked>`) as HTMLInputElement
-		const b = parseHTML(`<input type="checkbox">`) as HTMLInputElement
+		const a = dom(`<input type="checkbox" checked>`) as HTMLInputElement
+		const b = dom(`<input type="checkbox">`) as HTMLInputElement
 
 		a.checked = false
 		morph(a, b, { preserveModified: true })
@@ -86,8 +81,8 @@ describe("checkbox", () => {
 	})
 
 	test("morphing a modified checkbox unchecked with preserveModified disabled", () => {
-		const a = parseHTML(`<input type="checkbox" checked>`) as HTMLInputElement
-		const b = parseHTML(`<input type="checkbox">`) as HTMLInputElement
+		const a = dom(`<input type="checkbox" checked>`) as HTMLInputElement
+		const b = dom(`<input type="checkbox">`) as HTMLInputElement
 
 		a.checked = false
 		morph(a, b, { preserveModified: false })
@@ -99,8 +94,8 @@ describe("checkbox", () => {
 
 describe("select", () => {
 	test("morphing a modified select option with preserveModified enabled", () => {
-		const a = parseHTML(`<select><option value="a">A</option><option value="b">B</option></select>`) as HTMLSelectElement
-		const b = parseHTML(`<select><option value="a">A</option><option value="b" selected>B</option></select>`) as HTMLSelectElement
+		const a = dom(`<select><option value="a">A</option><option value="b">B</option></select>`) as HTMLSelectElement
+		const b = dom(`<select><option value="a">A</option><option value="b" selected>B</option></select>`) as HTMLSelectElement
 
 		a.value = "b"
 		morph(a, b, { preserveModified: true })
@@ -111,8 +106,8 @@ describe("select", () => {
 	})
 
 	test("morphing a modified select option with preserveModified disabled", () => {
-		const a = parseHTML(`<select><option value="a">A</option><option value="b">B</option></select>`) as HTMLSelectElement
-		const b = parseHTML(`<select><option value="a">A</option><option value="b" selected>B</option></select>`) as HTMLSelectElement
+		const a = dom(`<select><option value="a">A</option><option value="b">B</option></select>`) as HTMLSelectElement
+		const b = dom(`<select><option value="a">A</option><option value="b" selected>B</option></select>`) as HTMLSelectElement
 
 		a.value = "b"
 		morph(a, b, { preserveModified: false })
@@ -123,8 +118,8 @@ describe("select", () => {
 	})
 
 	test("morphing an unmodified select option with preserveModified enabled", () => {
-		const a = parseHTML(`<select><option value="a">A</option><option value="b">B</option></select>`) as HTMLSelectElement
-		const b = parseHTML(`<select><option value="a">A</option><option value="b" selected>B</option></select>`) as HTMLSelectElement
+		const a = dom(`<select><option value="a">A</option><option value="b">B</option></select>`) as HTMLSelectElement
+		const b = dom(`<select><option value="a">A</option><option value="b" selected>B</option></select>`) as HTMLSelectElement
 
 		morph(a, b, { preserveModified: true })
 
@@ -134,8 +129,8 @@ describe("select", () => {
 	})
 
 	test("morphing a modified select option back to default with preserveModified enabled", () => {
-		const a = parseHTML(`<select><option value="a">A</option><option value="b" selected>B</option></select>`) as HTMLSelectElement
-		const b = parseHTML(`<select><option value="a">A</option><option value="b">B</option></select>`) as HTMLSelectElement
+		const a = dom(`<select><option value="a">A</option><option value="b" selected>B</option></select>`) as HTMLSelectElement
+		const b = dom(`<select><option value="a">A</option><option value="b">B</option></select>`) as HTMLSelectElement
 
 		a.value = "a"
 		morph(a, b, { preserveModified: true })
@@ -146,8 +141,8 @@ describe("select", () => {
 	})
 
 	test("morphing a modified select option back to default with preserveModified disabled", () => {
-		const a = parseHTML(`<select><option value="a">A</option><option value="b" selected>B</option></select>`) as HTMLSelectElement
-		const b = parseHTML(`<select><option value="a">A</option><option value="b">B</option></select>`) as HTMLSelectElement
+		const a = dom(`<select><option value="a">A</option><option value="b" selected>B</option></select>`) as HTMLSelectElement
+		const b = dom(`<select><option value="a">A</option><option value="b">B</option></select>`) as HTMLSelectElement
 
 		a.value = "a"
 		morph(a, b, { preserveModified: false })
@@ -160,8 +155,8 @@ describe("select", () => {
 
 describe("textarea", () => {
 	test("morphing a modified textarea value with preserveModified enabled", () => {
-		const a = parseHTML(`<textarea>a</textarea>`) as HTMLTextAreaElement
-		const b = parseHTML(`<textarea>b</textarea>`) as HTMLTextAreaElement
+		const a = dom(`<textarea>a</textarea>`) as HTMLTextAreaElement
+		const b = dom(`<textarea>b</textarea>`) as HTMLTextAreaElement
 
 		a.value = "c"
 		morph(a, b, { preserveModified: true })
@@ -171,8 +166,8 @@ describe("textarea", () => {
 	})
 
 	test("morphing a modified textarea value with preserveModified disabled", () => {
-		const a = parseHTML(`<textarea>a</textarea>`) as HTMLTextAreaElement
-		const b = parseHTML(`<textarea>b</textarea>`) as HTMLTextAreaElement
+		const a = dom(`<textarea>a</textarea>`) as HTMLTextAreaElement
+		const b = dom(`<textarea>b</textarea>`) as HTMLTextAreaElement
 
 		a.value = "c"
 		morph(a, b, { preserveModified: false })
@@ -182,8 +177,8 @@ describe("textarea", () => {
 	})
 
 	test("morphing an unmodified textarea value with preserveModified enabled", () => {
-		const a = parseHTML(`<textarea>a</textarea>`) as HTMLTextAreaElement
-		const b = parseHTML(`<textarea>b</textarea>`) as HTMLTextAreaElement
+		const a = dom(`<textarea>a</textarea>`) as HTMLTextAreaElement
+		const b = dom(`<textarea>b</textarea>`) as HTMLTextAreaElement
 
 		morph(a, b, { preserveModified: true })
 

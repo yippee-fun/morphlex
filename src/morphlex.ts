@@ -453,11 +453,12 @@ class Morph {
 			}
 		}
 
-		// Match nodes by isEqualNode
+		// Match nodes by isEqualNode (skip whitespace-only text nodes)
 		for (let i = 0; i < toChildNodes.length; i++) {
 			if (matches[i]) continue
 			const node = toChildNodes[i]!
 			if (isElement(node)) continue
+			if (isWhitespace(node)) continue
 
 			for (const candidate of candidateNodes) {
 				if (candidate.isEqualNode(node)) {
@@ -468,11 +469,12 @@ class Morph {
 			}
 		}
 
-		// Match by nodeType
+		// Match by nodeType (skip whitespace-only text nodes)
 		for (let i = 0; i < toChildNodes.length; i++) {
 			if (matches[i]) continue
 			const node = toChildNodes[i]!
 			if (isElement(node)) continue
+			if (isWhitespace(node)) continue
 
 			const nodeType = node.nodeType
 
@@ -485,9 +487,28 @@ class Morph {
 			}
 		}
 
-		// Build sequence of current indices for LIS calculation
+		// Remove unmatched nodes from candidate sets (they were matched and should not be removed)
+		for (const match of matches) {
+			if (match) {
+				candidateNodes.delete(match)
+				if (isElement(match)) {
+					candidateElements.delete(match)
+				}
+			}
+		}
+
+		// Remove any unmatched candidates first, before calculating LIS and repositioning
+		for (const candidate of candidateNodes) {
+			this.#removeNode(candidate)
+		}
+
+		for (const candidate of candidateElements) {
+			this.#removeNode(candidate)
+		}
+
+		// Build sequence of current indices for LIS calculation (after removals)
 		const fromIndex = new Map<ChildNode, number>()
-		Array.from(fromChildNodes).forEach((node, i) => fromIndex.set(node, i))
+		Array.from(parent.childNodes).forEach((node, i) => fromIndex.set(node, i))
 
 		const sequence: Array<number> = []
 		for (let i = 0; i < matches.length; i++) {
@@ -519,36 +540,13 @@ class Morph {
 				}
 				this.#morphOneToOne(match, node)
 				insertionPoint = match.nextSibling
-				// Skip over any nodes that will be removed to avoid unnecessary moves
-				while (
-					insertionPoint &&
-					(candidateNodes.has(insertionPoint) || (isElement(insertionPoint) && candidateElements.has(insertionPoint)))
-				) {
-					insertionPoint = insertionPoint.nextSibling
-				}
 			} else {
 				if (this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true) {
 					moveBefore(parent, node, insertionPoint)
 					this.#options.afterNodeAdded?.(node)
 					insertionPoint = node.nextSibling
-					// Skip over any nodes that will be removed to avoid unnecessary moves
-					while (
-						insertionPoint &&
-						(candidateNodes.has(insertionPoint) || (isElement(insertionPoint) && candidateElements.has(insertionPoint)))
-					) {
-						insertionPoint = insertionPoint.nextSibling
-					}
 				}
 			}
-		}
-
-		// Remove any remaining unmatched candidates
-		for (const candidate of candidateNodes) {
-			this.#removeNode(candidate)
-		}
-
-		for (const candidate of candidateElements) {
-			this.#removeNode(candidate)
 		}
 
 		this.#options.afterChildrenVisited?.(from)
@@ -619,6 +617,10 @@ function isElement(node: Node): node is Element {
 
 function isInputElement(element: Element): element is HTMLInputElement {
 	return element.localName === "input"
+}
+
+function isWhitespace(node: ChildNode): boolean {
+	return node.nodeType === 3 && node.textContent?.trim() === ""
 }
 
 function isOptionElement(element: Element): element is HTMLOptionElement {
