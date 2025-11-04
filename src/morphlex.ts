@@ -72,6 +72,12 @@ function flagDirtyInputs(node: ParentNode): void {
 			element.setAttribute("morphlex-dirty", "")
 		}
 	}
+
+	for (const element of node.querySelectorAll("textarea")) {
+		if (element.value !== element.defaultValue) {
+			element.setAttribute("morphlex-dirty", "")
+		}
+	}
 }
 
 function parseString(string: string): DocumentFragment {
@@ -167,7 +173,9 @@ class Morph {
 			this.visitAttributes(pair)
 		}
 
-		if (from.hasChildNodes() || to.hasChildNodes()) {
+		if (isTextAreaElement(from) && isTextAreaElement(to)) {
+			this.visitTextArea(pair as PairOfMatchingElements<HTMLTextAreaElement>)
+		} else if (from.hasChildNodes() || to.hasChildNodes()) {
 			this.visitChildNodes(pair)
 		}
 	}
@@ -252,6 +260,20 @@ class Morph {
 				}
 			}
 		}
+	}
+
+	private visitTextArea([from, to]: PairOfMatchingElements<HTMLTextAreaElement>): void {
+		const newTextContent = to.textContent || ""
+		const isModified = from.value !== from.defaultValue
+
+		// Update text content (which updates defaultValue)
+		if (from.textContent !== newTextContent) {
+			from.textContent = newTextContent
+		}
+
+		if (this.options.preserveModified && isModified) return
+
+		from.value = from.defaultValue
 	}
 
 	visitChildNodes([from, to]: PairOfMatchingElements<Element>): void {
@@ -509,6 +531,10 @@ function isInputElement(element: Element): element is HTMLInputElement {
 
 function isOptionElement(element: Element): element is HTMLOptionElement {
 	return element.localName === "option"
+}
+
+function isTextAreaElement(element: Element): element is HTMLTextAreaElement {
+	return element.localName === "textarea"
 }
 
 function isParentNode(node: Node): node is ParentNode {
