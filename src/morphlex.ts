@@ -57,19 +57,19 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 }
 
 function flagDirtyInputs(node: ParentNode): void {
-	for (const el of node.querySelectorAll("input")) {
-		const currentValue = el.value
+	for (const element of node.querySelectorAll("input")) {
+		if (element.value !== element.defaultValue) {
+			element.setAttribute("morphlex-dirty", "")
+		}
 
-		if (currentValue !== el.defaultValue) {
-			el.setAttribute("morphlex-dirty", "")
+		if (element.checked !== element.defaultChecked) {
+			element.setAttribute("morphlex-dirty", "")
 		}
 	}
 
-	for (const el of node.querySelectorAll("option")) {
-		const currentSelected = el.selected
-
-		if (currentSelected !== el.defaultSelected) {
-			el.setAttribute("morphlex-dirty", "")
+	for (const element of node.querySelectorAll("option")) {
+		if (element.selected !== element.defaultSelected) {
+			element.setAttribute("morphlex-dirty", "")
 		}
 	}
 }
