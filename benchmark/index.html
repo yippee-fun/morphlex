@@ -727,6 +727,50 @@
 					},
 				},
 				{
+					name: "Large List - Partial Reorder",
+					description: "Reordering some items in a list of 100 items while keeping many in place",
+					setup: () => {
+						const from = document.createElement("ul")
+						for (let i = 1; i <= 100; i++) {
+							const li = document.createElement("li")
+							li.id = `item-${i}`
+							li.textContent = `Item ${i}`
+							from.appendChild(li)
+						}
+						const to = document.createElement("ul")
+						// Partial reorder: move every 5th item to a different position
+						// [1,2,3,4,5,6,7,8,9,10,...] → [5,1,2,3,4,10,6,7,8,9,15,11,12,13,14,20,...]
+						// This keeps most items in order (good for LIS) while shuffling some
+						const items = []
+						for (let i = 1; i <= 100; i++) {
+							items.push(i)
+						}
+						const reordered = []
+						for (let i = 0; i < items.length; i += 5) {
+							if (i + 4 < items.length) {
+								// Move 5th item to front of group
+								reordered.push(items[i + 4])
+								reordered.push(items[i])
+								reordered.push(items[i + 1])
+								reordered.push(items[i + 2])
+								reordered.push(items[i + 3])
+							} else {
+								// Handle remaining items
+								for (let j = i; j < items.length; j++) {
+									reordered.push(items[j])
+								}
+							}
+						}
+						for (const num of reordered) {
+							const li = document.createElement("li")
+							li.id = `item-${num}`
+							li.textContent = `Item ${num}`
+							to.appendChild(li)
+						}
+						return { from, to }
+					},
+				},
+				{
 					name: "Deep Nesting",
 					description: "Morphing deeply nested structures",
 					setup: () => {

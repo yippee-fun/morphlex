@@ -108,6 +108,63 @@ class Morph {
 		this.options = options
 	}
 
+	// Find longest increasing subsequence to minimize moves during reordering
+	// Returns the indices in the sequence that form the LIS
+	private longestIncreasingSubsequence(sequence: Array<number>): Array<number> {
+		const n = sequence.length
+		if (n === 0) return []
+
+		// smallestEnding[i] = smallest ending value of any increasing subsequence of length i+1
+		const smallestEnding: Array<number> = []
+		// indices[i] = index in sequence where smallestEnding[i] occurs
+		const indices: Array<number> = []
+		// prev[i] = previous index in the LIS ending at sequence[i]
+		const prev: Array<number> = Array.from({ length: n }, () => -1)
+
+		// Build the LIS by processing each value
+		for (let i = 0; i < n; i++) {
+			const val = sequence[i]!
+			if (val === -1) continue // Skip new nodes (not in original sequence)
+
+			// Binary search: find where this value fits in smallestEnding
+			let left = 0
+			let right = smallestEnding.length
+
+			while (left < right) {
+				const mid = Math.floor((left + right) / 2)
+				if (smallestEnding[mid]! < val) left = mid + 1
+				else right = mid
+			}
+
+			// Link this element to the previous one in the subsequence
+			if (left > 0) prev[i] = indices[left - 1]!
+
+			// Either extend the sequence or update an existing position
+			if (left === smallestEnding.length) {
+				// Extend: this value is larger than all previous endings
+				smallestEnding.push(val)
+				indices.push(i)
+			} else {
+				// Update: found a better (smaller) ending for this length
+				smallestEnding[left] = val
+				indices[left] = i
+			}
+		}
+
+		// Reconstruct the actual indices that form the LIS
+		const result: Array<number> = []
+		if (indices.length === 0) return result
+
+		// Walk backwards through prev links to build the LIS
+		let curr: number | undefined = indices[indices.length - 1]
+		while (curr !== undefined && curr !== -1) {
+			result.unshift(curr)
+			curr = prev[curr]
+		}
+
+		return result
+	}
+
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
 		if (isParentNode(from)) {
 			this.mapIdSets(from)
@@ -286,7 +343,7 @@ class Morph {
 		const candidateNodes: Set<ChildNode> = new Set()
 		const candidateElements: Set<Element> = new Set()
 
-		const matches: Array<ChildNode | null> = new Array(toChildNodes.length).fill(null)
+		const matches: Array<ChildNode | null> = Array.from({ length: toChildNodes.length }, () => null)
 
 		for (const candidate of fromChildNodes) {
 			if (isElement(candidate)) candidateElements.add(candidate)
@@ -428,13 +485,38 @@ class Morph {
 			}
 		}
 
+		// Build sequence of current indices for LIS calculation
+		const fromIndex = new Map<ChildNode, number>()
+		Array.from(fromChildNodes).forEach((node, i) => fromIndex.set(node, i))
+
+		const sequence: Array<number> = []
+		for (let i = 0; i < matches.length; i++) {
+			const match = matches[i]
+			if (match && fromIndex.has(match)) {
+				sequence.push(fromIndex.get(match)!)
+			} else {
+				sequence.push(-1) // New node, not in sequence
+			}
+		}
+
+		// Find LIS - these nodes don't need to move
+		const lisIndices = this.longestIncreasingSubsequence(sequence)
+		const shouldNotMove = new Set<number>()
+		for (const idx of lisIndices) {
+			shouldNotMove.add(sequence[idx]!)
+		}
+
 		// Process nodes in forward order to maintain proper positioning
 		let insertionPoint: ChildNode | null = parent.firstChild
 		for (let i = 0; i < toChildNodes.length; i++) {
 			const node = toChildNodes[i]!
 			const match = matches[i]
 			if (match) {
-				moveBefore(parent, match, insertionPoint)
+				const matchIndex = fromIndex.get(match)!
+				// Only move if not in LIS
+				if (!shouldNotMove.has(matchIndex)) {
+					moveBefore(parent, match, insertionPoint)
+				}
 				this.morphOneToOne(match, node)
 				insertionPoint = match.nextSibling
 				// Skip over any nodes that will be removed to avoid unnecessary moves

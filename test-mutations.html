@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<body>
+<div id="test"></div>
+<script type="module">
+import { morph } from './dist/morphlex.min.js';
+
+const observer = new MutationObserver((mutations) => {
+  console.log(`Total mutations: ${mutations.length}`);
+  mutations.forEach((m, i) => {
+    console.log(`Mutation ${i}: type=${m.type}, added=${m.addedNodes.length}, removed=${m.removedNodes.length}`);
+  });
+});
+
+const from = document.createElement('ul');
+for (let i = 1; i <= 5; i++) {
+  const li = document.createElement('li');
+  li.textContent = `Item ${i}`;
+  from.appendChild(li);
+}
+
+const to = document.createElement('ul');
+for (let i = 5; i >= 1; i--) {
+  const li = document.createElement('li');
+  li.textContent = `Item ${i}`;
+  to.appendChild(li);
+}
+
+document.getElementById('test').appendChild(from);
+
+observer.observe(from, {
+  childList: true,
+  attributes: true,
+  characterData: true,
+  subtree: true
+});
+
+console.log('Before morph:');
+console.log(Array.from(from.children).map(li => li.textContent));
+
+morph(from, to);
+
+console.log('After morph:');
+console.log(Array.from(from.children).map(li => li.textContent));
+
+setTimeout(() => {
+  observer.disconnect();
+}, 100);
+</script>
+</body>
+</html>
