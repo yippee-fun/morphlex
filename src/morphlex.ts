@@ -406,7 +406,10 @@ class Morph {
 				this.morphOneToOne(match, node)
 				insertionPoint = match.nextSibling
 				// Skip over any nodes that will be removed to avoid unnecessary moves
-				while (insertionPoint && candidateNodes.has(insertionPoint)) {
+				while (
+					insertionPoint &&
+					(candidateNodes.has(insertionPoint) || (isElement(insertionPoint) && candidateElements.has(insertionPoint)))
+				) {
 					insertionPoint = insertionPoint.nextSibling
 				}
 			} else {
@@ -415,7 +418,10 @@ class Morph {
 					this.options.afterNodeAdded?.(node)
 					insertionPoint = node.nextSibling
 					// Skip over any nodes that will be removed to avoid unnecessary moves
-					while (insertionPoint && candidateNodes.has(insertionPoint)) {
+					while (
+						insertionPoint &&
+						(candidateNodes.has(insertionPoint) || (isElement(insertionPoint) && candidateElements.has(insertionPoint)))
+					) {
 						insertionPoint = insertionPoint.nextSibling
 					}
 				}
