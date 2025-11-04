@@ -407,7 +407,7 @@ class Morph {
 			}
 		}
 
-		// Match by huristics
+		// Match by heuristics
 		for (let i = 0; i < toChildNodes.length; i++) {
 			if (matches[i]) continue
 			const element = toChildNodes[i]!
