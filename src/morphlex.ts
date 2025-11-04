@@ -286,27 +286,21 @@ class Morph {
 		const candidateNodes: Set<ChildNode> = new Set()
 		const candidateElements: Set<Element> = new Set()
 
-		const unmatchedNodes: Set<ChildNode> = new Set()
-		const unmatchedElements: Set<Element> = new Set()
-
-		const matches: Map<ChildNode, ChildNode> = new Map()
+		const matches: Array<ChildNode | null> = new Array(toChildNodes.length).fill(null)
 
 		for (const candidate of fromChildNodes) {
 			if (isElement(candidate)) candidateElements.add(candidate)
 			else candidateNodes.add(candidate)
 		}
 
-		for (const node of toChildNodes) {
-			if (isElement(node)) unmatchedElements.add(node)
-			else unmatchedNodes.add(node)
-		}
-
 		// Match elements by isEqualNode
-		for (const element of unmatchedElements) {
+		for (let i = 0; i < toChildNodes.length; i++) {
+			const element = toChildNodes[i]!
+			if (!isElement(element)) continue
+
 			for (const candidate of candidateElements) {
 				if (candidate.isEqualNode(element)) {
-					matches.set(element, candidate)
-					unmatchedElements.delete(element)
+					matches[i] = candidate
 					candidateElements.delete(candidate)
 					break
 				}
@@ -314,14 +308,17 @@ class Morph {
 		}
 
 		// Match by exact id
-		for (const element of unmatchedElements) {
+		for (let i = 0; i < toChildNodes.length; i++) {
+			if (matches[i]) continue
+			const element = toChildNodes[i]!
+			if (!isElement(element)) continue
+
 			const id = element.id
 			if (id === "") continue
 
 			for (const candidate of candidateElements) {
 				if (element.localName === candidate.localName && id === candidate.id) {
-					matches.set(element, candidate)
-					unmatchedElements.delete(element)
+					matches[i] = candidate
 					candidateElements.delete(candidate)
 					break
 				}
@@ -329,8 +326,11 @@ class Morph {
 		}
 
 		// Match by idSet
-		for (const element of unmatchedElements) {
+		for (let i = 0; i < toChildNodes.length; i++) {
+			if (matches[i]) continue
+			const element = toChildNodes[i]!
 			if (!isElement(element)) continue
+
 			const idSet = this.idMap.get(element)
 			if (!idSet) continue
 
@@ -340,8 +340,7 @@ class Morph {
 					if (candidateIdSet) {
 						for (const id of idSet) {
 							if (candidateIdSet.has(id)) {
-								matches.set(element, candidate)
-								unmatchedElements.delete(element)
+								matches[i] = candidate
 								candidateElements.delete(candidate)
 								break candidateLoop
 							}
@@ -352,8 +351,11 @@ class Morph {
 		}
 
 		// Match by huristics
-		for (const element of unmatchedElements) {
+		for (let i = 0; i < toChildNodes.length; i++) {
+			if (matches[i]) continue
+			const element = toChildNodes[i]!
 			if (!isElement(element)) continue
+
 			const name = element.getAttribute("name")
 			const href = element.getAttribute("href")
 			const src = element.getAttribute("src")
@@ -366,8 +368,7 @@ class Morph {
 						(href !== "" && href === candidate.getAttribute("href")) ||
 						(src !== "" && src === candidate.getAttribute("src")))
 				) {
-					matches.set(element, candidate)
-					unmatchedElements.delete(element)
+					matches[i] = candidate
 					candidateElements.delete(candidate)
 					break
 				}
@@ -375,7 +376,11 @@ class Morph {
 		}
 
 		// Match by tagName
-		for (const element of unmatchedElements) {
+		for (let i = 0; i < toChildNodes.length; i++) {
+			if (matches[i]) continue
+			const element = toChildNodes[i]!
+			if (!isElement(element)) continue
+
 			const localName = element.localName
 
 			for (const candidate of candidateElements) {
@@ -384,8 +389,7 @@ class Morph {
 						// Treat inputs with different type as though they are different tags.
 						continue
 					}
-					matches.set(element, candidate)
-					unmatchedElements.delete(element)
+					matches[i] = candidate
 					candidateElements.delete(candidate)
 					break
 				}
@@ -393,11 +397,14 @@ class Morph {
 		}
 
 		// Match nodes by isEqualNode
-		for (const node of unmatchedNodes) {
+		for (let i = 0; i < toChildNodes.length; i++) {
+			if (matches[i]) continue
+			const node = toChildNodes[i]!
+			if (isElement(node)) continue
+
 			for (const candidate of candidateNodes) {
 				if (candidate.isEqualNode(node)) {
-					matches.set(node, candidate)
-					unmatchedNodes.delete(node)
+					matches[i] = candidate
 					candidateNodes.delete(candidate)
 					break
 				}
@@ -405,13 +412,16 @@ class Morph {
 		}
 
 		// Match by nodeType
-		for (const node of unmatchedNodes) {
+		for (let i = 0; i < toChildNodes.length; i++) {
+			if (matches[i]) continue
+			const node = toChildNodes[i]!
+			if (isElement(node)) continue
+
 			const nodeType = node.nodeType
 
 			for (const candidate of candidateNodes) {
 				if (nodeType === candidate.nodeType) {
-					matches.set(node, candidate)
-					unmatchedNodes.delete(node)
+					matches[i] = candidate
 					candidateNodes.delete(candidate)
 					break
 				}
@@ -422,7 +432,7 @@ class Morph {
 		let insertionPoint: ChildNode | null = parent.firstChild
 		for (let i = 0; i < toChildNodes.length; i++) {
 			const node = toChildNodes[i]!
-			const match = matches.get(node)
+			const match = matches[i]
 			if (match) {
 				moveBefore(parent, match, insertionPoint)
 				this.morphOneToOne(match, node)
