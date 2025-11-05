@@ -33,14 +33,15 @@ type NodeWithMoveBefore = ParentNode & {
  *
  * @param from The source document to morph from.
  * @param to The target document or string to morph to.
+ * @param options Optional configuration for the morphing behavior.
  * @example
  * ```ts
- * morphDocument(document, newDocument)
+ * morphDocument(document, "<html>...</html>", { preserveModified: true })
  * ```
  */
-export function morphDocument(from: Document, to: Document | string): void {
+export function morphDocument(from: Document, to: Document | string, options?: Options): void {
 	if (typeof to === "string") to = parseDocument(to)
-	morph(from.documentElement, to.documentElement)
+	morph(from.documentElement, to.documentElement, options)
 }
 
 /**
