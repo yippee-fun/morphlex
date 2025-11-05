@@ -1,5 +1,5 @@
-const SupportsMoveBefore = "moveBefore" in Element.prototype
-const ParentNodeTypes = new Set([1, 9, 11])
+const PARENT_NODE_TYPES = new Set([1, 9, 11])
+const SUPPORTS_MOVE_BEFORE = "moveBefore" in Element.prototype
 
 type IdSet = Set<string>
 type IdMap = WeakMap<Node, IdSet>
@@ -10,7 +10,7 @@ type Branded<T, B extends string> = T & { [brand]: B }
 type PairOfNodes<N extends Node> = [N, N]
 type PairOfMatchingElements<E extends Element> = Branded<PairOfNodes<E>, "MatchingElementPair">
 
-interface Options {
+export interface Options {
 	preserveModified?: boolean
 	beforeNodeVisited?: (fromNode: Node, toNode: Node) => boolean
 	afterNodeVisited?: (fromNode: Node, toNode: Node) => void
@@ -28,17 +28,53 @@ type NodeWithMoveBefore = ParentNode & {
 	moveBefore: (node: ChildNode, before: ChildNode | null) => void
 }
 
+/**
+ * Morph one document to another. If the `to` document is a string, it will be parsed with a DOMParser.
+ *
+ * @param from The source document to morph from.
+ * @param to The target document or string to morph to.
+ * @example
+ * ```ts
+ * morphDocument(document, newDocument)
+ * ```
+ */
+export function morphDocument(from: Document, to: Document | string): void {
+	if (typeof to === "string") to = parseDocument(to)
+	morph(from.documentElement, to.documentElement)
+}
+
+/**
+ * Morph one `ChildNode` to another. If the `to` node is a string, it will be parsed with a `<template>` element.
+ *
+ * @param from The source node to morph from.
+ * @param to The target node, node list or string to morph to.
+ * @example
+ * ```ts
+ * morph(originalDom, newDom)
+ * ```
+ */
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
-	if (typeof to === "string") to = parseString(to).childNodes
+	if (typeof to === "string") to = parseFragment(to).childNodes
 
 	if (isParentNode(from)) flagDirtyInputs(from)
 
 	new Morph(options).morph(from, to)
 }
 
+/**
+ * Morph the inner content of one ChildNode to the inner content of another.
+ * If the `to` node is a string, it will be parsed with a `<template>` element.
+ *
+ * @param from The source node to morph from.
+ * @param to The target node, node list or string to morph to.
+ * @example
+ * ```ts
+ * morphInner(originalDom, newDom)
+ * ```
+ */
 export function morphInner(from: ChildNode, to: ChildNode | string, options: Options = {}): void {
 	if (typeof to === "string") {
-		const fragment = parseString(to)
+		const fragment = parseFragment(to)
 
 		if (fragment.firstChild && fragment.childNodes.length === 1 && isElement(fragment.firstChild)) {
 			to = fragment.firstChild
@@ -80,11 +116,16 @@ function flagDirtyInputs(node: ParentNode): void {
 	}
 }
 
-function parseString(string: string): DocumentFragment {
+function parseFragment(string: string): DocumentFragment {
 	const template = document.createElement("template")
 	template.innerHTML = string.trim()
 
 	return template.content
+}
+
+function parseDocument(string: string): Document {
+	const parser = new DOMParser()
+	return parser.parseFromString(string.trim(), "text/html")
 }
 
 function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): void {
@@ -598,7 +639,7 @@ class Morph {
 }
 
 function supportsMoveBefore(_node: ParentNode): _node is NodeWithMoveBefore {
-	return SupportsMoveBefore
+	return SUPPORTS_MOVE_BEFORE
 }
 
 function isMatchingElementPair(pair: PairOfNodes<Element>): pair is PairOfMatchingElements<Element> {
@@ -632,5 +673,5 @@ function isTextAreaElement(element: Element): element is HTMLTextAreaElement {
 }
 
 function isParentNode(node: Node): node is ParentNode {
-	return ParentNodeTypes.has(node.nodeType)
+	return PARENT_NODE_TYPES.has(node.nodeType)
 }
