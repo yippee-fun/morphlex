@@ -10,17 +10,88 @@ type Branded<T, B extends string> = T & { [brand]: B }
 type PairOfNodes<N extends Node> = [N, N]
 type PairOfMatchingElements<E extends Element> = Branded<PairOfNodes<E>, "MatchingElementPair">
 
+/**
+ * Configuration options for morphing operations.
+ */
 export interface Options {
+	/**
+	 * When `true`, preserves modified form inputs during morphing.
+	 * This prevents user-entered data from being overwritten.
+	 * @default false
+	 */
 	preserveModified?: boolean
+
+	/**
+	 * Called before a node is visited during morphing.
+	 * @param fromNode The existing node in the DOM
+	 * @param toNode The new node to morph to
+	 * @returns `false` to skip morphing this node, `true` to continue
+	 */
 	beforeNodeVisited?: (fromNode: Node, toNode: Node) => boolean
+
+	/**
+	 * Called after a node has been visited and morphed.
+	 * @param fromNode The morphed node in the DOM
+	 * @param toNode The source node that was morphed from
+	 */
 	afterNodeVisited?: (fromNode: Node, toNode: Node) => void
+
+	/**
+	 * Called before a new node is added to the DOM.
+	 * @param parent The parent node where the child will be added
+	 * @param node The node to be added
+	 * @param insertionPoint The node before which the new node will be inserted, or `null` to append
+	 * @returns `false` to prevent adding the node, `true` to continue
+	 */
 	beforeNodeAdded?: (parent: ParentNode, node: Node, insertionPoint: ChildNode | null) => boolean
+
+	/**
+	 * Called after a node has been added to the DOM.
+	 * @param node The node that was added
+	 */
 	afterNodeAdded?: (node: Node) => void
+
+	/**
+	 * Called before a node is removed from the DOM.
+	 * @param node The node to be removed
+	 * @returns `false` to prevent removal, `true` to continue
+	 */
 	beforeNodeRemoved?: (node: Node) => boolean
+
+	/**
+	 * Called after a node has been removed from the DOM.
+	 * @param node The node that was removed
+	 */
 	afterNodeRemoved?: (node: Node) => void
+
+	/**
+	 * Called before an attribute is updated on an element.
+	 * @param element The element whose attribute will be updated
+	 * @param attributeName The name of the attribute
+	 * @param newValue The new value for the attribute, or `null` if being removed
+	 * @returns `false` to prevent the update, `true` to continue
+	 */
 	beforeAttributeUpdated?: (element: Element, attributeName: string, newValue: string | null) => boolean
+
+	/**
+	 * Called after an attribute has been updated on an element.
+	 * @param element The element whose attribute was updated
+	 * @param attributeName The name of the attribute
+	 * @param previousValue The previous value of the attribute, or `null` if it didn't exist
+	 */
 	afterAttributeUpdated?: (element: Element, attributeName: string, previousValue: string | null) => void
+
+	/**
+	 * Called before an element's children are visited during morphing.
+	 * @param parent The parent node whose children will be visited
+	 * @returns `false` to skip visiting children, `true` to continue
+	 */
 	beforeChildrenVisited?: (parent: ParentNode) => boolean
+
+	/**
+	 * Called after an element's children have been visited and morphed.
+	 * @param parent The parent node whose children were visited
+	 */
 	afterChildrenVisited?: (parent: ParentNode) => void
 }
 
