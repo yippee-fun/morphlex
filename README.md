@@ -4,6 +4,15 @@
 
 Morphlex is a ~2.3KB (gzipped) DOM morphing library that transforms one DOM tree to match another while preserving element state and making minimal changes.
 
+## What makes Morphlex different?
+
+1. No cascading mutations from inserts. Simple inserts should be one DOM operation.
+2. No cascading mutations from removes. Simple removes should be one DOM operation.
+3. No cascading mutations from partial sorts. Morphlex finds the longest increasing subsequence for near optimal partial sorts.
+4. It uses `moveBefore` when available, preserving state.
+5. It uses `isEqualNode`, but in a way that is sensitive to the value of form inputs.
+6. It uses id sets inspired by Idiomorph.
+
 ## Installation
 
 ```bash
@@ -70,12 +79,3 @@ morph(currentNode, newNode, {
 - **`beforeChildrenVisited`**: Called before an element's children are visited during morphing. Return `false` to skip visiting children.
 
 - **`afterChildrenVisited`**: Called after an element's children have been visited and morphed.
-
-## What makes Morphlex different?
-
-1. No cascading mutations from inserts. Simple inserts should be one DOM operation.
-2. No cascading mutations from removes. Simple removes should be one DOM operation.
-3. No cascading mutations from partial sorts. Morphlex finds the longest increasing subsequence for near optimal partial sorts.
-4. It uses `moveBefore` when available, preserving state.
-5. It uses `isEqualNode`, but in a way that is sensitive to the value of form inputs.
-6. It uses id sets inspired by Idiomorph.
