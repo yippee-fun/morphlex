@@ -166,7 +166,7 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 
 function flagDirtyInputs(node: ParentNode): void {
 	for (const input of node.querySelectorAll("input")) {
-		if (input.name === "") continue
+		if (!input.name) continue
 
 		if (input.value !== input.defaultValue) {
 			input.setAttribute("morphlex-dirty", "")
@@ -178,7 +178,7 @@ function flagDirtyInputs(node: ParentNode): void {
 	}
 
 	for (const element of node.querySelectorAll("option")) {
-		if (element.value === "") continue
+		if (!element.value) continue
 
 		if (element.selected !== element.defaultSelected) {
 			element.setAttribute("morphlex-dirty", "")

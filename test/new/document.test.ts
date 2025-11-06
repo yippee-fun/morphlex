@@ -33,7 +33,7 @@ test("morphing an entire document", () => {
 		`,
 	)
 
-	expect(document.title).toBe("New Title")
-	expect(document.querySelector('meta[name="description"]')?.getAttribute("content")).toBe("new")
-	expect(document.querySelector("#content")?.textContent).toBe("New Content")
+	expect(originalDocument.querySelector("title")?.textContent).toBe("New Title")
+	expect(originalDocument.querySelector('meta[name="description"]')?.getAttribute("content")).toBe("new")
+	expect(originalDocument.querySelector("#content")?.textContent).toBe("New Content")
 })

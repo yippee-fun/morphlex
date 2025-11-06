@@ -69,6 +69,16 @@ describe("checkbox", () => {
 		expect(a.checked).toBe(true)
 	})
 
+	test("morphing an unmodified checkbox checked with preserveChanges enabled", () => {
+		const a = dom(`<input type="checkbox" checked>`) as HTMLInputElement
+		const b = dom(`<input type="checkbox">`) as HTMLInputElement
+
+		morph(a, b, { preserveChanges: true })
+
+		expect(a.hasAttribute("checked")).toBe(false)
+		expect(a.checked).toBe(false)
+	})
+
 	test("morphing a modified checkbox unchecked with preserveChanges enabled", () => {
 		const a = dom(`<input type="checkbox" checked>`) as HTMLInputElement
 		const b = dom(`<input type="checkbox">`) as HTMLInputElement
@@ -150,6 +160,37 @@ describe("select", () => {
 		expect(a.options[1].hasAttribute("selected")).toBe(false)
 		expect(a.value).toBe("a")
 		expect(a.options[0].selected).toBe(true)
+	})
+
+	test("morphing a select option with no value", () => {
+		const a = dom(
+			`
+				<select>
+					<option></option>
+					<option></option>
+				</select>
+			`,
+		)
+
+		const b = dom(
+			`
+				<select>
+					<option value="1">A</option>
+					<option value="2">B</option>
+				</select>
+			`,
+		)
+
+		morph(a, b)
+
+		expect(a.outerHTML).toBe(
+			`
+				<select>
+					<option value="1">A</option>
+					<option value="2">B</option>
+				</select>
+			`.trim(),
+		)
 	})
 })
 
