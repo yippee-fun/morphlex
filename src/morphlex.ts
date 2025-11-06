@@ -19,7 +19,7 @@ export interface Options {
 	 * This prevents user-entered data from being overwritten.
 	 * @default false
 	 */
-	preserveModified?: boolean
+	preserveChanges?: boolean
 
 	/**
 	 * Called before a node is visited during morphing.
@@ -107,7 +107,7 @@ type NodeWithMoveBefore = ParentNode & {
  * @param options Optional configuration for the morphing behavior.
  * @example
  * ```ts
- * morphDocument(document, "<html>...</html>", { preserveModified: true })
+ * morphDocument(document, "<html>...</html>", { preserveChanges: true })
  * ```
  */
 export function morphDocument(from: Document, to: Document | string, options?: Options): void {
@@ -375,7 +375,7 @@ class Morph {
 		for (const { name, value } of to.attributes) {
 			if (name === "value") {
 				if (isInputElement(from) && from.value !== value) {
-					if (!this.#options.preserveModified || from.value === from.defaultValue) {
+					if (!this.#options.preserveChanges || from.value === from.defaultValue) {
 						from.value = value
 					}
 				}
@@ -383,7 +383,7 @@ class Morph {
 
 			if (name === "selected") {
 				if (isOptionElement(from) && !from.selected) {
-					if (!this.#options.preserveModified || from.selected === from.defaultSelected) {
+					if (!this.#options.preserveChanges || from.selected === from.defaultSelected) {
 						from.selected = true
 					}
 				}
@@ -391,7 +391,7 @@ class Morph {
 
 			if (name === "checked") {
 				if (isInputElement(from) && !from.checked) {
-					if (!this.#options.preserveModified || from.checked === from.defaultChecked) {
+					if (!this.#options.preserveChanges || from.checked === from.defaultChecked) {
 						from.checked = true
 					}
 				}
@@ -414,7 +414,7 @@ class Morph {
 			if (!to.hasAttribute(name)) {
 				if (name === "selected") {
 					if (isOptionElement(from) && from.selected) {
-						if (!this.#options.preserveModified || from.selected === from.defaultSelected) {
+						if (!this.#options.preserveChanges || from.selected === from.defaultSelected) {
 							from.selected = false
 						}
 					}
@@ -422,7 +422,7 @@ class Morph {
 
 				if (name === "checked") {
 					if (isInputElement(from) && from.checked) {
-						if (!this.#options.preserveModified || from.checked === from.defaultChecked) {
+						if (!this.#options.preserveChanges || from.checked === from.defaultChecked) {
 							from.checked = false
 						}
 					}
@@ -445,7 +445,7 @@ class Morph {
 			from.textContent = newTextContent
 		}
 
-		if (this.#options.preserveModified && isModified) return
+		if (this.#options.preserveChanges && isModified) return
 
 		from.value = from.defaultValue
 	}
@@ -640,18 +640,16 @@ class Morph {
 		// Find LIS - these nodes don't need to move
 		const lisIndices = this.#longestIncreasingSubsequence(sequence)
 		const shouldNotMove = new Set<number>()
-		for (const idx of lisIndices) {
-			shouldNotMove.add(sequence[idx]!)
+		for (const i of lisIndices) {
+			shouldNotMove.add(sequence[i]!)
 		}
 
-		// Process nodes in forward order to maintain proper positioning
 		let insertionPoint: ChildNode | null = parent.firstChild
 		for (let i = 0; i < toChildNodes.length; i++) {
 			const node = toChildNodes[i]!
 			const match = matches[i]
 			if (match) {
 				const matchIndex = fromIndex.get(match)!
-				// Only move if not in LIS
 				if (!shouldNotMove.has(matchIndex)) {
 					moveBefore(parent, match, insertionPoint)
 				}
