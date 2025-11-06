@@ -2,7 +2,7 @@
   <img src="https://github.com/phlex-ruby/morphlex/assets/246692/128ebe6a-bdf3-4b88-8a40-f29df64b3ac8" alt="Morphlex" width="481">
 </p>
 
-Morphlex is a ~2.2KB (gzipped) DOM morphing library that transforms one DOM tree to match another while preserving element state and making minimal changes.
+Morphlex is a ~2.3KB (gzipped) DOM morphing library that transforms one DOM tree to match another while preserving element state and making minimal changes.
 
 ## Installation
 
