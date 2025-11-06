@@ -26,6 +26,15 @@ import { morph, morphInner } from "morphlex"
 // Morph the entire element
 morph(currentNode, referenceNode)
 
-// Morph only the inner content
+// Morph only the children of the current node
 morphInner(currentNode, referenceNode)
 ```
+
+## What makes Morphlex different?
+
+1. No cascading mutations from inserts. Simple inserts should be one DOM operation.
+2. No cascading mutations from removes. Simple removes should be one DOM operation.
+3. No cascading mutations from partial sorts. Morphlex finds the longest increasing subsequence for near optimal partial sorts.
+4. It uses `moveBefore` when available, preserving state.
+5. It uses `isEqualNode`, but in a way that is sensitive to the value of form inputs.
+6. It uses id sets inspired by Idiomorph.
