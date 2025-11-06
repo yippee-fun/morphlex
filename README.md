@@ -24,11 +24,52 @@ Or use it directly from a CDN:
 import { morph, morphInner } from "morphlex"
 
 // Morph the entire element
-morph(currentNode, referenceNode)
+morph(currentNode, newNode)
 
 // Morph only the children of the current node
-morphInner(currentNode, referenceNode)
+morphInner(currentNode, newNode)
+
+// Morph the entire document
+morphDocument(document, newDocument)
 ```
+
+## Options
+
+Both `morph` and `morphInner` accept an optional third parameter for configuration:
+
+```javascript
+morph(currentNode, newNode, {
+  preserveChanges: true,
+  beforeNodeAdded: (parent, node, insertionPoint) => {
+    console.log("Adding node:", node)
+    return true // return false to prevent addition
+  },
+})
+```
+
+### Available Options
+
+- **`preserveChanges`**: When `true`, preserves modified form inputs during morphing. This prevents user-entered data from being overwritten. Default: `false`
+
+- **`beforeNodeVisited`**: Called before a node is visited during morphing. Return `false` to skip morphing this node.
+
+- **`afterNodeVisited`**: Called after a node has been visited and morphed.
+
+- **`beforeNodeAdded`**: Called before a new node is added to the DOM. Return `false` to prevent adding the node.
+
+- **`afterNodeAdded`**: Called after a node has been added to the DOM.
+
+- **`beforeNodeRemoved`**: Called before a node is removed from the DOM. Return `false` to prevent removal.
+
+- **`afterNodeRemoved`**: Called after a node has been removed from the DOM.
+
+- **`beforeAttributeUpdated`**: Called before an attribute is updated on an element. Return `false` to prevent the update.
+
+- **`afterAttributeUpdated`**: Called after an attribute has been updated on an element.
+
+- **`beforeChildrenVisited`**: Called before an element's children are visited during morphing. Return `false` to skip visiting children.
+
+- **`afterChildrenVisited`**: Called after an element's children have been visited and morphed.
 
 ## What makes Morphlex different?
 
