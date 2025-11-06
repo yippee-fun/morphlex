@@ -538,9 +538,9 @@ class Morph {
 				if (
 					isElement(candidate) &&
 					element.localName === candidate.localName &&
-					((name !== "" && name === candidate.getAttribute("name")) ||
-						(href !== "" && href === candidate.getAttribute("href")) ||
-						(src !== "" && src === candidate.getAttribute("src")))
+					((name && name === candidate.getAttribute("name")) ||
+						(href && href === candidate.getAttribute("href")) ||
+						(src && src === candidate.getAttribute("src")))
 				) {
 					matches[i] = candidate
 					candidateElements.delete(candidate)
