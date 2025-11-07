@@ -478,23 +478,23 @@ class Morph {
 		}
 
 		// Match elements by isEqualNode
-		for (const i of unmatchedElements) {
-			const element = toChildNodes[i] as Element
+		for (const unmatchedIndex of unmatchedElements) {
+			const element = toChildNodes[unmatchedIndex] as Element
 
 			for (const candidateIndex of candidateElements) {
 				const candidate = fromChildNodes[candidateIndex]!
 				if (candidate.isEqualNode(element)) {
-					matches[i] = candidate
+					matches[unmatchedIndex] = candidate
 					candidateElements.delete(candidateIndex)
-					unmatchedElements.delete(i)
+					unmatchedElements.delete(unmatchedIndex)
 					break
 				}
 			}
 		}
 
 		// Match by exact id
-		for (const i of unmatchedElements) {
-			const element = toChildNodes[i] as Element
+		for (const unmatchedIndex of unmatchedElements) {
+			const element = toChildNodes[unmatchedIndex] as Element
 
 			const id = element.id
 			if (id === "") continue
@@ -502,17 +502,17 @@ class Morph {
 			for (const candidateIndex of candidateElements) {
 				const candidate = fromChildNodes[candidateIndex] as Element
 				if (element.localName === candidate.localName && id === candidate.id) {
-					matches[i] = candidate
+					matches[unmatchedIndex] = candidate
 					candidateElements.delete(candidateIndex)
-					unmatchedElements.delete(i)
+					unmatchedElements.delete(unmatchedIndex)
 					break
 				}
 			}
 		}
 
 		// Match by idSet
-		for (const i of unmatchedElements) {
-			const element = toChildNodes[i] as Element
+		for (const unmatchedIndex of unmatchedElements) {
+			const element = toChildNodes[unmatchedIndex] as Element
 
 			const idSet = this.#idMap.get(element)
 			if (!idSet) continue
@@ -523,9 +523,9 @@ class Morph {
 				if (candidateIdSet) {
 					for (const id of idSet) {
 						if (candidateIdSet.has(id)) {
-							matches[i] = candidate
+							matches[unmatchedIndex] = candidate
 							candidateElements.delete(candidateIndex)
-							unmatchedElements.delete(i)
+							unmatchedElements.delete(unmatchedIndex)
 							break candidateLoop
 						}
 					}
@@ -534,8 +534,8 @@ class Morph {
 		}
 
 		// Match by heuristics
-		for (const i of unmatchedElements) {
-			const element = toChildNodes[i] as Element
+		for (const unmatchedIndex of unmatchedElements) {
+			const element = toChildNodes[unmatchedIndex] as Element
 
 			const name = element.getAttribute("name")
 			const href = element.getAttribute("href")
@@ -549,17 +549,17 @@ class Morph {
 						(href && href === candidate.getAttribute("href")) ||
 						(src && src === candidate.getAttribute("src")))
 				) {
-					matches[i] = candidate
+					matches[unmatchedIndex] = candidate
 					candidateElements.delete(candidateIndex)
-					unmatchedElements.delete(i)
+					unmatchedElements.delete(unmatchedIndex)
 					break
 				}
 			}
 		}
 
 		// Match by tagName
-		for (const i of unmatchedElements) {
-			const element = toChildNodes[i] as Element
+		for (const unmatchedIndex of unmatchedElements) {
+			const element = toChildNodes[unmatchedIndex] as Element
 
 			const localName = element.localName
 
@@ -570,33 +570,33 @@ class Morph {
 						// Treat inputs with different type as though they are different tags.
 						continue
 					}
-					matches[i] = candidate
+					matches[unmatchedIndex] = candidate
 					candidateElements.delete(candidateIndex)
-					unmatchedElements.delete(i)
+					unmatchedElements.delete(unmatchedIndex)
 					break
 				}
 			}
 		}
 
 		// Match nodes by isEqualNode (skip whitespace-only text nodes)
-		for (const i of unmatchedNodes) {
-			const node = toChildNodes[i]!
+		for (const unmatchedIndex of unmatchedNodes) {
+			const node = toChildNodes[unmatchedIndex]!
 			if (isWhitespace(node)) continue
 
 			for (const candidateIndex of candidateNodes) {
 				const candidate = fromChildNodes[candidateIndex]!
 				if (candidate.isEqualNode(node)) {
-					matches[i] = candidate
+					matches[unmatchedIndex] = candidate
 					candidateNodes.delete(candidateIndex)
-					unmatchedNodes.delete(i)
+					unmatchedNodes.delete(unmatchedIndex)
 					break
 				}
 			}
 		}
 
 		// Match by nodeType (skip whitespace-only text nodes)
-		for (const i of unmatchedNodes) {
-			const node = toChildNodes[i]!
+		for (const unmatchedIndex of unmatchedNodes) {
+			const node = toChildNodes[unmatchedIndex]!
 			if (isWhitespace(node)) continue
 
 			const nodeType = node.nodeType
@@ -604,9 +604,9 @@ class Morph {
 			for (const candidateIndex of candidateNodes) {
 				const candidate = fromChildNodes[candidateIndex]!
 				if (nodeType === candidate.nodeType) {
-					matches[i] = candidate
+					matches[unmatchedIndex] = candidate
 					candidateNodes.delete(candidateIndex)
-					unmatchedNodes.delete(i)
+					unmatchedNodes.delete(unmatchedIndex)
 					break
 				}
 			}
