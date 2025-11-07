@@ -670,10 +670,15 @@ class Morph {
 	#replaceNode(node: ChildNode, newNode: ChildNode): void {
 		const parent = node.parentNode || document
 		const insertionPoint = node
-		if (this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true) {
+		// Check if both removal and addition are allowed before starting the replacement
+		if (
+			(this.#options.beforeNodeRemoved?.(node) ?? true) &&
+			(this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true)
+		) {
 			moveBefore(parent, newNode, insertionPoint)
 			this.#options.afterNodeAdded?.(newNode)
-			this.#removeNode(node)
+			node.remove()
+			this.#options.afterNodeRemoved?.(node)
 		}
 	}
 
