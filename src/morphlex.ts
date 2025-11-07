@@ -454,70 +454,79 @@ class Morph {
 		if (!(this.#options.beforeChildrenVisited?.(from) ?? true)) return
 		const parent = from
 
-		const fromChildNodes = from.childNodes
+		const fromChildNodes = Array.from(from.childNodes)
 		const toChildNodes = Array.from(to.childNodes)
 
-		const candidateNodes: Set<ChildNode> = new Set()
-		const candidateElements: Set<Element> = new Set()
+		const candidateNodes: Set<number> = new Set()
+		const candidateElements: Set<number> = new Set()
 
 		const matches: Array<ChildNode | null> = Array.from({ length: toChildNodes.length }, () => null)
 
-		for (const candidate of fromChildNodes) {
-			if (isElement(candidate)) candidateElements.add(candidate)
-			else candidateNodes.add(candidate)
+		for (let i = 0; i < fromChildNodes.length; i++) {
+			const candidate = fromChildNodes[i]!
+			if (isElement(candidate)) candidateElements.add(i)
+			else candidateNodes.add(i)
+		}
+
+		const unmatchedElements: Set<number> = new Set()
+		const unmatchedNodes: Set<number> = new Set()
+
+		for (let i = 0; i < toChildNodes.length; i++) {
+			const node = toChildNodes[i]!
+			if (isElement(node)) unmatchedElements.add(i)
+			else unmatchedNodes.add(i)
 		}
 
 		// Match elements by isEqualNode
-		for (let i = 0; i < toChildNodes.length; i++) {
-			const element = toChildNodes[i]!
-			if (!isElement(element)) continue
+		for (const i of unmatchedElements) {
+			const element = toChildNodes[i] as Element
 
-			for (const candidate of candidateElements) {
+			for (const candidateIndex of candidateElements) {
+				const candidate = fromChildNodes[candidateIndex]!
 				if (candidate.isEqualNode(element)) {
 					matches[i] = candidate
-					candidateElements.delete(candidate)
+					candidateElements.delete(candidateIndex)
+					unmatchedElements.delete(i)
 					break
 				}
 			}
 		}
 
 		// Match by exact id
-		for (let i = 0; i < toChildNodes.length; i++) {
-			if (matches[i]) continue
-			const element = toChildNodes[i]!
-			if (!isElement(element)) continue
+		for (const i of unmatchedElements) {
+			const element = toChildNodes[i] as Element
 
 			const id = element.id
 			if (id === "") continue
 
-			for (const candidate of candidateElements) {
+			for (const candidateIndex of candidateElements) {
+				const candidate = fromChildNodes[candidateIndex] as Element
 				if (element.localName === candidate.localName && id === candidate.id) {
 					matches[i] = candidate
-					candidateElements.delete(candidate)
+					candidateElements.delete(candidateIndex)
+					unmatchedElements.delete(i)
 					break
 				}
 			}
 		}
 
 		// Match by idSet
-		for (let i = 0; i < toChildNodes.length; i++) {
-			if (matches[i]) continue
-			const element = toChildNodes[i]!
-			if (!isElement(element)) continue
+		for (const i of unmatchedElements) {
+			const element = toChildNodes[i] as Element
 
 			const idSet = this.#idMap.get(element)
 			if (!idSet) continue
 
-			candidateLoop: for (const candidate of candidateElements) {
-				if (isElement(candidate)) {
-					const candidateIdSet = this.#idMap.get(candidate)
-					if (candidateIdSet) {
-						for (const id of idSet) {
-							if (candidateIdSet.has(id)) {
-								matches[i] = candidate
-								candidateElements.delete(candidate)
-								break candidateLoop
-							}
+			candidateLoop: for (const candidateIndex of candidateElements) {
+				const candidate = fromChildNodes[candidateIndex] as Element
+				const candidateIdSet = this.#idMap.get(candidate)
+				if (candidateIdSet) {
+					for (const id of idSet) {
+						if (candidateIdSet.has(id)) {
+							matches[i] = candidate
+							candidateElements.delete(candidateIndex)
+							unmatchedElements.delete(i)
+							break candidateLoop
 						}
 					}
 				}
@@ -525,102 +534,91 @@ class Morph {
 		}
 
 		// Match by heuristics
-		for (let i = 0; i < toChildNodes.length; i++) {
-			if (matches[i]) continue
-			const element = toChildNodes[i]!
-			if (!isElement(element)) continue
+		for (const i of unmatchedElements) {
+			const element = toChildNodes[i] as Element
 
 			const name = element.getAttribute("name")
 			const href = element.getAttribute("href")
 			const src = element.getAttribute("src")
 
-			for (const candidate of candidateElements) {
+			for (const candidateIndex of candidateElements) {
+				const candidate = fromChildNodes[candidateIndex] as Element
 				if (
-					isElement(candidate) &&
 					element.localName === candidate.localName &&
 					((name && name === candidate.getAttribute("name")) ||
 						(href && href === candidate.getAttribute("href")) ||
 						(src && src === candidate.getAttribute("src")))
 				) {
 					matches[i] = candidate
-					candidateElements.delete(candidate)
+					candidateElements.delete(candidateIndex)
+					unmatchedElements.delete(i)
 					break
 				}
 			}
 		}
 
 		// Match by tagName
-		for (let i = 0; i < toChildNodes.length; i++) {
-			if (matches[i]) continue
-			const element = toChildNodes[i]!
-			if (!isElement(element)) continue
+		for (const i of unmatchedElements) {
+			const element = toChildNodes[i] as Element
 
 			const localName = element.localName
 
-			for (const candidate of candidateElements) {
+			for (const candidateIndex of candidateElements) {
+				const candidate = fromChildNodes[candidateIndex] as Element
 				if (localName === candidate.localName) {
 					if (isInputElement(candidate) && isInputElement(element) && candidate.type !== element.type) {
 						// Treat inputs with different type as though they are different tags.
 						continue
 					}
 					matches[i] = candidate
-					candidateElements.delete(candidate)
+					candidateElements.delete(candidateIndex)
+					unmatchedElements.delete(i)
 					break
 				}
 			}
 		}
 
 		// Match nodes by isEqualNode (skip whitespace-only text nodes)
-		for (let i = 0; i < toChildNodes.length; i++) {
-			if (matches[i]) continue
+		for (const i of unmatchedNodes) {
 			const node = toChildNodes[i]!
-			if (isElement(node)) continue
 			if (isWhitespace(node)) continue
 
-			for (const candidate of candidateNodes) {
+			for (const candidateIndex of candidateNodes) {
+				const candidate = fromChildNodes[candidateIndex]!
 				if (candidate.isEqualNode(node)) {
 					matches[i] = candidate
-					candidateNodes.delete(candidate)
+					candidateNodes.delete(candidateIndex)
+					unmatchedNodes.delete(i)
 					break
 				}
 			}
 		}
 
 		// Match by nodeType (skip whitespace-only text nodes)
-		for (let i = 0; i < toChildNodes.length; i++) {
-			if (matches[i]) continue
+		for (const i of unmatchedNodes) {
 			const node = toChildNodes[i]!
-			if (isElement(node)) continue
 			if (isWhitespace(node)) continue
 
 			const nodeType = node.nodeType
 
-			for (const candidate of candidateNodes) {
+			for (const candidateIndex of candidateNodes) {
+				const candidate = fromChildNodes[candidateIndex]!
 				if (nodeType === candidate.nodeType) {
 					matches[i] = candidate
-					candidateNodes.delete(candidate)
+					candidateNodes.delete(candidateIndex)
+					unmatchedNodes.delete(i)
 					break
 				}
 			}
 		}
 
-		// Remove unmatched nodes from candidate sets (they were matched and should not be removed)
-		for (const match of matches) {
-			if (match) {
-				candidateNodes.delete(match)
-				if (isElement(match)) {
-					candidateElements.delete(match)
-				}
-			}
-		}
-
 		// Remove any unmatched candidates first, before calculating LIS and repositioning
-		for (const candidate of candidateNodes) {
-			this.#removeNode(candidate)
+		for (const candidateIndex of candidateNodes) {
+			this.#removeNode(fromChildNodes[candidateIndex]!)
 		}
 
-		for (const candidate of candidateElements) {
-			this.#removeNode(candidate)
+		for (const candidateIndex of candidateElements) {
+			this.#removeNode(fromChildNodes[candidateIndex]!)
 		}
 
 		// Build sequence of current indices for LIS calculation (after removals)
