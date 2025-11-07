@@ -460,6 +460,9 @@ class Morph {
 		const candidateNodes: Set<number> = new Set()
 		const candidateElements: Set<number> = new Set()
 
+		const unmatchedNodes: Set<number> = new Set()
+		const unmatchedElements: Set<number> = new Set()
+
 		const matches: Array<ChildNode | null> = Array.from({ length: toChildNodes.length }, () => null)
 
 		for (let i = 0; i < fromChildNodes.length; i++) {
@@ -467,9 +470,6 @@ class Morph {
 			if (isElement(candidate)) candidateElements.add(i)
 			else candidateNodes.add(i)
 		}
-
-		const unmatchedElements: Set<number> = new Set()
-		const unmatchedNodes: Set<number> = new Set()
 
 		for (let i = 0; i < toChildNodes.length; i++) {
 			const node = toChildNodes[i]!
