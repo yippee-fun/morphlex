@@ -9,7 +9,8 @@ const unmatchedNodes: Set<number> = new Set()
 const unmatchedElements: Set<number> = new Set()
 const whitespaceNodes: Set<number> = new Set()
 
-type IdMap = WeakMap<Node, Array<string>>
+type IdSetMap = WeakMap<Node, Set<string>>
+type IdArrayMap = WeakMap<Node, Array<string>>
 
 /**
  * Configuration options for morphing operations.
@@ -129,7 +130,7 @@ export function morphDocument(from: Document, to: Document | string, options?: O
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
 	if (typeof to === "string") to = parseFragment(to).childNodes
 
-	if (isParentNode(from)) flagDirtyInputs(from)
+	if (!options.preserveChanges && isParentNode(from)) flagDirtyInputs(from)
 
 	new Morph(options).morph(from, to)
 }
@@ -214,7 +215,8 @@ function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNo
 }
 
 class Morph {
-	readonly #idMap: IdMap = new WeakMap()
+	readonly #idArrayMap: IdArrayMap = new WeakMap()
+	readonly #idSetMap: IdSetMap = new WeakMap()
 	readonly #options: Options
 
 	constructor(options: Options = {}) {
@@ -284,10 +286,10 @@ class Morph {
 		}
 
 		if (to instanceof NodeList) {
-			this.#mapIdSetsForEach(to)
+			this.#mapIdArraysForEach(to)
 			this.#morphOneToMany(from, to)
 		} else if (isParentNode(to)) {
-			this.#mapIdSets(to)
+			this.#mapIdArrays(to)
 			this.#morphOneToOne(from, to)
 		}
 	}
@@ -365,9 +367,7 @@ class Morph {
 		}
 
 		// First pass: update/add attributes from reference (iterate forwards)
-		const toAttributes = to.attributes
-		for (let i = 0; i < toAttributes.length; i++) {
-			const { name, value } = toAttributes[i]!
+		for (const { name, value } of to.attributes) {
 			if (name === "value") {
 				if (isInputElement(from) && from.value !== value) {
 					if (!this.#options.preserveChanges || from.value === from.defaultValue) {
@@ -400,12 +400,8 @@ class Morph {
 			}
 		}
 
-		const fromAttrs = from.attributes
-
-		// Second pass: remove excess attributes (iterate backwards for efficiency)
-		for (let i = fromAttrs.length - 1; i >= 0; i--) {
-			const { name, value } = fromAttrs[i]!
-
+		// Second pass: remove excess attributes
+		for (const { name, value } of from.attributes) {
 			if (!to.hasAttribute(name)) {
 				if (name === "selected") {
 					if (isOptionElement(from) && from.selected) {
@@ -509,9 +505,9 @@ class Morph {
 			const element = toChildNodes[unmatchedIndex] as Element
 
 			const id = element.id
-			const idSet = this.#idMap.get(element)
+			const idArray = this.#idArrayMap.get(element)
 
-			if (id === "" && !idSet) continue
+			if (id === "" && !idArray) continue
 
 			candidateLoop: for (const candidateIndex of candidateElements) {
 				const candidate = fromChildNodes[candidateIndex] as Element
@@ -525,20 +521,18 @@ class Morph {
 					break candidateLoop
 				}
 
-				// Match by idSet
-				if (idSet) {
-					const candidateIdSet = this.#idMap.get(candidate)
+				// Match by idArray (to) against idSet (from)
+				if (idArray) {
+					const candidateIdSet = this.#idSetMap.get(candidate)
 					if (candidateIdSet) {
-						for (let i = 0; i < idSet.length; i++) {
-							const setId = idSet[i]!
-							for (let k = 0; k < candidateIdSet.length; k++) {
-								if (candidateIdSet[k] === setId) {
-									matches[unmatchedIndex] = candidateIndex
-									seq[candidateIndex] = unmatchedIndex
-									candidateElements.delete(candidateIndex)
-									unmatchedElements.delete(unmatchedIndex)
-									break candidateLoop
-								}
+						for (let i = 0; i < idArray.length; i++) {
+							const arrayId = idArray[i]!
+							if (candidateIdSet.has(arrayId)) {
+								matches[unmatchedIndex] = candidateIndex
+								seq[candidateIndex] = unmatchedIndex
+								candidateElements.delete(candidateIndex)
+								unmatchedElements.delete(unmatchedIndex)
+								break candidateLoop
 							}
 						}
 					}
@@ -687,17 +681,17 @@ class Morph {
 		}
 	}
 
-	#mapIdSetsForEach(nodeList: NodeList): void {
+	#mapIdArraysForEach(nodeList: NodeList): void {
 		for (const childNode of nodeList) {
 			if (isParentNode(childNode)) {
-				this.#mapIdSets(childNode)
+				this.#mapIdArrays(childNode)
 			}
 		}
 	}
 
-	// For each node with an ID, push that ID into the IdSet on the IdMap, for each of its parent elements.
-	#mapIdSets(node: ParentNode): void {
-		const idMap = this.#idMap
+	// For each node with an ID, push that ID into the IdArray on the IdArrayMap, for each of its parent elements.
+	#mapIdArrays(node: ParentNode): void {
+		const idArrayMap = this.#idArrayMap
 
 		for (const element of node.querySelectorAll("[id]")) {
 			const id = element.id
@@ -707,9 +701,36 @@ class Morph {
 			let currentElement: Element | null = element
 
 			while (currentElement) {
-				const idSet: Array<string> | undefined = idMap.get(currentElement)
-				if (idSet) idSet.push(id)
-				else idMap.set(currentElement, [id])
+				const idArray = idArrayMap.get(currentElement)
+				if (idArray) {
+					idArray.push(id)
+				} else {
+					idArrayMap.set(currentElement, [id])
+				}
+				if (currentElement === node) break
+				currentElement = currentElement.parentElement
+			}
+		}
+	}
+
+	// For each node with an ID, add that ID into the IdSet on the IdSetMap, for each of its parent elements.
+	#mapIdSets(node: ParentNode): void {
+		const idSetMap = this.#idSetMap
+
+		for (const element of node.querySelectorAll("[id]")) {
+			const id = element.id
+
+			if (id === "") continue
+
+			let currentElement: Element | null = element
+
+			while (currentElement) {
+				const idSet = idSetMap.get(currentElement)
+				if (idSet) {
+					idSet.add(id)
+				} else {
+					idSetMap.set(currentElement, new Set([id]))
+				}
 				if (currentElement === node) break
 				currentElement = currentElement.parentElement
 			}
