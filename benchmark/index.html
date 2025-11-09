@@ -378,6 +378,7 @@
 			// 2. Start a local server: 'bun run --bun vite' or 'python -m http.server' in the morphlex root
 			// 3. Open http://localhost:5173/benchmark/ (or appropriate port)
 			import { morph as morphlex } from "../dist/morphlex.min.js"
+			import { morph as dataMorph } from "../dist/data-morph.min.js"
 			import { Idiomorph } from "https://unpkg.com/idiomorph@0.7.4/dist/idiomorph.esm.js"
 			import morphdom from "https://unpkg.com/morphdom@2.7.7/dist/morphdom-esm.js"
 			// Try loading nanomorph from jsdelivr with ESM
@@ -553,6 +554,7 @@
 					const results = []
 					const libraries = [
 						{ name: "morphlex", fn: (from, to) => morphlex(from, to) },
+						{ name: "data-morph", fn: (from, to) => dataMorph(from, to.cloneNode(true), "outer") },
 						{ name: "idiomorph", fn: (from, to) => Idiomorph.morph(from, to) },
 						{ name: "morphdom", fn: (from, to) => morphdom(from, to.cloneNode(true)) },
 						{ name: "nanomorph", fn: (from, to) => nanomorph(from, to.cloneNode(true)) },
