@@ -3,6 +3,14 @@ const ELEMENT_NODE_TYPE = 1
 const TEXT_NODE_TYPE = 3
 const PARENT_NODE_TYPES = [false, true, false, false, false, false, false, false, false, true, false, true]
 
+const Operation = {
+	EqualNode: 0,
+	SameElement: 1,
+	SameNode: 2,
+} as const
+
+type Operation = (typeof Operation)[keyof typeof Operation]
+
 const candidateNodes: Set<number> = new Set()
 const candidateElements: Set<number> = new Set()
 const unmatchedNodes: Set<number> = new Set()
@@ -322,8 +330,6 @@ class Morph {
 		if (from === to) return
 		if (from.isEqualNode?.(to)) return
 
-		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) return
-
 		if (from.nodeType === ELEMENT_NODE_TYPE && to.nodeType === ELEMENT_NODE_TYPE) {
 			if ((from as Element).localName === (to as Element).localName) {
 				this.#morphMatchingElements(from as Element, to as Element)
@@ -333,11 +339,11 @@ class Morph {
 		} else {
 			this.#morphOtherNode(from, to)
 		}
-
-		this.#options.afterNodeVisited?.(from, to)
 	}
 
 	#morphMatchingElements(from: Element, to: Element): void {
+		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) return
+
 		if (from.hasAttributes() || to.hasAttributes()) {
 			this.#visitAttributes(from, to)
 		}
@@ -347,18 +353,28 @@ class Morph {
 		} else if (from.hasChildNodes() || to.hasChildNodes()) {
 			this.visitChildNodes(from, to)
 		}
+
+		this.#options.afterNodeVisited?.(from, to)
 	}
 
 	#morphNonMatchingElements(from: Element, to: Element): void {
+		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) return
+
 		this.#replaceNode(from, to)
+
+		this.#options.afterNodeVisited?.(from, to)
 	}
 
 	#morphOtherNode(from: ChildNode, to: ChildNode): void {
+		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) return
+
 		if (from.nodeType === to.nodeType && from.nodeValue !== null && to.nodeValue !== null) {
 			from.nodeValue = to.nodeValue
 		} else {
 			this.#replaceNode(from, to)
 		}
+
+		this.#options.afterNodeVisited?.(from, to)
 	}
 
 	#visitAttributes(from: Element, to: Element): void {
@@ -454,8 +470,9 @@ class Morph {
 		unmatchedElements.clear()
 		whitespaceNodes.clear()
 
-		const seq: Array<number | undefined> = []
-		const matches: Array<number | undefined> = []
+		const seq: Array<number> = []
+		const matches: Array<number> = []
+		const op: Array<Operation> = []
 
 		for (let i = 0; i < fromChildNodes.length; i++) {
 			const candidate = fromChildNodes[i]!
@@ -492,6 +509,7 @@ class Morph {
 
 				if (candidate.isEqualNode(element)) {
 					matches[unmatchedIndex] = candidateIndex
+					op[unmatchedIndex] = Operation.EqualNode
 					seq[candidateIndex] = unmatchedIndex
 					candidateElements.delete(candidateIndex)
 					unmatchedElements.delete(unmatchedIndex)
@@ -512,27 +530,31 @@ class Morph {
 			candidateLoop: for (const candidateIndex of candidateElements) {
 				const candidate = fromChildNodes[candidateIndex] as Element
 
-				// Match by exact id
-				if (id !== "" && element.localName === candidate.localName && id === candidate.id) {
-					matches[unmatchedIndex] = candidateIndex
-					seq[candidateIndex] = unmatchedIndex
-					candidateElements.delete(candidateIndex)
-					unmatchedElements.delete(unmatchedIndex)
-					break candidateLoop
-				}
+				if (element.localName === candidate.localName) {
+					// Match by exact id
+					if (id !== "" && id === candidate.id) {
+						matches[unmatchedIndex] = candidateIndex
+						op[unmatchedIndex] = Operation.SameElement
+						seq[candidateIndex] = unmatchedIndex
+						candidateElements.delete(candidateIndex)
+						unmatchedElements.delete(unmatchedIndex)
+						break candidateLoop
+					}
 
-				// Match by idArray (to) against idSet (from)
-				if (idArray) {
-					const candidateIdSet = this.#idSetMap.get(candidate)
-					if (candidateIdSet) {
-						for (let i = 0; i < idArray.length; i++) {
-							const arrayId = idArray[i]!
-							if (candidateIdSet.has(arrayId)) {
-								matches[unmatchedIndex] = candidateIndex
-								seq[candidateIndex] = unmatchedIndex
-								candidateElements.delete(candidateIndex)
-								unmatchedElements.delete(unmatchedIndex)
-								break candidateLoop
+					// Match by idArray (to) against idSet (from)
+					if (idArray) {
+						const candidateIdSet = this.#idSetMap.get(candidate)
+						if (candidateIdSet) {
+							for (let i = 0; i < idArray.length; i++) {
+								const arrayId = idArray[i]!
+								if (candidateIdSet.has(arrayId)) {
+									matches[unmatchedIndex] = candidateIndex
+									op[unmatchedIndex] = Operation.SameElement
+									seq[candidateIndex] = unmatchedIndex
+									candidateElements.delete(candidateIndex)
+									unmatchedElements.delete(unmatchedIndex)
+									break candidateLoop
+								}
 							}
 						}
 					}
@@ -558,6 +580,7 @@ class Morph {
 				) {
 					matches[unmatchedIndex] = candidateIndex
 					seq[candidateIndex] = unmatchedIndex
+					op[unmatchedIndex] = Operation.SameElement
 					candidateElements.delete(candidateIndex)
 					unmatchedElements.delete(unmatchedIndex)
 					break
@@ -580,6 +603,7 @@ class Morph {
 					}
 					matches[unmatchedIndex] = candidateIndex
 					seq[candidateIndex] = unmatchedIndex
+					op[unmatchedIndex] = Operation.SameElement
 					candidateElements.delete(candidateIndex)
 					unmatchedElements.delete(unmatchedIndex)
 					break
@@ -595,6 +619,7 @@ class Morph {
 				const candidate = fromChildNodes[candidateIndex]!
 				if (candidate.isEqualNode(node)) {
 					matches[unmatchedIndex] = candidateIndex
+					op[unmatchedIndex] = Operation.EqualNode
 					seq[candidateIndex] = unmatchedIndex
 					candidateNodes.delete(candidateIndex)
 					unmatchedNodes.delete(unmatchedIndex)
@@ -613,6 +638,7 @@ class Morph {
 				const candidate = fromChildNodes[candidateIndex]!
 				if (nodeType === candidate.nodeType) {
 					matches[unmatchedIndex] = candidateIndex
+					op[unmatchedIndex] = Operation.SameNode
 					seq[candidateIndex] = unmatchedIndex
 					candidateNodes.delete(candidateIndex)
 					unmatchedNodes.delete(unmatchedIndex)
@@ -641,11 +667,20 @@ class Morph {
 			const matchInd = matches[i]
 			if (matchInd !== undefined) {
 				const match = fromChildNodes[matchInd]!
+				const operation = op[matchInd]!
 
 				if (!shouldNotMove[matchInd]) {
 					moveBefore(parent, match, insertionPoint)
 				}
-				this.#morphOneToOne(match, node)
+
+				if (operation === Operation.EqualNode) {
+				} else if (operation === Operation.SameElement) {
+					// this.#morphMatchingElements(match as Element, node as Element)
+					this.#morphMatchingElements(match as Element, node as Element)
+				} else {
+					this.#morphOneToOne(match, node)
+				}
+
 				insertionPoint = match.nextSibling
 			} else {
 				if (this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true) {

@@ -383,7 +383,14 @@
 			import morphdom from "https://unpkg.com/morphdom@2.7.7/dist/morphdom-esm.js"
 			// Try loading nanomorph from jsdelivr with ESM
 			import nanomorph from "https://cdn.jsdelivr.net/npm/nanomorph@5.4.3/+esm"
-			// Alpine morph requires Alpine.js to be loaded, so we'll skip it
+			// Load Alpine.js and Alpine morph
+			import Alpine from "https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/module.esm.js"
+			import Morph from "https://cdn.jsdelivr.net/npm/@alpinejs/morph@3.x.x/dist/module.esm.js"
+
+			// Initialize Alpine with morph plugin
+			Alpine.plugin(Morph)
+			window.Alpine = Alpine
+			Alpine.start()
 
 			const sandbox = document.getElementById("sandbox")
 			let isRunning = false
@@ -558,6 +565,7 @@
 						{ name: "idiomorph", fn: (from, to) => Idiomorph.morph(from, to) },
 						{ name: "morphdom", fn: (from, to) => morphdom(from, to.cloneNode(true)) },
 						{ name: "nanomorph", fn: (from, to) => nanomorph(from, to.cloneNode(true)) },
+						{ name: "alpine-morph", fn: (from, to) => Alpine.morph(from, to) },
 					]
 
 					for (const lib of libraries) {
