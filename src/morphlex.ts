@@ -367,9 +367,7 @@ class Morph {
 		}
 
 		// First pass: update/add attributes from reference (iterate forwards)
-		const toAttributes = to.attributes
-		for (let i = 0; i < toAttributes.length; i++) {
-			const { name, value } = toAttributes[i]!
+		for (const { name, value } of to.attributes) {
 			if (name === "value") {
 				if (isInputElement(from) && from.value !== value) {
 					if (!this.#options.preserveChanges || from.value === from.defaultValue) {
@@ -402,12 +400,8 @@ class Morph {
 			}
 		}
 
-		const fromAttrs = from.attributes
-
-		// Second pass: remove excess attributes (iterate backwards for efficiency)
-		for (let i = fromAttrs.length - 1; i >= 0; i--) {
-			const { name, value } = fromAttrs[i]!
-
+		// Second pass: remove excess attributes
+		for (const { name, value } of from.attributes) {
 			if (!to.hasAttribute(name)) {
 				if (name === "selected") {
 					if (isOptionElement(from) && from.selected) {
