@@ -1,3 +1,5 @@
 *
 !dist/**/*
+dist/**/data*
 !src/**/*
+src/**/data*
