@@ -2,20 +2,29 @@
 	"compilerOptions": {
 		"lib": ["dom", "esnext", "dom.iterable"],
 		"module": "esnext",
-		"moduleResolution": "node",
-		"noUnusedLocals": true,
-		"strict": true,
 		"target": "es2022",
-		"removeComments": false,
-		"outDir": "dist",
+		"moduleResolution": "bundler",
+
+		"strict": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+		"noPropertyAccessFromIndexSignature": true,
+		"allowUnusedLabels": false,
+		"allowUnreachableCode": false,
+		"exactOptionalPropertyTypes": true,
+		"forceConsistentCasingInFileNames": true,
+		"useUnknownInCatchVariables": true,
+
 		"skipLibCheck": true,
 		"noEmit": false,
 		"declaration": true,
 		"esModuleInterop": true,
-		"allowSyntheticDefaultImports": true,
 		"sourceMap": true,
-		"noUncheckedIndexedAccess": true
+		"outDir": "dist"
 	},
 	"include": ["src/**/*"],
-	"exclude": ["node_modules", "dist", "coverage", "test", "**/*.test.ts", "**/*.spec.ts", "vitest.config.ts"]
+	"exclude": ["node_modules", "dist", "coverage", "test"]
 }
