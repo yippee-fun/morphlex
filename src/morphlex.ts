@@ -473,12 +473,18 @@ class Morph {
 		const seq: Array<number> = []
 		const matches: Array<number> = []
 		const op: Array<Operation> = []
+		const nodeTypeMap: Array<number> = []
+		const candidateNodeTypeMap: Array<number> = []
+		const localNameMap: Array<string> = []
+		const candidateLocalNameMap: Array<string> = []
 
 		for (let i = 0; i < fromChildNodes.length; i++) {
 			const candidate = fromChildNodes[i]!
 			const nodeType = candidate.nodeType
+			candidateNodeTypeMap[i] = nodeType
 
 			if (nodeType === ELEMENT_NODE_TYPE) {
+				candidateLocalNameMap[i] = (candidate as Element).localName
 				candidateElements.add(i)
 			} else if (nodeType === TEXT_NODE_TYPE && candidate.textContent?.trim() === "") {
 				whitespaceNodes.add(i)
@@ -490,8 +496,10 @@ class Morph {
 		for (let i = 0; i < toChildNodes.length; i++) {
 			const node = toChildNodes[i]!
 			const nodeType = node.nodeType
+			nodeTypeMap[i] = nodeType
 
 			if (nodeType === ELEMENT_NODE_TYPE) {
+				localNameMap[i] = (node as Element).localName
 				unmatchedElements.add(i)
 			} else if (nodeType === TEXT_NODE_TYPE && node.textContent?.trim() === "") {
 				continue
@@ -502,9 +510,11 @@ class Morph {
 
 		// Match elements by isEqualNode
 		for (const unmatchedIndex of unmatchedElements) {
+			const localName = localNameMap[unmatchedIndex]
 			const element = toChildNodes[unmatchedIndex] as Element
 
 			for (const candidateIndex of candidateElements) {
+				if (localName !== candidateLocalNameMap[candidateIndex]) continue
 				const candidate = fromChildNodes[candidateIndex] as Element
 
 				if (candidate.isEqualNode(element)) {
@@ -530,7 +540,7 @@ class Morph {
 			candidateLoop: for (const candidateIndex of candidateElements) {
 				const candidate = fromChildNodes[candidateIndex] as Element
 
-				if (element.localName === candidate.localName) {
+				if (localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex]) {
 					// Match by exact id
 					if (id !== "" && id === candidate.id) {
 						matches[unmatchedIndex] = candidateIndex
@@ -573,7 +583,7 @@ class Morph {
 			for (const candidateIndex of candidateElements) {
 				const candidate = fromChildNodes[candidateIndex] as Element
 				if (
-					element.localName === candidate.localName &&
+					localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] &&
 					((name && name === candidate.getAttribute("name")) ||
 						(href && href === candidate.getAttribute("href")) ||
 						(src && src === candidate.getAttribute("src")))
@@ -592,12 +602,14 @@ class Morph {
 		for (const unmatchedIndex of unmatchedElements) {
 			const element = toChildNodes[unmatchedIndex] as Element
 
-			const localName = element.localName
+			const localName = localNameMap[unmatchedIndex]
 
 			for (const candidateIndex of candidateElements) {
 				const candidate = fromChildNodes[candidateIndex] as Element
-				if (localName === candidate.localName) {
-					if (isInputElement(candidate) && isInputElement(element) && candidate.type !== element.type) {
+				const candidateLocalName = candidateLocalNameMap[candidateIndex]
+
+				if (localName === candidateLocalName) {
+					if (localName === "input" && (candidate as HTMLInputElement).type !== (element as HTMLInputElement).type) {
 						// Treat inputs with different type as though they are different tags.
 						continue
 					}
@@ -630,13 +642,10 @@ class Morph {
 
 		// Match by nodeType
 		for (const unmatchedIndex of unmatchedNodes) {
-			const node = toChildNodes[unmatchedIndex]!
-
-			const nodeType = node.nodeType
+			const nodeType = nodeTypeMap[unmatchedIndex]
 
 			for (const candidateIndex of candidateNodes) {
-				const candidate = fromChildNodes[candidateIndex]!
-				if (nodeType === candidate.nodeType) {
+				if (nodeType === candidateNodeTypeMap[candidateIndex]) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameNode
 					seq[candidateIndex] = unmatchedIndex
