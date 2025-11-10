@@ -10,6 +10,7 @@ await build({
 	minify: true,
 	sourcemap: "external",
 	naming: "[dir]/[name].min.[ext]",
+	target: "browser",
 })
 
 // Generate TypeScript declarations (skip lib check to avoid node type errors)

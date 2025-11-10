@@ -1,0 +1,8 @@
+{
+	"name": "@phlex/morphlex",
+	"version": "1.0.4",
+	"exports": "./src/morphlex.ts",
+	"publish": {
+		"include": ["LICENSE", "README.md", "src/**/morphlex.ts"]
+	}
+}

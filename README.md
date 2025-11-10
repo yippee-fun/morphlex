@@ -23,7 +23,7 @@ Or use it directly from a CDN:
 
 ```html
 <script type="module">
-  import { morph } from "https://www.unpkg.com/morphlex@1.0.1/dist/morphlex.min.js"
+  import { morph } from "https://www.unpkg.com/morphlex@latest/dist/morphlex.min.js"
 </script>
 ```
 
