@@ -15,9 +15,7 @@ Morphlex is a ~2.4KB (gzipped) DOM morphing library that transforms one DOM tree
 
 ## Installation
 
-```bash
-npm install morphlex
-```
+<kbd>npm install morphlex</kbd>
 
 Or use it directly from a CDN:
 
