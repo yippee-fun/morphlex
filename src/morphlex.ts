@@ -328,7 +328,7 @@ class Morph {
 	#morphOneToOne(from: ChildNode, to: ChildNode): void {
 		// Fast path: if nodes are exactly the same object, skip morphing
 		if (from === to) return
-		if (from.isEqualNode?.(to)) return
+		if (from.isEqualNode(to)) return
 
 		if (from.nodeType === ELEMENT_NODE_TYPE && to.nodeType === ELEMENT_NODE_TYPE) {
 			if ((from as Element).localName === (to as Element).localName) {
