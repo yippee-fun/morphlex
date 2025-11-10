@@ -17,6 +17,7 @@
 		"exactOptionalPropertyTypes": true,
 		"forceConsistentCasingInFileNames": true,
 		"useUnknownInCatchVariables": true,
+		"erasableSyntaxOnly": true,
 
 		"skipLibCheck": true,
 		"noEmit": false,
