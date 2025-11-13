@@ -1,7 +1,22 @@
 const SUPPORTS_MOVE_BEFORE = "moveBefore" in Element.prototype
 const ELEMENT_NODE_TYPE = 1
 const TEXT_NODE_TYPE = 3
-const PARENT_NODE_TYPES = [false, true, false, false, false, false, false, false, false, true, false, true]
+
+const IS_PARENT_NODE_TYPE = [
+	0, //  0: (unused)
+	1, //  1: Element
+	0, //  2: Attribute (deprecated)
+	0, //  3: Text
+	0, //  4: CDATASection (deprecated)
+	0, //  5: EntityReference (deprecated)
+	0, //  6: Entity (deprecated)
+	0, //  7: ProcessingInstruction
+	0, //  8: Comment
+	1, //  9: Document
+	0, // 10: DocumentType
+	1, // 11: DocumentFragment
+	0, // 12: Notation (deprecated)
+]
 
 const Operation = {
 	EqualNode: 0,
@@ -791,5 +806,5 @@ function isOptionElement(element: Element): element is HTMLOptionElement {
 }
 
 function isParentNode(node: Node): node is ParentNode {
-	return !!PARENT_NODE_TYPES[node.nodeType]
+	return !!IS_PARENT_NODE_TYPE[node.nodeType]
 }
