@@ -691,7 +691,7 @@ class Morph {
 			const matchInd = matches[i]
 			if (matchInd !== undefined) {
 				const match = fromChildNodes[matchInd]!
-				const operation = op[matchInd]!
+				const operation = op[i]!
 
 				if (!shouldNotMove[matchInd]) {
 					moveBefore(parent, match, insertionPoint)

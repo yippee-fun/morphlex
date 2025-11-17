@@ -114,4 +114,34 @@ describe("Optimal Reordering", () => {
 		expect(from.children[0]?.id).toBe("item-4")
 		expect(from.children[7]?.id).toBe("item-8")
 	})
+
+	test("should use correct operation index when reordering with different operations", () => {
+		const from = dom(`
+			<div>
+				<span id="a" class="unchanged">A</span>
+				<span id="b" class="old-class">B</span>
+			</div>
+		`)
+
+		const to = dom(`
+			<div>
+				<span id="b" class="new-class">B</span>
+				<span id="a" class="unchanged">A</span>
+			</div>
+		`)
+
+		morph(from, to)
+
+		const children = Array.from(from.children) as HTMLSpanElement[]
+
+		expect(children.length).toBe(2)
+		expect(children[0]?.id).toBe("b")
+		expect(children[1]?.id).toBe("a")
+
+		expect(children[0]?.className).toBe("new-class")
+		expect(children[0]?.textContent).toBe("B")
+
+		expect(children[1]?.className).toBe("unchanged")
+		expect(children[1]?.textContent).toBe("A")
+	})
 })
