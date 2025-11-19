@@ -246,63 +246,6 @@ class Morph {
 		this.#options = options
 	}
 
-	// Find longest increasing subsequence to minimize moves during reordering
-	// Returns the indices in the sequence that form the LIS
-	#longestIncreasingSubsequence(sequence: Array<number | undefined>): Array<number> {
-		const n = sequence.length
-		if (n === 0) return []
-
-		// smallestEnding[i] = smallest ending value of any increasing subsequence of length i+1
-		const smallestEnding: Array<number> = []
-		// indices[i] = index in sequence where smallestEnding[i] occurs
-		const indices: Array<number> = []
-		// prev[i] = previous index in the LIS ending at sequence[i]
-		const prev: Array<number> = new Array(n)
-
-		// Build the LIS by processing each value
-		for (let i = 0; i < n; i++) {
-			const val = sequence[i]
-			if (val === undefined) continue // Skip new nodes (not in original sequence)
-
-			// Binary search: find where this value fits in smallestEnding
-			let left = 0
-			let right = smallestEnding.length
-
-			while (left < right) {
-				const mid = Math.floor((left + right) / 2)
-				if (smallestEnding[mid]! < val) left = mid + 1
-				else right = mid
-			}
-
-			// Link this element to the previous one in the subsequence
-			prev[i] = left > 0 ? indices[left - 1]! : -1
-
-			// Either extend the sequence or update an existing position
-			if (left === smallestEnding.length) {
-				// Extend: this value is larger than all previous endings
-				smallestEnding.push(val)
-				indices.push(i)
-			} else {
-				// Update: found a better (smaller) ending for this length
-				smallestEnding[left] = val
-				indices[left] = i
-			}
-		}
-
-		// Reconstruct the actual indices that form the LIS
-		const result: Array<number> = []
-		if (indices.length === 0) return result
-
-		// Walk backwards through prev links to build the LIS
-		let curr: number | undefined = indices[indices.length - 1]
-		while (curr !== undefined && curr !== -1) {
-			result.unshift(curr)
-			curr = prev[curr]
-		}
-
-		return result
-	}
-
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
 		if (isParentNode(from)) {
 			this.#mapIdSets(from)
@@ -678,7 +621,7 @@ class Morph {
 
 		// Find LIS - these nodes don't need to move
 		// matches already contains the fromChildNodes indices, so we can use it directly
-		const lisIndices = this.#longestIncreasingSubsequence(matches)
+		const lisIndices = longestIncreasingSubsequence(matches)
 
 		const shouldNotMove: Array<boolean> = new Array(fromChildNodes.length)
 		for (let i = 0; i < lisIndices.length; i++) {
@@ -807,4 +750,61 @@ function isOptionElement(element: Element): element is HTMLOptionElement {
 
 function isParentNode(node: Node): node is ParentNode {
 	return !!IS_PARENT_NODE_TYPE[node.nodeType]
+}
+
+// Find longest increasing subsequence to minimize moves during reordering
+// Returns the indices in the sequence that form the LIS
+function longestIncreasingSubsequence(sequence: Array<number | undefined>): Array<number> {
+	const n = sequence.length
+	if (n === 0) return []
+
+	// smallestEnding[i] = smallest ending value of any increasing subsequence of length i+1
+	const smallestEnding: Array<number> = []
+	// indices[i] = index in sequence where smallestEnding[i] occurs
+	const indices: Array<number> = []
+	// prev[i] = previous index in the LIS ending at sequence[i]
+	const prev: Array<number> = new Array(n)
+
+	// Build the LIS by processing each value
+	for (let i = 0; i < n; i++) {
+		const val = sequence[i]
+		if (val === undefined) continue // Skip new nodes (not in original sequence)
+
+		// Binary search: find where this value fits in smallestEnding
+		let left = 0
+		let right = smallestEnding.length
+
+		while (left < right) {
+			const mid = Math.floor((left + right) / 2)
+			if (smallestEnding[mid]! < val) left = mid + 1
+			else right = mid
+		}
+
+		// Link this element to the previous one in the subsequence
+		prev[i] = left > 0 ? indices[left - 1]! : -1
+
+		// Either extend the sequence or update an existing position
+		if (left === smallestEnding.length) {
+			// Extend: this value is larger than all previous endings
+			smallestEnding.push(val)
+			indices.push(i)
+		} else {
+			// Update: found a better (smaller) ending for this length
+			smallestEnding[left] = val
+			indices[left] = i
+		}
+	}
+
+	// Reconstruct the actual indices that form the LIS
+	const result: Array<number> = []
+	if (indices.length === 0) return result
+
+	// Walk backwards through prev links to build the LIS
+	let curr: number | undefined = indices[indices.length - 1]
+	while (curr !== undefined && curr !== -1) {
+		result.unshift(curr)
+		curr = prev[curr]
+	}
+
+	return result
 }
