@@ -5,7 +5,7 @@
 	"license": "MIT",
 	"type": "module",
 	"description": "An optimal DOM morphing library written in TypeScript.",
-	"main": "dist/morphlex.min.js",
+	"main": "dist/morphlex.js",
 	"types": "dist/morphlex.d.ts",
 	"homepage": "https://github.com/yippee-fun/morphlex",
 	"bugs": {
