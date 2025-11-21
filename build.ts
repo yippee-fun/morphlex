@@ -5,7 +5,7 @@ import { statSync, readFileSync } from "fs"
 
 // Build and minify with Bun
 await build({
-	entrypoints: ["./src/morphlex.ts", "./src/data-morph.ts"],
+	entrypoints: ["./src/morphlex.ts"],
 	outdir: "./dist",
 	minify: true,
 	sourcemap: "external",
