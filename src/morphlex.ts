@@ -28,6 +28,7 @@ type Operation = (typeof Operation)[keyof typeof Operation]
 
 const candidateNodes: Set<number> = new Set()
 const candidateElements: Set<number> = new Set()
+const candidateElementsWithIds: Set<number> = new Set()
 const unmatchedNodes: Set<number> = new Set()
 const unmatchedElements: Set<number> = new Set()
 const whitespaceNodes: Set<number> = new Set()
@@ -424,6 +425,7 @@ class Morph {
 
 		candidateNodes.clear()
 		candidateElements.clear()
+		candidateElementsWithIds.clear()
 		unmatchedNodes.clear()
 		unmatchedElements.clear()
 		whitespaceNodes.clear()
@@ -443,7 +445,11 @@ class Morph {
 
 			if (nodeType === ELEMENT_NODE_TYPE) {
 				candidateLocalNameMap[i] = (candidate as Element).localName
-				candidateElements.add(i)
+				if ((candidate as Element).id !== "") {
+					candidateElementsWithIds.add(i)
+				} else {
+					candidateElements.add(i)
+				}
 			} else if (nodeType === TEXT_NODE_TYPE && candidate.textContent?.trim() === "") {
 				whitespaceNodes.add(i)
 			} else {
@@ -486,43 +492,50 @@ class Morph {
 			}
 		}
 
-		// Match by exact id or idSet
+		// Match by exact id
 		for (const unmatchedIndex of unmatchedElements) {
 			const element = toChildNodes[unmatchedIndex] as Element
-
 			const id = element.id
+
+			if (id === "") continue
+
+			for (const candidateIndex of candidateElementsWithIds) {
+				const candidate = fromChildNodes[candidateIndex] as Element
+
+				if (localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] && id === candidate.id) {
+					matches[unmatchedIndex] = candidateIndex
+					op[unmatchedIndex] = Operation.SameElement
+					seq[candidateIndex] = unmatchedIndex
+					candidateElementsWithIds.delete(candidateIndex)
+					unmatchedElements.delete(unmatchedIndex)
+					break
+				}
+			}
+		}
+
+		// Match by idArray (to) against idSet (from)
+		// Elements with idSets may not have IDs themselves, so we check candidateElements
+		for (const unmatchedIndex of unmatchedElements) {
+			const element = toChildNodes[unmatchedIndex] as Element
 			const idArray = this.#idArrayMap.get(element)
 
-			if (id === "" && !idArray) continue
+			if (!idArray) continue
 
 			candidateLoop: for (const candidateIndex of candidateElements) {
 				const candidate = fromChildNodes[candidateIndex] as Element
 
 				if (localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex]) {
-					// Match by exact id
-					if (id !== "" && id === candidate.id) {
-						matches[unmatchedIndex] = candidateIndex
-						op[unmatchedIndex] = Operation.SameElement
-						seq[candidateIndex] = unmatchedIndex
-						candidateElements.delete(candidateIndex)
-						unmatchedElements.delete(unmatchedIndex)
-						break candidateLoop
-					}
-
-					// Match by idArray (to) against idSet (from)
-					if (idArray) {
-						const candidateIdSet = this.#idSetMap.get(candidate)
-						if (candidateIdSet) {
-							for (let i = 0; i < idArray.length; i++) {
-								const arrayId = idArray[i]!
-								if (candidateIdSet.has(arrayId)) {
-									matches[unmatchedIndex] = candidateIndex
-									op[unmatchedIndex] = Operation.SameElement
-									seq[candidateIndex] = unmatchedIndex
-									candidateElements.delete(candidateIndex)
-									unmatchedElements.delete(unmatchedIndex)
-									break candidateLoop
-								}
+					const candidateIdSet = this.#idSetMap.get(candidate)
+					if (candidateIdSet) {
+						for (let i = 0; i < idArray.length; i++) {
+							const arrayId = idArray[i]!
+							if (candidateIdSet.has(arrayId)) {
+								matches[unmatchedIndex] = candidateIndex
+								op[unmatchedIndex] = Operation.SameElement
+								seq[candidateIndex] = unmatchedIndex
+								candidateElements.delete(candidateIndex)
+								unmatchedElements.delete(unmatchedIndex)
+								break candidateLoop
 							}
 						}
 					}
@@ -618,6 +631,7 @@ class Morph {
 		for (const i of candidateNodes) this.#removeNode(fromChildNodes[i]!)
 		for (const i of whitespaceNodes) this.#removeNode(fromChildNodes[i]!)
 		for (const i of candidateElements) this.#removeNode(fromChildNodes[i]!)
+		for (const i of candidateElementsWithIds) this.#removeNode(fromChildNodes[i]!)
 
 		// Find LIS - these nodes don't need to move
 		// matches already contains the fromChildNodes indices, so we can use it directly
