@@ -17,6 +17,8 @@
 	},
 	"scripts": {
 		"build": "bun run build.ts",
+		"bench": "bun benchmark/run.ts",
+		"bench:thorough": "bun benchmark/run.ts --thorough",
 		"lint": "bun run oxlint --type-aware",
 		"test": "vitest run",
 		"test:watch": "vitest",
