@@ -26,13 +26,6 @@ const Operation = {
 
 type Operation = (typeof Operation)[keyof typeof Operation]
 
-const candidateNodes: Set<number> = new Set()
-const candidateElements: Set<number> = new Set()
-const candidateElementsWithIds: Set<number> = new Set()
-const unmatchedNodes: Set<number> = new Set()
-const unmatchedElements: Set<number> = new Set()
-const whitespaceNodes: Set<number> = new Set()
-
 type IdSetMap = WeakMap<Node, Set<string>>
 type IdArrayMap = WeakMap<Node, Array<string>>
 
@@ -469,12 +462,18 @@ class Morph {
 		const fromChildNodes = nodeListToArray(from.childNodes)
 		const toChildNodes = nodeListToArray(to.childNodes)
 
-		candidateNodes.clear()
-		candidateElements.clear()
-		candidateElementsWithIds.clear()
-		unmatchedNodes.clear()
-		unmatchedElements.clear()
-		whitespaceNodes.clear()
+		const candidateNodeIndices: Array<number> = []
+		const candidateElementIndices: Array<number> = []
+		const candidateElementWithIdIndices: Array<number> = []
+		const unmatchedNodeIndices: Array<number> = []
+		const unmatchedElementIndices: Array<number> = []
+		const whitespaceNodeIndices: Array<number> = []
+
+		const candidateNodeActive = new Uint8Array(fromChildNodes.length)
+		const candidateElementActive = new Uint8Array(fromChildNodes.length)
+		const candidateElementWithIdActive = new Uint8Array(fromChildNodes.length)
+		const unmatchedNodeActive = new Uint8Array(toChildNodes.length)
+		const unmatchedElementActive = new Uint8Array(toChildNodes.length)
 
 		const matches: Array<number> = []
 		const op: Array<Operation> = []
@@ -491,14 +490,17 @@ class Morph {
 			if (nodeType === ELEMENT_NODE_TYPE) {
 				candidateLocalNameMap[i] = (candidate as Element).localName
 				if ((candidate as Element).id !== "") {
-					candidateElementsWithIds.add(i)
+					candidateElementWithIdActive[i] = 1
+					candidateElementWithIdIndices.push(i)
 				} else {
-					candidateElements.add(i)
+					candidateElementActive[i] = 1
+					candidateElementIndices.push(i)
 				}
 			} else if (nodeType === TEXT_NODE_TYPE && candidate.textContent?.trim() === "") {
-				whitespaceNodes.add(i)
+				whitespaceNodeIndices.push(i)
 			} else {
-				candidateNodes.add(i)
+				candidateNodeActive[i] = 1
+				candidateNodeIndices.push(i)
 			}
 		}
 
@@ -509,48 +511,60 @@ class Morph {
 
 			if (nodeType === ELEMENT_NODE_TYPE) {
 				localNameMap[i] = (node as Element).localName
-				unmatchedElements.add(i)
+				unmatchedElementActive[i] = 1
+				unmatchedElementIndices.push(i)
 			} else if (nodeType === TEXT_NODE_TYPE && node.textContent?.trim() === "") {
 				continue
 			} else {
-				unmatchedNodes.add(i)
+				unmatchedNodeActive[i] = 1
+				unmatchedNodeIndices.push(i)
 			}
 		}
 
 		// Match elements by isEqualNode
-		for (const unmatchedIndex of unmatchedElements) {
+		for (let i = 0; i < unmatchedElementIndices.length; i++) {
+			const unmatchedIndex = unmatchedElementIndices[i]!
+			if (!unmatchedElementActive[unmatchedIndex]) continue
+
 			const localName = localNameMap[unmatchedIndex]
 			const element = toChildNodes[unmatchedIndex] as Element
 
-			for (const candidateIndex of candidateElements) {
+			for (let c = 0; c < candidateElementIndices.length; c++) {
+				const candidateIndex = candidateElementIndices[c]!
+				if (!candidateElementActive[candidateIndex]) continue
 				if (localName !== candidateLocalNameMap[candidateIndex]) continue
 				const candidate = fromChildNodes[candidateIndex] as Element
 
 				if (candidate.isEqualNode(element)) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.EqualNode
-					candidateElements.delete(candidateIndex)
-					unmatchedElements.delete(unmatchedIndex)
+					candidateElementActive[candidateIndex] = 0
+					unmatchedElementActive[unmatchedIndex] = 0
 					break
 				}
 			}
 		}
 
 		// Match by exact id
-		for (const unmatchedIndex of unmatchedElements) {
+		for (let i = 0; i < unmatchedElementIndices.length; i++) {
+			const unmatchedIndex = unmatchedElementIndices[i]!
+			if (!unmatchedElementActive[unmatchedIndex]) continue
+
 			const element = toChildNodes[unmatchedIndex] as Element
 			const id = element.id
 
 			if (id === "") continue
 
-			for (const candidateIndex of candidateElementsWithIds) {
+			for (let c = 0; c < candidateElementWithIdIndices.length; c++) {
+				const candidateIndex = candidateElementWithIdIndices[c]!
+				if (!candidateElementWithIdActive[candidateIndex]) continue
 				const candidate = fromChildNodes[candidateIndex] as Element
 
 				if (localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] && id === candidate.id) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
-					candidateElementsWithIds.delete(candidateIndex)
-					unmatchedElements.delete(unmatchedIndex)
+					candidateElementWithIdActive[candidateIndex] = 0
+					unmatchedElementActive[unmatchedIndex] = 0
 					break
 				}
 			}
@@ -558,13 +572,19 @@ class Morph {
 
 		// Match by idArray (to) against idSet (from)
 		// Elements with idSets may not have IDs themselves, so we check candidateElements
-		for (const unmatchedIndex of unmatchedElements) {
+		for (let i = 0; i < unmatchedElementIndices.length; i++) {
+			const unmatchedIndex = unmatchedElementIndices[i]!
+			if (!unmatchedElementActive[unmatchedIndex]) continue
+
 			const element = toChildNodes[unmatchedIndex] as Element
 			const idArray = this.#idArrayMap.get(element)
 
 			if (!idArray) continue
 
-			candidateLoop: for (const candidateIndex of candidateElements) {
+			candidateLoop: for (let c = 0; c < candidateElementIndices.length; c++) {
+				const candidateIndex = candidateElementIndices[c]!
+				if (!candidateElementActive[candidateIndex]) continue
+
 				const candidate = fromChildNodes[candidateIndex] as Element
 
 				if (localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex]) {
@@ -575,8 +595,8 @@ class Morph {
 							if (candidateIdSet.has(arrayId)) {
 								matches[unmatchedIndex] = candidateIndex
 								op[unmatchedIndex] = Operation.SameElement
-								candidateElements.delete(candidateIndex)
-								unmatchedElements.delete(unmatchedIndex)
+								candidateElementActive[candidateIndex] = 0
+								unmatchedElementActive[unmatchedIndex] = 0
 								break candidateLoop
 							}
 						}
@@ -586,14 +606,20 @@ class Morph {
 		}
 
 		// Match by heuristics
-		for (const unmatchedIndex of unmatchedElements) {
+		for (let i = 0; i < unmatchedElementIndices.length; i++) {
+			const unmatchedIndex = unmatchedElementIndices[i]!
+			if (!unmatchedElementActive[unmatchedIndex]) continue
+
 			const element = toChildNodes[unmatchedIndex] as Element
 
 			const name = element.getAttribute("name")
 			const href = element.getAttribute("href")
 			const src = element.getAttribute("src")
 
-			for (const candidateIndex of candidateElements) {
+			for (let c = 0; c < candidateElementIndices.length; c++) {
+				const candidateIndex = candidateElementIndices[c]!
+				if (!candidateElementActive[candidateIndex]) continue
+
 				const candidate = fromChildNodes[candidateIndex] as Element
 				if (
 					localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] &&
@@ -603,20 +629,26 @@ class Morph {
 				) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
-					candidateElements.delete(candidateIndex)
-					unmatchedElements.delete(unmatchedIndex)
+					candidateElementActive[candidateIndex] = 0
+					unmatchedElementActive[unmatchedIndex] = 0
 					break
 				}
 			}
 		}
 
 		// Match by tagName
-		for (const unmatchedIndex of unmatchedElements) {
+		for (let i = 0; i < unmatchedElementIndices.length; i++) {
+			const unmatchedIndex = unmatchedElementIndices[i]!
+			if (!unmatchedElementActive[unmatchedIndex]) continue
+
 			const element = toChildNodes[unmatchedIndex] as Element
 
 			const localName = localNameMap[unmatchedIndex]
 
-			for (const candidateIndex of candidateElements) {
+			for (let c = 0; c < candidateElementIndices.length; c++) {
+				const candidateIndex = candidateElementIndices[c]!
+				if (!candidateElementActive[candidateIndex]) continue
+
 				const candidate = fromChildNodes[candidateIndex] as Element
 				const candidateLocalName = candidateLocalNameMap[candidateIndex]
 
@@ -627,49 +659,75 @@ class Morph {
 					}
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
-					candidateElements.delete(candidateIndex)
-					unmatchedElements.delete(unmatchedIndex)
+					candidateElementActive[candidateIndex] = 0
+					unmatchedElementActive[unmatchedIndex] = 0
 					break
 				}
 			}
 		}
 
 		// Match nodes by isEqualNode (skip whitespace-only text nodes)
-		for (const unmatchedIndex of unmatchedNodes) {
+		for (let i = 0; i < unmatchedNodeIndices.length; i++) {
+			const unmatchedIndex = unmatchedNodeIndices[i]!
+			if (!unmatchedNodeActive[unmatchedIndex]) continue
+
 			const node = toChildNodes[unmatchedIndex]!
 
-			for (const candidateIndex of candidateNodes) {
+			for (let c = 0; c < candidateNodeIndices.length; c++) {
+				const candidateIndex = candidateNodeIndices[c]!
+				if (!candidateNodeActive[candidateIndex]) continue
+
 				const candidate = fromChildNodes[candidateIndex]!
 				if (candidate.isEqualNode(node)) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.EqualNode
-					candidateNodes.delete(candidateIndex)
-					unmatchedNodes.delete(unmatchedIndex)
+					candidateNodeActive[candidateIndex] = 0
+					unmatchedNodeActive[unmatchedIndex] = 0
 					break
 				}
 			}
 		}
 
 		// Match by nodeType
-		for (const unmatchedIndex of unmatchedNodes) {
+		for (let i = 0; i < unmatchedNodeIndices.length; i++) {
+			const unmatchedIndex = unmatchedNodeIndices[i]!
+			if (!unmatchedNodeActive[unmatchedIndex]) continue
+
 			const nodeType = nodeTypeMap[unmatchedIndex]
 
-			for (const candidateIndex of candidateNodes) {
+			for (let c = 0; c < candidateNodeIndices.length; c++) {
+				const candidateIndex = candidateNodeIndices[c]!
+				if (!candidateNodeActive[candidateIndex]) continue
+
 				if (nodeType === candidateNodeTypeMap[candidateIndex]) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameNode
-					candidateNodes.delete(candidateIndex)
-					unmatchedNodes.delete(unmatchedIndex)
+					candidateNodeActive[candidateIndex] = 0
+					unmatchedNodeActive[unmatchedIndex] = 0
 					break
 				}
 			}
 		}
 
 		// Remove any unmatched candidates first, before calculating LIS and repositioning
-		for (const i of candidateNodes) this.#removeNode(fromChildNodes[i]!)
-		for (const i of whitespaceNodes) this.#removeNode(fromChildNodes[i]!)
-		for (const i of candidateElements) this.#removeNode(fromChildNodes[i]!)
-		for (const i of candidateElementsWithIds) this.#removeNode(fromChildNodes[i]!)
+		for (let i = 0; i < candidateNodeIndices.length; i++) {
+			const candidateIndex = candidateNodeIndices[i]!
+			if (candidateNodeActive[candidateIndex]) this.#removeNode(fromChildNodes[candidateIndex]!)
+		}
+
+		for (let i = 0; i < whitespaceNodeIndices.length; i++) {
+			this.#removeNode(fromChildNodes[whitespaceNodeIndices[i]!]!)
+		}
+
+		for (let i = 0; i < candidateElementIndices.length; i++) {
+			const candidateIndex = candidateElementIndices[i]!
+			if (candidateElementActive[candidateIndex]) this.#removeNode(fromChildNodes[candidateIndex]!)
+		}
+
+		for (let i = 0; i < candidateElementWithIdIndices.length; i++) {
+			const candidateIndex = candidateElementWithIdIndices[i]!
+			if (candidateElementWithIdActive[candidateIndex]) this.#removeNode(fromChildNodes[candidateIndex]!)
+		}
 
 		// Find LIS - these nodes don't need to move
 		// matches already contains the fromChildNodes indices, so we can use it directly
