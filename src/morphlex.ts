@@ -466,8 +466,8 @@ class Morph {
 		if (!(this.#options.beforeChildrenVisited?.(from) ?? true)) return
 		const parent = from
 
-		const fromChildNodes = [...from.childNodes]
-		const toChildNodes = [...to.childNodes]
+		const fromChildNodes = nodeListToArray(from.childNodes)
+		const toChildNodes = nodeListToArray(to.childNodes)
 
 		candidateNodes.clear()
 		candidateElements.clear()
@@ -476,7 +476,6 @@ class Morph {
 		unmatchedElements.clear()
 		whitespaceNodes.clear()
 
-		const seq: Array<number> = []
 		const matches: Array<number> = []
 		const op: Array<Operation> = []
 		const nodeTypeMap: Array<number> = []
@@ -530,7 +529,6 @@ class Morph {
 				if (candidate.isEqualNode(element)) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.EqualNode
-					seq[candidateIndex] = unmatchedIndex
 					candidateElements.delete(candidateIndex)
 					unmatchedElements.delete(unmatchedIndex)
 					break
@@ -551,7 +549,6 @@ class Morph {
 				if (localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] && id === candidate.id) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
-					seq[candidateIndex] = unmatchedIndex
 					candidateElementsWithIds.delete(candidateIndex)
 					unmatchedElements.delete(unmatchedIndex)
 					break
@@ -578,7 +575,6 @@ class Morph {
 							if (candidateIdSet.has(arrayId)) {
 								matches[unmatchedIndex] = candidateIndex
 								op[unmatchedIndex] = Operation.SameElement
-								seq[candidateIndex] = unmatchedIndex
 								candidateElements.delete(candidateIndex)
 								unmatchedElements.delete(unmatchedIndex)
 								break candidateLoop
@@ -606,7 +602,6 @@ class Morph {
 						(src && src === candidate.getAttribute("src")))
 				) {
 					matches[unmatchedIndex] = candidateIndex
-					seq[candidateIndex] = unmatchedIndex
 					op[unmatchedIndex] = Operation.SameElement
 					candidateElements.delete(candidateIndex)
 					unmatchedElements.delete(unmatchedIndex)
@@ -631,7 +626,6 @@ class Morph {
 						continue
 					}
 					matches[unmatchedIndex] = candidateIndex
-					seq[candidateIndex] = unmatchedIndex
 					op[unmatchedIndex] = Operation.SameElement
 					candidateElements.delete(candidateIndex)
 					unmatchedElements.delete(unmatchedIndex)
@@ -649,7 +643,6 @@ class Morph {
 				if (candidate.isEqualNode(node)) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.EqualNode
-					seq[candidateIndex] = unmatchedIndex
 					candidateNodes.delete(candidateIndex)
 					unmatchedNodes.delete(unmatchedIndex)
 					break
@@ -665,7 +658,6 @@ class Morph {
 				if (nodeType === candidateNodeTypeMap[candidateIndex]) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameNode
-					seq[candidateIndex] = unmatchedIndex
 					candidateNodes.delete(candidateIndex)
 					unmatchedNodes.delete(unmatchedIndex)
 					break
@@ -802,6 +794,17 @@ class Morph {
 			}
 		}
 	}
+}
+
+function nodeListToArray(nodeList: NodeListOf<ChildNode>): Array<ChildNode>
+function nodeListToArray(nodeList: NodeList): Array<ChildNode>
+function nodeListToArray(nodeList: NodeList): Array<ChildNode> {
+	const length = nodeList.length
+	const array = new Array<ChildNode>(length)
+	for (let i = 0; i < length; i++) {
+		array[i] = nodeList[i] as ChildNode
+	}
+	return array
 }
 
 function isInputElement(element: Element): element is HTMLInputElement {
