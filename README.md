@@ -46,6 +46,7 @@ Both `morph` and `morphInner` accept an optional third parameter for configurati
 
 ```javascript
 morph(currentNode, newNode, {
+  preserveActiveElement: false,
   preserveChanges: true,
   beforeNodeAdded: (parent, node, insertionPoint) => {
     console.log("Adding node:", node)
@@ -57,6 +58,8 @@ morph(currentNode, newNode, {
 ### Available Options
 
 - **`preserveChanges`**: When `true`, preserves modified form inputs during morphing. This prevents user-entered data from being overwritten. Default: `false`
+
+- **`preserveActiveElement`**: When `true`, preserves the current `document.activeElement` during morphing. This prevents focused elements from being moved, replaced or updated. Default: `false`
 
 - **`beforeNodeVisited`**: Called before a node is visited during morphing. Return `false` to skip morphing this node.
 

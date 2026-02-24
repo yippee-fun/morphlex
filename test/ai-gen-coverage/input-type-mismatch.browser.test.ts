@@ -35,7 +35,6 @@ describe("input type mismatch", () => {
 		const a = dom(`<div><input type="text" value="hello"></div>`) as HTMLElement
 		const b = dom(`<div><input type="number" value="123"></div>`) as HTMLElement
 
-		const originalInput = a.firstElementChild
 		morph(a, b)
 		const newInput = a.firstElementChild as HTMLInputElement
 

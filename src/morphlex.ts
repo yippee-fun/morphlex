@@ -48,6 +48,13 @@ export interface Options {
 	preserveChanges?: boolean
 
 	/**
+	 * When `true`, preserves the active element during morphing.
+	 * This prevents focused elements from being moved, replaced or updated.
+	 * @default false
+	 */
+	preserveActiveElement?: boolean
+
+	/**
 	 * Called before a node is visited during morphing.
 	 * @param fromNode The existing node in the DOM
 	 * @param toNode The new node to morph to
@@ -155,8 +162,7 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 	if (typeof to === "string") to = parseFragment(to).childNodes
 
 	if (!options.preserveChanges && isParentNode(from)) flagDirtyInputs(from)
-
-	new Morph(options).morph(from, to)
+	new Morph(options, getActiveElement(from, options)).morph(from, to)
 }
 
 /**
@@ -187,10 +193,21 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		(from as Element).localName === (to as Element).localName
 	) {
 		if (isParentNode(from)) flagDirtyInputs(from)
-		new Morph(options).visitChildNodes(from as Element, to as Element)
+		new Morph(options, getActiveElement(from, options)).visitChildNodes(from as Element, to as Element)
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
 	}
+}
+
+function getActiveElement(from: ChildNode, options: Options): Element | null {
+	if (!options.preserveActiveElement) return null
+
+	const activeElement = document.activeElement
+	if (!(activeElement instanceof Element)) return null
+	if (from === activeElement) return activeElement
+
+	if (from.nodeType !== ELEMENT_NODE_TYPE) return null
+	return (from as Element).contains(activeElement) ? activeElement : null
 }
 
 function flagDirtyInputs(node: ParentNode): void {
@@ -241,10 +258,16 @@ function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNo
 class Morph {
 	readonly #idArrayMap: IdArrayMap = new WeakMap()
 	readonly #idSetMap: IdSetMap = new WeakMap()
+	readonly #activeElement: Element | null
 	readonly #options: Options
 
-	constructor(options: Options = {}) {
+	constructor(options: Options = {}, activeElement: Element | null = null) {
 		this.#options = options
+		this.#activeElement = activeElement
+	}
+
+	#isPinnedActiveElement(node: Node): boolean {
+		return !!this.#options.preserveActiveElement && node === this.#activeElement
 	}
 
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
@@ -302,6 +325,10 @@ class Morph {
 
 	#morphMatchingElements(from: Element, to: Element): void {
 		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) return
+		if (this.#isPinnedActiveElement(from)) {
+			this.#options.afterNodeVisited?.(from, to)
+			return
+		}
 
 		if (from.hasAttributes() || to.hasAttributes()) {
 			this.#visitAttributes(from, to)
@@ -650,7 +677,7 @@ class Morph {
 				const match = fromChildNodes[matchInd]!
 				const operation = op[i]!
 
-				if (!shouldNotMove[matchInd]) {
+				if (!shouldNotMove[matchInd] && !this.#isPinnedActiveElement(match)) {
 					moveBefore(parent, match, insertionPoint)
 				}
 
@@ -676,6 +703,8 @@ class Morph {
 	}
 
 	#replaceNode(node: ChildNode, newNode: ChildNode): void {
+		if (this.#isPinnedActiveElement(node)) return
+
 		const parent = node.parentNode || document
 		const insertionPoint = node
 		// Check if both removal and addition are allowed before starting the replacement
@@ -691,6 +720,8 @@ class Morph {
 	}
 
 	#removeNode(node: ChildNode): void {
+		if (this.#isPinnedActiveElement(node)) return
+
 		if (this.#options.beforeNodeRemoved?.(node) ?? true) {
 			node.remove()
 			this.#options.afterNodeRemoved?.(node)
