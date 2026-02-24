@@ -79,4 +79,26 @@ describe("active element preservation", () => {
 
 		from.remove()
 	})
+
+	test("does not replace an ancestor that contains the active element", () => {
+		const host = document.createElement("div")
+		const from = document.createElement("div")
+		from.innerHTML = '<input id="active" value="hello"><span>old</span>'
+		host.appendChild(from)
+		document.body.appendChild(host)
+
+		const active = from.querySelector("#active") as HTMLInputElement
+		active.focus()
+
+		const to = document.createElement("section")
+		to.innerHTML = '<input id="active" value="server"><span>new</span>'
+
+		morph(from, to, { preserveActiveElement: true, preserveChanges: false })
+
+		expect(host.firstElementChild).toBe(from)
+		expect(document.activeElement).toBe(active)
+		expect(active.value).toBe("hello")
+
+		host.remove()
+	})
 })

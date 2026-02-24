@@ -259,15 +259,34 @@ class Morph {
 	readonly #idArrayMap: IdArrayMap = new WeakMap()
 	readonly #idSetMap: IdSetMap = new WeakMap()
 	readonly #activeElement: Element | null
+	readonly #activeElementAncestors: WeakSet<Node> | null
 	readonly #options: Options
 
 	constructor(options: Options = {}, activeElement: Element | null = null) {
 		this.#options = options
 		this.#activeElement = activeElement
+
+		if (this.#options.preserveActiveElement && this.#activeElement) {
+			const ancestors = new WeakSet<Node>()
+			let current: Node | null = this.#activeElement
+
+			while (current) {
+				ancestors.add(current)
+				current = current.parentNode
+			}
+
+			this.#activeElementAncestors = ancestors
+		} else {
+			this.#activeElementAncestors = null
+		}
 	}
 
 	#isPinnedActiveElement(node: Node): boolean {
 		return !!this.#options.preserveActiveElement && node === this.#activeElement
+	}
+
+	#containsPinnedActiveElement(node: Node): boolean {
+		return !!this.#activeElementAncestors?.has(node)
 	}
 
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
@@ -703,7 +722,7 @@ class Morph {
 	}
 
 	#replaceNode(node: ChildNode, newNode: ChildNode): void {
-		if (this.#isPinnedActiveElement(node)) return
+		if (this.#containsPinnedActiveElement(node)) return
 
 		const parent = node.parentNode || document
 		const insertionPoint = node
@@ -720,7 +739,7 @@ class Morph {
 	}
 
 	#removeNode(node: ChildNode): void {
-		if (this.#isPinnedActiveElement(node)) return
+		if (this.#containsPinnedActiveElement(node)) return
 
 		if (this.#options.beforeNodeRemoved?.(node) ?? true) {
 			node.remove()
