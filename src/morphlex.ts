@@ -459,6 +459,7 @@ class Morph {
 		const candidateNodeIndices: Array<number> = []
 		const candidateElementIndices: Array<number> = []
 		const candidateElementWithIdIndices: Array<number> = []
+		const candidateElementIndicesById: Map<string, Array<number>> = new Map()
 		const unmatchedNodeIndices: Array<number> = []
 		const unmatchedElementIndices: Array<number> = []
 		const whitespaceNodeIndices: Array<number> = []
@@ -484,9 +485,17 @@ class Morph {
 			if (nodeType === ELEMENT_NODE_TYPE) {
 				const candidateElement = candidate as Element
 				candidateLocalNameMap[i] = candidateElement.localName
-				if (candidateElement.id !== "") {
+				const candidateId = candidateElement.id
+				if (candidateId !== "") {
 					candidateElementWithIdActive[i] = 1
 					candidateElementWithIdIndices.push(i)
+
+					const existingIndices = candidateElementIndicesById.get(candidateId)
+					if (existingIndices) {
+						existingIndices.push(i)
+					} else {
+						candidateElementIndicesById.set(candidateId, [i])
+					}
 				} else {
 					candidateElementActive[i] = 1
 					candidateElementIndices.push(i)
@@ -551,8 +560,11 @@ class Morph {
 
 			if (id === "") continue
 
-			for (let c = 0; c < candidateElementWithIdIndices.length; c++) {
-				const candidateIndex = candidateElementWithIdIndices[c]!
+			const candidateIndices = candidateElementIndicesById.get(id)
+			if (!candidateIndices) continue
+
+			for (let c = 0; c < candidateIndices.length; c++) {
+				const candidateIndex = candidateIndices[c]!
 				if (!candidateElementWithIdActive[candidateIndex]) continue
 				const candidate = fromChildNodes[candidateIndex] as Element
 
@@ -668,7 +680,6 @@ class Morph {
 			if (!unmatchedNodeActive[unmatchedIndex]) continue
 
 			const node = toChildNodes[unmatchedIndex]!
-
 			for (let c = 0; c < candidateNodeIndices.length; c++) {
 				const candidateIndex = candidateNodeIndices[c]!
 				if (!candidateNodeActive[candidateIndex]) continue
