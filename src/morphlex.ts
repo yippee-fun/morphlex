@@ -362,7 +362,9 @@ class Morph {
 		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) return
 
 		if (from.nodeType === to.nodeType && from.nodeValue !== null && to.nodeValue !== null) {
-			from.nodeValue = to.nodeValue
+			if (from.nodeValue !== to.nodeValue) {
+				from.nodeValue = to.nodeValue
+			}
 		} else {
 			this.#replaceNode(from, to)
 		}

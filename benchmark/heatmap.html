@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Morphlex Heatmap Profiling</title>
+		<style>
+			* {
+				margin: 0;
+				padding: 0;
+				box-sizing: border-box;
+			}
+
+			body {
+				font-family:
+					system-ui,
+					-apple-system,
+					sans-serif;
+				background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #334155 100%);
+				min-height: 100vh;
+				padding: 2rem;
+				color: #e2e8f0;
+			}
+
+			.container {
+				max-width: 900px;
+				margin: 0 auto;
+			}
+
+			h1 {
+				font-size: 2rem;
+				margin-bottom: 0.5rem;
+			}
+
+			.subtitle {
+				color: #cbd5e1;
+				margin-bottom: 1.5rem;
+			}
+
+			.card {
+				background: rgba(15, 23, 42, 0.65);
+				border: 1px solid rgba(148, 163, 184, 0.25);
+				border-radius: 12px;
+				padding: 1.25rem;
+				margin-bottom: 1rem;
+			}
+
+			.controls {
+				display: flex;
+				gap: 0.75rem;
+				flex-wrap: wrap;
+				align-items: center;
+			}
+
+			label {
+				display: flex;
+				gap: 0.5rem;
+				align-items: center;
+				font-weight: 600;
+			}
+
+			select,
+			input,
+			button {
+				padding: 0.5rem 0.75rem;
+				border-radius: 8px;
+				border: 1px solid #64748b;
+				background: #0f172a;
+				color: #e2e8f0;
+			}
+
+			button {
+				cursor: pointer;
+				font-weight: 600;
+				background: #0369a1;
+				border-color: #0284c7;
+			}
+
+			button:disabled {
+				opacity: 0.6;
+				cursor: not-allowed;
+			}
+
+			pre {
+				white-space: pre-wrap;
+				font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+				font-size: 0.85rem;
+				line-height: 1.5;
+				color: #93c5fd;
+			}
+
+			#sandbox {
+				display: none;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<h1>Morphlex Heatmap Profiling</h1>
+			<p class="subtitle">
+				Use this page with Chrome/Edge DevTools Performance to get a flame chart (heatmap) for known hotspot scenarios.
+			</p>
+
+			<div class="card">
+				<div class="controls">
+					<label>
+						Scenario
+						<select id="scenario"></select>
+					</label>
+					<label>
+						Iterations
+						<input id="iterations" type="number" value="300" min="10" step="10" />
+					</label>
+					<button id="run">Run Profile Workload</button>
+				</div>
+			</div>
+
+			<div class="card">
+				<pre id="status">Open DevTools -> Performance, press Record, then click "Run Profile Workload".</pre>
+			</div>
+		</div>
+
+		<div id="sandbox"></div>
+
+		<script type="module">
+			import { morph } from "../dist/morphlex.js"
+
+			function buildIdRelatedCards(count, reverseOrder, updatedText) {
+				const indices = Array.from({ length: count }, (_, i) => i)
+				if (reverseOrder) indices.reverse()
+				return indices
+					.map((i) => {
+						const next = (i + 1) % count
+						return `<article data-card="${i}"><h3 id="card-${i}">Card ${i}</h3><a href="#card-${next}" name="card-link-${i}">Next</a><p>${updatedText ? `Card ${i} updated` : `Card ${i}`}</p></article>`
+					})
+					.join("")
+			}
+
+			function buildDeepNestedIdTrees(count, depth, reverseOrder, updatedText) {
+				const indices = Array.from({ length: count }, (_, i) => i)
+				if (reverseOrder) indices.reverse()
+				return indices
+					.map((i) => {
+						const next = (i + 1) % count
+						let nested = `<span id="deep-id-${i}">Node ${i}${updatedText ? " updated" : ""}</span><a href="#deep-id-${next}">Next</a>`
+						for (let d = 0; d < depth; d++) {
+							nested = `<div data-depth="${d}" data-key="${i}-${d}">${nested}</div>`
+						}
+						return `<article data-chain="${i}">${nested}</article>`
+					})
+					.join("")
+			}
+
+			const scenarios = [
+				{
+					name: "idset-matching-related-cards-60",
+					from: `<section>${buildIdRelatedCards(60, false, false)}</section>`,
+					to: `<section>${buildIdRelatedCards(60, true, true)}</section>`,
+				},
+				{
+					name: "deep-id-ancestry-40x8",
+					from: `<section>${buildDeepNestedIdTrees(40, 8, false, false)}</section>`,
+					to: `<section>${buildDeepNestedIdTrees(40, 8, true, true)}</section>`,
+				},
+				{
+					name: "dirty-form-text-inputs-60",
+					from: `<form>${Array.from({ length: 60 }, (_, i) => `<input name="field-${i}" value="value-${i}">`).join("")}</form>`,
+					to: `<form>${Array.from({ length: 60 }, (_, i) => `<input name="field-${i}" value="new-${i}" data-next="1">`).join("")}</form>`,
+					setup: (from) => {
+						const textInputs = from.querySelectorAll("input[name^='field-']")
+						for (let i = 0; i < textInputs.length; i++) {
+							const input = textInputs[i]
+							input.value = `${input.value}-dirty`
+						}
+					},
+				},
+			]
+
+			const scenarioSelect = document.getElementById("scenario")
+			const iterationsInput = document.getElementById("iterations")
+			const runButton = document.getElementById("run")
+			const status = document.getElementById("status")
+			const sandbox = document.getElementById("sandbox")
+
+			for (let i = 0; i < scenarios.length; i++) {
+				const option = document.createElement("option")
+				option.value = String(i)
+				option.textContent = scenarios[i].name
+				scenarioSelect.appendChild(option)
+			}
+
+			function createElement(html) {
+				const template = document.createElement("template")
+				template.innerHTML = html
+				return template.content.firstChild
+			}
+
+			async function runScenario(scenario, iterations) {
+				const workload = new Array(iterations)
+				sandbox.textContent = ""
+
+				for (let i = 0; i < iterations; i++) {
+					const from = createElement(scenario.from)
+					const to = createElement(scenario.to)
+					scenario.setup?.(from)
+					sandbox.appendChild(from)
+					workload[i] = { from, to }
+				}
+
+				performance.clearMarks()
+				performance.clearMeasures()
+				performance.mark("morphlex-profile-start")
+
+				for (let i = 0; i < iterations; i++) {
+					const entry = workload[i]
+					morph(entry.from, entry.to)
+
+					if (i % 50 === 0) {
+						await new Promise((resolve) => setTimeout(resolve, 0))
+					}
+				}
+
+				performance.mark("morphlex-profile-end")
+				performance.measure("morphlex-profile-workload", "morphlex-profile-start", "morphlex-profile-end")
+				return performance.getEntriesByName("morphlex-profile-workload")[0]?.duration ?? 0
+			}
+
+			runButton.addEventListener("click", async () => {
+				const scenarioIndex = Number(scenarioSelect.value)
+				const iterations = Number(iterationsInput.value)
+				if (!Number.isFinite(iterations) || iterations <= 0) return
+
+				const scenario = scenarios[scenarioIndex]
+				runButton.disabled = true
+				status.textContent = `Running ${scenario.name}...`
+
+				const totalDuration = await runScenario(scenario, iterations)
+
+				status.textContent = `${scenario.name}\niterations: ${iterations}\nworkload duration: ${totalDuration.toFixed(2)}ms\n\nPrebuild and setup run before morph marks. In DevTools, select the range between morphlex-profile-start and morphlex-profile-end, then filter for \"visitChildNodes\", \"forEachDescendantElementWithId\", and \"isEqualNode\".`
+				runButton.disabled = false
+			})
+		</script>
+	</body>
+</html>
