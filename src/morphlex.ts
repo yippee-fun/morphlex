@@ -1,6 +1,7 @@
 const SUPPORTS_MOVE_BEFORE = "moveBefore" in Element.prototype
 const ELEMENT_NODE_TYPE = 1
 const TEXT_NODE_TYPE = 3
+const TREE_WALKER_SHOW_ELEMENT = 1
 
 const IS_PARENT_NODE_TYPE = [
 	0, //  0: (unused)
@@ -804,10 +805,10 @@ class Morph {
 	#mapIdArrays(node: ParentNode): void {
 		const idArrayMap = this.#idArrayMap
 
-		for (const element of node.querySelectorAll("[id]")) {
+		forEachDescendantElementWithId(node, (element) => {
 			const id = element.id
 
-			if (id === "") continue
+			if (id === "") return
 
 			let currentElement: Element | null = element
 
@@ -821,17 +822,17 @@ class Morph {
 				if (currentElement === node) break
 				currentElement = currentElement.parentElement
 			}
-		}
+		})
 	}
 
 	// For each node with an ID, add that ID into the IdSet on the IdSetMap, for each of its parent elements.
 	#mapIdSets(node: ParentNode): void {
 		const idSetMap = this.#idSetMap
 
-		for (const element of node.querySelectorAll("[id]")) {
+		forEachDescendantElementWithId(node, (element) => {
 			const id = element.id
 
-			if (id === "") continue
+			if (id === "") return
 
 			let currentElement: Element | null = element
 
@@ -845,7 +846,7 @@ class Morph {
 				if (currentElement === node) break
 				currentElement = currentElement.parentElement
 			}
-		}
+		})
 	}
 }
 
@@ -883,6 +884,21 @@ function flushQueuedActiveElementMorph(from: Element): void {
 	}
 
 	new Morph(flushOptions, null, from).morph(from as ChildNode, to)
+}
+
+function forEachDescendantElementWithId(node: ParentNode, callback: (element: Element) => void): void {
+	const root = node as Node
+	const ownerDocument = root.nodeType === 9 ? (root as Document) : root.ownerDocument
+	if (!ownerDocument) return
+
+	const walker = ownerDocument.createTreeWalker(root, TREE_WALKER_SHOW_ELEMENT)
+	let current = walker.nextNode()
+
+	while (current) {
+		const element = current as Element
+		if (element.id !== "") callback(element)
+		current = walker.nextNode()
+	}
 }
 
 function nodeListToArray(nodeList: NodeListOf<ChildNode>): Array<ChildNode>
