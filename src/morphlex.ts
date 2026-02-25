@@ -160,7 +160,7 @@ export function morphDocument(from: Document, to: Document | string, options?: O
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
 	if (typeof to === "string") to = parseFragment(to).childNodes
 
-	if (!options.preserveChanges && isParentNode(from)) flagDirtyInputs(from)
+	if (isParentNode(from)) flagDirtyInputs(from)
 	new Morph(options, getActiveElement(from, options)).morph(from, to)
 }
 

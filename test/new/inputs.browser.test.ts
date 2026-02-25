@@ -34,6 +34,44 @@ describe("text input", () => {
 		expect(a.outerHTML).toBe(`<input type="text" value="b">`)
 		expect(a.value).toBe("b")
 	})
+
+	test("morphing a modified value across multiple preserveChanges morphs updates defaultValue", () => {
+		const input = dom(`<input type="text" value="a">`) as HTMLInputElement
+		const firstTarget = dom(`<input type="text" value="b">`) as HTMLInputElement
+		const secondTarget = dom(`<input type="text" value="c">`) as HTMLInputElement
+
+		input.value = "user one"
+		morph(input, firstTarget, { preserveChanges: true })
+
+		expect(input.value).toBe("user one")
+		expect(input.defaultValue).toBe("b")
+		expect(input.getAttribute("value")).toBe("b")
+
+		input.value = "user two"
+		morph(input, secondTarget, { preserveChanges: true })
+
+		expect(input.value).toBe("user two")
+		expect(input.defaultValue).toBe("c")
+		expect(input.getAttribute("value")).toBe("c")
+	})
+
+	test("morphing sibling inputs keeps modified value but updates the correct defaultValue", () => {
+		const from = dom(`<div><input type="text" name="n" value="a"><input type="text" name="n" value="a"></div>`) as HTMLElement
+		const to = dom(`<div><input type="text" name="n" value="b"><input type="text" name="n" value="a"></div>`) as HTMLElement
+
+		const first = from.children[0] as HTMLInputElement
+		const second = from.children[1] as HTMLInputElement
+
+		first.value = "user typed"
+		morph(from, to, { preserveChanges: true })
+
+		expect(first.value).toBe("user typed")
+		expect(first.defaultValue).toBe("b")
+		expect(first.getAttribute("value")).toBe("b")
+		expect(second.value).toBe("a")
+		expect(second.defaultValue).toBe("a")
+		expect(second.getAttribute("value")).toBe("a")
+	})
 })
 
 describe("checkbox", () => {
