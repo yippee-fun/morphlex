@@ -946,21 +946,19 @@ function longestIncreasingSubsequence(sequence: Array<number | undefined>): Arra
 	const n = sequence.length
 	if (n === 0) return []
 
-	// smallestEnding[i] = smallest ending value of any increasing subsequence of length i+1
-	const smallestEnding: Array<number> = []
-	// indices[i] = index in sequence where smallestEnding[i] occurs
-	const indices: Array<number> = []
-	// prev[i] = previous index in the LIS ending at sequence[i]
-	const prev: Array<number> = new Array(n)
+	const smallestEnding = new Array<number>(n)
+	const indices = new Array<number>(n)
+	const prev = new Int32Array(n)
+	prev.fill(-1)
 
-	// Build the LIS by processing each value
+	let lisLength = 0
+
 	for (let i = 0; i < n; i++) {
 		const val = sequence[i]
-		if (val === undefined) continue // Skip new nodes (not in original sequence)
+		if (val === undefined) continue
 
-		// Binary search: find where this value fits in smallestEnding
 		let left = 0
-		let right = smallestEnding.length
+		let right = lisLength
 
 		while (left < right) {
 			const mid = Math.floor((left + right) / 2)
@@ -968,30 +966,21 @@ function longestIncreasingSubsequence(sequence: Array<number | undefined>): Arra
 			else right = mid
 		}
 
-		// Link this element to the previous one in the subsequence
 		prev[i] = left > 0 ? indices[left - 1]! : -1
 
-		// Either extend the sequence or update an existing position
-		if (left === smallestEnding.length) {
-			// Extend: this value is larger than all previous endings
-			smallestEnding.push(val)
-			indices.push(i)
-		} else {
-			// Update: found a better (smaller) ending for this length
-			smallestEnding[left] = val
-			indices[left] = i
-		}
+		smallestEnding[left] = val
+		indices[left] = i
+		if (left === lisLength) lisLength++
 	}
 
-	// Reconstruct the actual indices that form the LIS
-	const result: Array<number> = []
-	if (indices.length === 0) return result
+	if (lisLength === 0) return []
 
-	// Walk backwards through prev links to build the LIS
-	let curr: number | undefined = indices[indices.length - 1]
-	while (curr !== undefined && curr !== -1) {
-		result.unshift(curr)
-		curr = prev[curr]
+	const result = new Array<number>(lisLength)
+	let curr = indices[lisLength - 1]!
+
+	for (let i = lisLength - 1; i >= 0; i--) {
+		result[i] = curr
+		curr = prev[curr]!
 	}
 
 	return result
