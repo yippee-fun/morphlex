@@ -26,6 +26,36 @@ describe("active element preservation", () => {
 		input.remove()
 	})
 
+	test("applies queued active element updates on blur without changing input value", () => {
+		const wrapper = document.createElement("div")
+		wrapper.innerHTML = '<input id="name" value="hello" class="old"><button id="next">next</button>'
+		document.body.appendChild(wrapper)
+
+		const input = wrapper.querySelector("#name") as HTMLInputElement
+		const nextButton = wrapper.querySelector("#next") as HTMLButtonElement
+
+		input.value = "user typed"
+		input.focus()
+
+		const targetWrapper = document.createElement("div")
+		targetWrapper.innerHTML = '<input id="name" value="server" class="new"><button id="next">next</button>'
+
+		morph(wrapper, targetWrapper, { preserveActiveElement: true, preserveChanges: false })
+
+		expect(input.value).toBe("user typed")
+		expect(input.defaultValue).toBe("hello")
+		expect(input.className).toBe("old")
+
+		nextButton.focus()
+
+		expect(input.value).toBe("user typed")
+		expect(input.defaultValue).toBe("server")
+		expect(input.getAttribute("value")).toBe("server")
+		expect(input.className).toBe("new")
+
+		wrapper.remove()
+	})
+
 	test("updates focused input when preserveActiveElement is disabled", () => {
 		const input = dom('<input type="text" value="hello world">') as HTMLInputElement
 		document.body.appendChild(input)

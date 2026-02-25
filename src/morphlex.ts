@@ -29,6 +29,10 @@ type Operation = (typeof Operation)[keyof typeof Operation]
 type IdSetMap = WeakMap<Node, Set<string>>
 type IdArrayMap = WeakMap<Node, Array<string>>
 
+const queuedActiveElementTargets: WeakMap<Element, ChildNode> = new WeakMap()
+const queuedActiveElementOptions: WeakMap<Element, Options> = new WeakMap()
+const queuedActiveElementListeners: WeakSet<Element> = new WeakSet()
+
 /**
  * Configuration options for morphing operations.
  */
@@ -42,7 +46,7 @@ export interface Options {
 
 	/**
 	 * When `true`, preserves the active element during morphing.
-	 * This prevents the focused element itself from being replaced or updated.
+	 * This defers direct updates/replacement of the focused element until blur.
 	 * @default false
 	 */
 	preserveActiveElement?: boolean
@@ -253,10 +257,12 @@ class Morph {
 	readonly #idSetMap: IdSetMap = new WeakMap()
 	readonly #activeElement: Element | null
 	readonly #options: Options
+	readonly #skipValuePropertyUpdateFor: Element | null
 
-	constructor(options: Options = {}, activeElement: Element | null = null) {
+	constructor(options: Options = {}, activeElement: Element | null = null, skipValuePropertyUpdateFor: Element | null = null) {
 		this.#options = options
 		this.#activeElement = activeElement
+		this.#skipValuePropertyUpdateFor = skipValuePropertyUpdateFor
 	}
 
 	#isPinnedActiveElement(node: Node): boolean {
@@ -305,6 +311,11 @@ class Morph {
 		if (from === to) return
 		if (from.isEqualNode(to)) return
 
+		if (this.#isPinnedActiveElement(from)) {
+			queueActiveElementMorph(from as Element, to, this.#options)
+			return
+		}
+
 		if (from.nodeType === ELEMENT_NODE_TYPE && to.nodeType === ELEMENT_NODE_TYPE) {
 			if ((from as Element).localName === (to as Element).localName) {
 				this.#morphMatchingElements(from as Element, to as Element)
@@ -319,6 +330,7 @@ class Morph {
 	#morphMatchingElements(from: Element, to: Element): void {
 		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) return
 		if (this.#isPinnedActiveElement(from)) {
+			queueActiveElementMorph(from, to, this.#options)
 			this.#options.afterNodeVisited?.(from, to)
 			return
 		}
@@ -365,7 +377,7 @@ class Morph {
 		for (const { name, value } of to.attributes) {
 			if (name === "value") {
 				if (isInputElement(from) && from.value !== value) {
-					if (!this.#options.preserveChanges || from.value === from.defaultValue) {
+					if (from !== this.#skipValuePropertyUpdateFor && (!this.#options.preserveChanges || from.value === from.defaultValue)) {
 						from.value = value
 					}
 				}
@@ -835,6 +847,42 @@ class Morph {
 			}
 		}
 	}
+}
+
+function queueActiveElementMorph(from: Element, to: ChildNode, options: Options): void {
+	queuedActiveElementTargets.set(from, to.cloneNode(true) as ChildNode)
+	queuedActiveElementOptions.set(from, options)
+
+	if (queuedActiveElementListeners.has(from)) return
+	queuedActiveElementListeners.add(from)
+
+	from.addEventListener(
+		"blur",
+		() => {
+			queuedActiveElementListeners.delete(from)
+			flushQueuedActiveElementMorph(from)
+		},
+		{ once: true },
+	)
+}
+
+function flushQueuedActiveElementMorph(from: Element): void {
+	const to = queuedActiveElementTargets.get(from)
+	if (!to) return
+
+	const options = queuedActiveElementOptions.get(from) ?? {}
+
+	queuedActiveElementTargets.delete(from)
+	queuedActiveElementOptions.delete(from)
+
+	if (!from.isConnected) return
+
+	const flushOptions: Options = {
+		...options,
+		preserveActiveElement: false,
+	}
+
+	new Morph(flushOptions, null, from).morph(from as ChildNode, to)
 }
 
 function nodeListToArray(nodeList: NodeListOf<ChildNode>): Array<ChildNode>
