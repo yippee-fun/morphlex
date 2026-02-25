@@ -210,14 +210,32 @@ function getActiveElement(from: ChildNode, options: Options): Element | null {
 }
 
 function flagDirtyInputs(node: ParentNode): void {
+	if (node.nodeType === ELEMENT_NODE_TYPE) {
+		const element = node as Element
+		if (isInputElement(element)) {
+			if (element.value !== element.defaultValue || element.checked !== element.defaultChecked) {
+				element.setAttribute("morphlex-dirty", "")
+			}
+		} else if (isOptionElement(element)) {
+			if (element.selected !== element.defaultSelected) {
+				element.setAttribute("morphlex-dirty", "")
+			}
+		} else if (element.localName === "textarea") {
+			const textarea = element as HTMLTextAreaElement
+			if (textarea.value !== textarea.defaultValue) {
+				textarea.setAttribute("morphlex-dirty", "")
+			}
+		}
+	}
+
 	for (const input of node.querySelectorAll("input")) {
-		if ((input.name && input.value !== input.defaultValue) || input.checked !== input.defaultChecked) {
+		if (input.value !== input.defaultValue || input.checked !== input.defaultChecked) {
 			input.setAttribute("morphlex-dirty", "")
 		}
 	}
 
 	for (const element of node.querySelectorAll("option")) {
-		if (element.value && element.selected !== element.defaultSelected) {
+		if (element.selected !== element.defaultSelected) {
 			element.setAttribute("morphlex-dirty", "")
 		}
 	}
@@ -373,7 +391,8 @@ class Morph {
 	}
 
 	#visitAttributes(from: Element, to: Element): void {
-		if (from.hasAttribute("morphlex-dirty")) {
+		const wasDirty = from.hasAttribute("morphlex-dirty")
+		if (wasDirty) {
 			from.removeAttribute("morphlex-dirty")
 		}
 
@@ -381,7 +400,7 @@ class Morph {
 		for (const { name, value } of to.attributes) {
 			if (name === "value") {
 				if (isInputElement(from) && from.value !== value) {
-					if (from !== this.#skipValuePropertyUpdateFor && (!this.#options.preserveChanges || from.value === from.defaultValue)) {
+					if (from !== this.#skipValuePropertyUpdateFor && (!this.#options.preserveChanges || !wasDirty)) {
 						from.value = value
 					}
 				}
@@ -389,7 +408,7 @@ class Morph {
 
 			if (name === "selected") {
 				if (isOptionElement(from) && !from.selected) {
-					if (!this.#options.preserveChanges || from.selected === from.defaultSelected) {
+					if (!this.#options.preserveChanges || !wasDirty) {
 						from.selected = true
 					}
 				}
@@ -397,7 +416,7 @@ class Morph {
 
 			if (name === "checked") {
 				if (isInputElement(from) && !from.checked) {
-					if (!this.#options.preserveChanges || from.checked === from.defaultChecked) {
+					if (!this.#options.preserveChanges || !wasDirty) {
 						from.checked = true
 					}
 				}
@@ -416,7 +435,7 @@ class Morph {
 			if (!to.hasAttribute(name)) {
 				if (name === "selected") {
 					if (isOptionElement(from) && from.selected) {
-						if (!this.#options.preserveChanges || from.selected === from.defaultSelected) {
+						if (!this.#options.preserveChanges || !wasDirty) {
 							from.selected = false
 						}
 					}
@@ -424,7 +443,7 @@ class Morph {
 
 				if (name === "checked") {
 					if (isInputElement(from) && from.checked) {
-						if (!this.#options.preserveChanges || from.checked === from.defaultChecked) {
+						if (!this.#options.preserveChanges || !wasDirty) {
 							from.checked = false
 						}
 					}

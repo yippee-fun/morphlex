@@ -72,6 +72,26 @@ describe("text input", () => {
 		expect(second.defaultValue).toBe("a")
 		expect(second.getAttribute("value")).toBe("a")
 	})
+
+	test("morphing updates default while dirty and updates value once clean again", () => {
+		const input = dom(`<input type="text" value="a">`) as HTMLInputElement
+
+		input.value = "b"
+		expect(input.value).toBe("b")
+		expect(input.defaultValue).toBe("a")
+
+		morph(input, dom(`<input type="text" value="c">`), { preserveChanges: true })
+		expect(input.value).toBe("b")
+		expect(input.defaultValue).toBe("c")
+
+		input.value = "c"
+		expect(input.value).toBe("c")
+		expect(input.defaultValue).toBe("c")
+
+		morph(input, dom(`<input type="text" value="d">`), { preserveChanges: true })
+		expect(input.value).toBe("d")
+		expect(input.defaultValue).toBe("d")
+	})
 })
 
 describe("checkbox", () => {
