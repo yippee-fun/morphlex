@@ -570,9 +570,8 @@ class Morph {
 				for (let c = 0; c < candidateBucket.length; c++) {
 					const candidateIndex = candidateBucket[c]!
 					if (!candidateElementWithIdActive[candidateIndex]) continue
-					const candidate = fromChildNodes[candidateIndex] as Element
 
-					if (localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] && id === candidate.id) {
+					if (localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex]) {
 						matches[unmatchedIndex] = candidateIndex
 						op[unmatchedIndex] = Operation.SameElement
 						candidateElementWithIdActive[candidateIndex] = 0
@@ -584,8 +583,7 @@ class Morph {
 				const candidateIndex = candidateBucket
 				if (!candidateElementWithIdActive[candidateIndex]) continue
 
-				const candidate = fromChildNodes[candidateIndex] as Element
-				if (localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] && id === candidate.id) {
+				if (localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex]) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
 					candidateElementWithIdActive[candidateIndex] = 0
