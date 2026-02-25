@@ -42,7 +42,7 @@ export interface Options {
 
 	/**
 	 * When `true`, preserves the active element during morphing.
-	 * This prevents focused elements from being moved, replaced or updated.
+	 * This prevents the focused element itself from being replaced or updated.
 	 * @default false
 	 */
 	preserveActiveElement?: boolean
@@ -252,34 +252,15 @@ class Morph {
 	readonly #idArrayMap: IdArrayMap = new WeakMap()
 	readonly #idSetMap: IdSetMap = new WeakMap()
 	readonly #activeElement: Element | null
-	readonly #activeElementAncestors: WeakSet<Node> | null
 	readonly #options: Options
 
 	constructor(options: Options = {}, activeElement: Element | null = null) {
 		this.#options = options
 		this.#activeElement = activeElement
-
-		if (this.#options.preserveActiveElement && this.#activeElement) {
-			const ancestors = new WeakSet<Node>()
-			let current: Node | null = this.#activeElement
-
-			while (current) {
-				ancestors.add(current)
-				current = current.parentNode
-			}
-
-			this.#activeElementAncestors = ancestors
-		} else {
-			this.#activeElementAncestors = null
-		}
 	}
 
 	#isPinnedActiveElement(node: Node): boolean {
 		return !!this.#options.preserveActiveElement && node === this.#activeElement
-	}
-
-	#containsPinnedActiveElement(node: Node): boolean {
-		return !!this.#activeElementAncestors?.has(node)
 	}
 
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
@@ -488,15 +469,16 @@ class Morph {
 			candidateNodeTypeMap[i] = nodeType
 
 			if (nodeType === ELEMENT_NODE_TYPE) {
-				candidateLocalNameMap[i] = (candidate as Element).localName
-				if ((candidate as Element).id !== "") {
+				const candidateElement = candidate as Element
+				candidateLocalNameMap[i] = candidateElement.localName
+				if (candidateElement.id !== "") {
 					candidateElementWithIdActive[i] = 1
 					candidateElementWithIdIndices.push(i)
 				} else {
 					candidateElementActive[i] = 1
 					candidateElementIndices.push(i)
 				}
-			} else if (nodeType === TEXT_NODE_TYPE && candidate.textContent?.trim() === "") {
+			} else if (isWhitespaceTextNode(candidate)) {
 				whitespaceNodeIndices.push(i)
 			} else {
 				candidateNodeActive[i] = 1
@@ -510,10 +492,11 @@ class Morph {
 			nodeTypeMap[i] = nodeType
 
 			if (nodeType === ELEMENT_NODE_TYPE) {
-				localNameMap[i] = (node as Element).localName
+				const element = node as Element
+				localNameMap[i] = element.localName
 				unmatchedElementActive[i] = 1
 				unmatchedElementIndices.push(i)
-			} else if (nodeType === TEXT_NODE_TYPE && node.textContent?.trim() === "") {
+			} else if (isWhitespaceTextNode(node)) {
 				continue
 			} else {
 				unmatchedNodeActive[i] = 1
@@ -619,8 +602,8 @@ class Morph {
 			for (let c = 0; c < candidateElementIndices.length; c++) {
 				const candidateIndex = candidateElementIndices[c]!
 				if (!candidateElementActive[candidateIndex]) continue
-
 				const candidate = fromChildNodes[candidateIndex] as Element
+
 				if (
 					localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] &&
 					((name && name === candidate.getAttribute("name")) ||
@@ -746,7 +729,7 @@ class Morph {
 				const match = fromChildNodes[matchInd]!
 				const operation = op[i]!
 
-				if (!shouldNotMove[matchInd] && !this.#isPinnedActiveElement(match)) {
+				if (!shouldNotMove[matchInd]) {
 					moveBefore(parent, match, insertionPoint)
 				}
 
@@ -772,7 +755,7 @@ class Morph {
 	}
 
 	#replaceNode(node: ChildNode, newNode: ChildNode): void {
-		if (this.#containsPinnedActiveElement(node)) return
+		if (this.#isPinnedActiveElement(node)) return
 
 		const parent = node.parentNode || document
 		const insertionPoint = node
@@ -789,7 +772,7 @@ class Morph {
 	}
 
 	#removeNode(node: ChildNode): void {
-		if (this.#containsPinnedActiveElement(node)) return
+		if (this.#isPinnedActiveElement(node)) return
 
 		if (this.#options.beforeNodeRemoved?.(node) ?? true) {
 			node.remove()
@@ -863,6 +846,22 @@ function nodeListToArray(nodeList: NodeList): Array<ChildNode> {
 		array[i] = nodeList[i] as ChildNode
 	}
 	return array
+}
+
+function isWhitespaceTextNode(node: Node): boolean {
+	if (node.nodeType !== TEXT_NODE_TYPE) return false
+
+	const value = node.nodeValue
+	if (!value) return true
+
+	for (let i = 0; i < value.length; i++) {
+		const code = value.charCodeAt(i)
+		if (code === 32 || code === 9 || code === 10 || code === 13 || code === 12) continue
+		if (code <= 127) return false
+		return value.trim() === ""
+	}
+
+	return true
 }
 
 function isInputElement(element: Element): element is HTMLInputElement {

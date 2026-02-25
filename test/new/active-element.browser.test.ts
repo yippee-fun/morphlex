@@ -61,7 +61,7 @@ describe("active element preservation", () => {
 		from.remove()
 	})
 
-	test("does not move active element while reordering", () => {
+	test("allows moving active element while reordering", () => {
 		const from = document.createElement("div")
 		from.innerHTML = '<input id="active"><p id="sibling">A</p>'
 		document.body.appendChild(from)
@@ -75,12 +75,14 @@ describe("active element preservation", () => {
 		morph(from, to, { preserveActiveElement: true })
 
 		expect(from.querySelector("#active")).toBe(active)
+		expect(from.firstElementChild?.id).toBe("sibling")
+		expect(from.lastElementChild?.id).toBe("active")
 		expect(document.activeElement).toBe(active)
 
 		from.remove()
 	})
 
-	test("does not replace an ancestor that contains the active element", () => {
+	test("allows replacing an ancestor that contains the active element", () => {
 		const host = document.createElement("div")
 		const from = document.createElement("div")
 		from.innerHTML = '<input id="active" value="hello"><span>old</span>'
@@ -95,9 +97,8 @@ describe("active element preservation", () => {
 
 		morph(from, to, { preserveActiveElement: true, preserveChanges: false })
 
-		expect(host.firstElementChild).toBe(from)
-		expect(document.activeElement).toBe(active)
-		expect(active.value).toBe("hello")
+		expect(host.firstElementChild?.tagName).toBe("SECTION")
+		expect((host.querySelector("#active") as HTMLInputElement).value).toBe("server")
 
 		host.remove()
 	})
