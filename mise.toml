@@ -1,0 +1,11 @@
+[tools]
+bun = "latest"
+
+[tasks.test]
+run = "bun run test:all"
+
+[tasks.lint]
+run = "bun run lint"
+
+[tasks.build]
+run = "bun run build"
