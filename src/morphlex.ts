@@ -29,6 +29,7 @@ type Operation = (typeof Operation)[keyof typeof Operation]
 
 type IdSetMap = WeakMap<Node, Set<string>>
 type IdArrayMap = WeakMap<Node, Array<string>>
+type CandidateIdBucket = number | Array<number>
 
 const queuedActiveElementTargets: WeakMap<Element, ChildNode> = new WeakMap()
 const queuedActiveElementOptions: WeakMap<Element, Options> = new WeakMap()
@@ -459,7 +460,7 @@ class Morph {
 		const candidateNodeIndices: Array<number> = []
 		const candidateElementIndices: Array<number> = []
 		const candidateElementWithIdIndices: Array<number> = []
-		const candidateElementIndicesById: Map<string, Array<number>> = new Map()
+		const candidateElementIndicesById: Map<string, CandidateIdBucket> = new Map()
 		const unmatchedNodeIndices: Array<number> = []
 		const unmatchedElementIndices: Array<number> = []
 		const whitespaceNodeIndices: Array<number> = []
@@ -490,11 +491,13 @@ class Morph {
 					candidateElementWithIdActive[i] = 1
 					candidateElementWithIdIndices.push(i)
 
-					const existingIndices = candidateElementIndicesById.get(candidateId)
-					if (existingIndices) {
-						existingIndices.push(i)
+					const existingBucket = candidateElementIndicesById.get(candidateId)
+					if (existingBucket === undefined) {
+						candidateElementIndicesById.set(candidateId, i)
+					} else if (Array.isArray(existingBucket)) {
+						existingBucket.push(i)
 					} else {
-						candidateElementIndicesById.set(candidateId, [i])
+						candidateElementIndicesById.set(candidateId, [existingBucket, i])
 					}
 				} else {
 					candidateElementActive[i] = 1
@@ -560,20 +563,33 @@ class Morph {
 
 			if (id === "") continue
 
-			const candidateIndices = candidateElementIndicesById.get(id)
-			if (!candidateIndices) continue
+			const candidateBucket = candidateElementIndicesById.get(id)
+			if (candidateBucket === undefined) continue
 
-			for (let c = 0; c < candidateIndices.length; c++) {
-				const candidateIndex = candidateIndices[c]!
+			if (Array.isArray(candidateBucket)) {
+				for (let c = 0; c < candidateBucket.length; c++) {
+					const candidateIndex = candidateBucket[c]!
+					if (!candidateElementWithIdActive[candidateIndex]) continue
+					const candidate = fromChildNodes[candidateIndex] as Element
+
+					if (localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] && id === candidate.id) {
+						matches[unmatchedIndex] = candidateIndex
+						op[unmatchedIndex] = Operation.SameElement
+						candidateElementWithIdActive[candidateIndex] = 0
+						unmatchedElementActive[unmatchedIndex] = 0
+						break
+					}
+				}
+			} else {
+				const candidateIndex = candidateBucket
 				if (!candidateElementWithIdActive[candidateIndex]) continue
-				const candidate = fromChildNodes[candidateIndex] as Element
 
+				const candidate = fromChildNodes[candidateIndex] as Element
 				if (localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] && id === candidate.id) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
 					candidateElementWithIdActive[candidateIndex] = 0
 					unmatchedElementActive[unmatchedIndex] = 0
-					break
 				}
 			}
 		}

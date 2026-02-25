@@ -144,4 +144,27 @@ describe("Optimal Reordering", () => {
 		expect(children[1]?.className).toBe("unchanged")
 		expect(children[1]?.textContent).toBe("A")
 	})
+
+	test("handles duplicate ids while preserving target order", () => {
+		const from = dom(`
+			<div>
+				<span id="x">one</span>
+				<span id="x">two</span>
+			</div>
+		`)
+
+		const to = dom(`
+			<div>
+				<span id="x">two</span>
+				<span id="x">one</span>
+			</div>
+		`)
+
+		morph(from, to)
+
+		const children = Array.from(from.children) as HTMLSpanElement[]
+		expect(children.length).toBe(2)
+		expect(children[0]?.textContent).toBe("two")
+		expect(children[1]?.textContent).toBe("one")
+	})
 })
