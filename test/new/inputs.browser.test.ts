@@ -73,7 +73,7 @@ describe("text input", () => {
 		expect(second.getAttribute("value")).toBe("a")
 	})
 
-	test("morphing updates default while dirty and updates value once clean again", () => {
+	test("morphing updates default while dirty and keeps value dirty", () => {
 		const input = dom(`<input type="text" value="a">`) as HTMLInputElement
 
 		input.value = "b"
@@ -89,7 +89,7 @@ describe("text input", () => {
 		expect(input.defaultValue).toBe("c")
 
 		morph(input, dom(`<input type="text" value="d">`), { preserveChanges: true })
-		expect(input.value).toBe("d")
+		expect(input.value).toBe("c")
 		expect(input.defaultValue).toBe("d")
 	})
 })

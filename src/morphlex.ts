@@ -391,8 +391,7 @@ class Morph {
 	}
 
 	#visitAttributes(from: Element, to: Element): void {
-		const wasDirty = from.hasAttribute("morphlex-dirty")
-		if (wasDirty) {
+		if (from.hasAttribute("morphlex-dirty")) {
 			from.removeAttribute("morphlex-dirty")
 		}
 
@@ -400,7 +399,7 @@ class Morph {
 		for (const { name, value } of to.attributes) {
 			if (name === "value") {
 				if (isInputElement(from) && from.value !== value) {
-					if (from !== this.#skipValuePropertyUpdateFor && (!this.#options.preserveChanges || !wasDirty)) {
+					if (from !== this.#skipValuePropertyUpdateFor && !this.#options.preserveChanges) {
 						from.value = value
 					}
 				}
@@ -408,7 +407,7 @@ class Morph {
 
 			if (name === "selected") {
 				if (isOptionElement(from) && !from.selected) {
-					if (!this.#options.preserveChanges || !wasDirty) {
+					if (!this.#options.preserveChanges) {
 						from.selected = true
 					}
 				}
@@ -416,7 +415,7 @@ class Morph {
 
 			if (name === "checked") {
 				if (isInputElement(from) && !from.checked) {
-					if (!this.#options.preserveChanges || !wasDirty) {
+					if (!this.#options.preserveChanges) {
 						from.checked = true
 					}
 				}
@@ -435,7 +434,7 @@ class Morph {
 			if (!to.hasAttribute(name)) {
 				if (name === "selected") {
 					if (isOptionElement(from) && from.selected) {
-						if (!this.#options.preserveChanges || !wasDirty) {
+						if (!this.#options.preserveChanges) {
 							from.selected = false
 						}
 					}
@@ -443,7 +442,7 @@ class Morph {
 
 				if (name === "checked") {
 					if (isInputElement(from) && from.checked) {
-						if (!this.#options.preserveChanges || !wasDirty) {
+						if (!this.#options.preserveChanges) {
 							from.checked = false
 						}
 					}
