@@ -72,6 +72,17 @@ morph(currentNode, newNode, {
 
 - **`beforeAttributeUpdated`**: Called before an attribute is updated on an element. Return `false` to prevent the update.
 
+```javascript
+morph(currentNode, newNode, {
+	beforeAttributeUpdated: (element, name) => {
+		if (element.tagName === "DETAILS" && name === "open") return false
+		return true
+	},
+})
+```
+
+This can be useful for preserving UI state that your backend does not track, such as whether a `<details>` element is open.
+
 - **`afterAttributeUpdated`**: Called after an attribute has been updated on an element.
 
 - **`beforeChildrenVisited`**: Called before an element's children are visited during morphing. Return `false` to skip visiting children.
