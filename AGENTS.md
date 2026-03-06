@@ -2,8 +2,6 @@
 - Don’t create a summary document.
 - Running all the tests with `bun run test` is cheap, so do it all the time. Don’t do too much before running tests. You can also run browser tests with `bun run test:browser`.
 - Try to maintain 100% test coverage. Use `bun run test --coverage`.
-- I’m using `jj` so you can use that to look at your diff, but please don’t commit unless I ask you to.
-- Make sure you leave things in a good state. No diagnostics warnings. No type errors.
-- We use tabs for indentation and spaces for alignment
-- Never say “you’re absolutely right”
+- Make sure you leave things in a good state. No warnings. No type errors.
+- We use tabs for indentation and sometimes additional spaces for alignment
 - When writing new tests, put them under `test/new` and use `test` instead of `it`. Try to keep all the setup in the test itself. If you need to share setup between multiple steps, make a function that each test calls.
