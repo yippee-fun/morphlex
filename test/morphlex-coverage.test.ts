@@ -65,21 +65,23 @@ describe("Morphlex - Coverage Tests", () => {
 	})
 
 	describe("Property updates", () => {
-		it("should update input disabled property", () => {
-			const parent = document.createElement("div")
-			const input = document.createElement("input")
-			input.disabled = false
-			parent.appendChild(input)
+	it("should update input disabled property", () => {
+		const parent = document.createElement("div")
+		const input = document.createElement("input")
+		input.disabled = false
+		input.name = "test"
+		parent.appendChild(input)
 
-			const reference = document.createElement("div")
-			const refInput = document.createElement("input")
-			refInput.disabled = true
-			reference.appendChild(refInput)
+		const reference = document.createElement("div")
+		const refInput = document.createElement("input")
+		refInput.disabled = true
+		refInput.name = "test"
+		reference.appendChild(refInput)
 
-			morph(parent, reference)
+		morph(parent, reference)
 
-			expect(input.disabled).toBe(true)
-		})
+		expect(input.disabled).toBe(true)
+	})
 
 		it("should not update file input value", () => {
 			const parent = document.createElement("div")
