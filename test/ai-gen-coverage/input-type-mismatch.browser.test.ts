@@ -54,7 +54,7 @@ describe("input type mismatch", () => {
 		expect(newInput.name).toBe("test")
 	})
 
-	test("morphing inputs with same type uses localName matching", () => {
+	test("morphing inputs without distinguishing attributes are replaced", () => {
 		const a = dom(`<div><input type="text" value="a"><input type="text" value="b"></div>`) as HTMLElement
 		const b = dom(`<div><input type="text" value="x"><input type="text" value="y"></div>`) as HTMLElement
 
@@ -63,9 +63,9 @@ describe("input type mismatch", () => {
 
 		morph(a, b)
 
-		// Lines 566-568: inputs match by localName and type, so they're reused
-		expect(a.children[0]).toBe(firstInput)
-		expect(a.children[1]).toBe(secondInput)
+		// Inputs are excluded from the tag-name matching pass, so they're replaced
+		expect(a.children[0]).not.toBe(firstInput)
+		expect(a.children[1]).not.toBe(secondInput)
 		expect((a.children[0] as HTMLInputElement).value).toBe("x")
 		expect((a.children[1] as HTMLInputElement).value).toBe("y")
 	})
@@ -86,7 +86,7 @@ describe("input type mismatch", () => {
 		expect(inputs[2].id).toBe("c")
 	})
 
-	test("morphing inputs without IDs triggers localName matching with type check", () => {
+	test("morphing inputs without IDs are replaced, not matched by localName", () => {
 		const a = dom(`<div><input type="text" class="a"><input type="number" class="b"></div>`) as HTMLElement
 		const b = dom(`<div><input type="text" class="x"><input type="number" class="y"></div>`) as HTMLElement
 
@@ -95,9 +95,9 @@ describe("input type mismatch", () => {
 
 		morph(a, b)
 
-		// Lines 566-568: same-type inputs are matched and reused via localName
-		expect(a.children[0]).toBe(firstInput)
-		expect(a.children[1]).toBe(secondInput)
+		// Inputs are excluded from the tag-name matching pass, so they're replaced
+		expect(a.children[0]).not.toBe(firstInput)
+		expect(a.children[1]).not.toBe(secondInput)
 		expect((a.children[0] as HTMLInputElement).className).toBe("x")
 		expect((a.children[1] as HTMLInputElement).className).toBe("y")
 	})

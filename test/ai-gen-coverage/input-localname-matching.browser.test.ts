@@ -2,9 +2,9 @@ import { test, expect } from "vitest"
 import { morph } from "../../src/morphlex"
 import { dom } from "../new/utils"
 
-test("morphing inputs by localName with same types matches correctly", () => {
-	// This test ensures lines 566-568 are covered (the non-continue path)
-	// Inputs without id or name attributes fall through to localName matching
+test("morphing inputs without distinguishing attributes are replaced, not reused", () => {
+	// Inputs are excluded from the tag-name matching pass, so bare inputs
+	// without id/name/href/src are treated as new elements
 	const a = dom(`<form><input type="email" class="first"><input type="email" class="second"></form>`) as HTMLElement
 	const b = dom(`<form><input type="email" placeholder="a"><input type="email" placeholder="b"></form>`) as HTMLElement
 
@@ -13,9 +13,9 @@ test("morphing inputs by localName with same types matches correctly", () => {
 
 	morph(a, b)
 
-	// Same type inputs should be reused via localName matching
-	expect(a.children[0]).toBe(first)
-	expect(a.children[1]).toBe(second)
+	// Inputs should be replaced, not reused via localName matching
+	expect(a.children[0]).not.toBe(first)
+	expect(a.children[1]).not.toBe(second)
 	expect((a.children[0] as HTMLInputElement).placeholder).toBe("a")
 	expect((a.children[1] as HTMLInputElement).placeholder).toBe("b")
 })

@@ -76,8 +76,8 @@ test("input type mismatch with no matching type - all trigger continue", () => {
 	expect((a.children[0] as HTMLInputElement).type).toBe("email")
 })
 
-test("input with matching type does not trigger continue", () => {
-	// When types match, the continue branch is NOT taken
+test("input without distinguishing attributes is replaced, not reused", () => {
+	// Inputs are excluded from the tag-name matching pass entirely
 	const a = dom(
 		`<div>
 			<input type="text" data-value="old">
@@ -95,9 +95,9 @@ test("input with matching type does not trigger continue", () => {
 
 	morph(a, b)
 
-	// First text input matches without triggering continue
+	// Inputs are not matched by tag name, so element is replaced
 	expect(a.children.length).toBe(1)
-	expect(a.children[0]).toBe(firstInput)
+	expect(a.children[0]).not.toBe(firstInput)
 	expect((a.children[0] as HTMLInputElement).getAttribute("data-value")).toBe("new")
 })
 

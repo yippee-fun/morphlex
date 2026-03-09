@@ -2,9 +2,8 @@ import { test, expect } from "vitest"
 import { morph } from "../../src/morphlex"
 import { dom } from "../new/utils"
 
-test("morphing inputs by localName without any matching attributes", () => {
-	// Lines 566-568: inputs match by localName when types are the same
-	// Remove all id, name, href, src attributes to force localName matching
+test("morphing inputs without distinguishing attributes are replaced, not reused by localName", () => {
+	// Inputs are excluded from the tag-name matching pass
 	const a = dom(`<div><input type="text"><input type="text"></div>`) as HTMLElement
 	const b = dom(`<div><input type="text" placeholder="first"><input type="text" placeholder="second"></div>`) as HTMLElement
 
@@ -13,11 +12,11 @@ test("morphing inputs by localName without any matching attributes", () => {
 
 	morph(a, b)
 
-	// Elements should be reused via localName matching
-	expect(a.children[0]).toBe(firstInput)
-	expect(a.children[1]).toBe(secondInput)
-	expect(firstInput.placeholder).toBe("first")
-	expect(secondInput.placeholder).toBe("second")
+	// Inputs should be replaced, not reused
+	expect(a.children[0]).not.toBe(firstInput)
+	expect(a.children[1]).not.toBe(secondInput)
+	expect((a.children[0] as HTMLInputElement).placeholder).toBe("first")
+	expect((a.children[1] as HTMLInputElement).placeholder).toBe("second")
 })
 
 test("morphing inputs with type mismatch skips candidate", () => {
@@ -32,10 +31,10 @@ test("morphing inputs with type mismatch skips candidate", () => {
 	expect(inputs[1].type).toBe("text")
 })
 
-test("morphing textarea with modified value preserves change", () => {
-	// Line 190: textarea dirty flag
-	const a = dom(`<div><textarea>original</textarea></div>`) as HTMLElement
-	const b = dom(`<div><textarea>new</textarea></div>`) as HTMLElement
+test("morphing textarea with modified value preserves change when matched by name", () => {
+	// Line 190: textarea dirty flag — textareas need a name attribute to match via heuristics
+	const a = dom(`<div><textarea name="content">original</textarea></div>`) as HTMLElement
+	const b = dom(`<div><textarea name="content">new</textarea></div>`) as HTMLElement
 
 	const textarea = a.firstElementChild as HTMLTextAreaElement
 	textarea.value = "user input"

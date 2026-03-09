@@ -638,12 +638,21 @@ class Morph {
 			}
 		}
 
-		// Match by tagName
+		// Match by tagName (only for elements without distinguishing attributes)
 		for (let i = 0; i < unmatchedElementIndices.length; i++) {
 			const unmatchedIndex = unmatchedElementIndices[i]!
 			if (!unmatchedElementActive[unmatchedIndex]) continue
 
 			const element = toChildNodes[unmatchedIndex] as Element
+
+			if (
+				element.id !== "" ||
+				isFormControl(element) ||
+				this.#idArrayMap.has(element) ||
+				element.hasAttribute("name") ||
+				element.hasAttribute("href") ||
+				element.hasAttribute("src")
+			) continue
 
 			const localName = localNameMap[unmatchedIndex]
 
@@ -652,13 +661,18 @@ class Morph {
 				if (!candidateElementActive[candidateIndex]) continue
 
 				const candidate = fromChildNodes[candidateIndex] as Element
+
+				if (
+					isFormControl(candidate) ||
+					this.#idSetMap.has(candidate) ||
+					candidate.hasAttribute("name") ||
+					candidate.hasAttribute("href") ||
+					candidate.hasAttribute("src")
+				) continue
+
 				const candidateLocalName = candidateLocalNameMap[candidateIndex]
 
 				if (localName === candidateLocalName) {
-					if (localName === "input" && (candidate as HTMLInputElement).type !== (element as HTMLInputElement).type) {
-						// Treat inputs with different type as though they are different tags.
-						continue
-					}
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
 					candidateElementActive[candidateIndex] = 0
@@ -895,6 +909,16 @@ function isWhitespaceTextNode(node: Node): boolean {
 
 function isInputElement(element: Element): element is HTMLInputElement {
 	return element.localName === "input"
+}
+
+function isFormControl(element: Element): boolean {
+	const localName = element.localName
+	return (
+		localName === "input" ||
+		localName === "textarea" ||
+		localName === "select" ||
+		(localName.includes("-") && (element.constructor as unknown as Record<string, unknown>)["formAssociated"] === true)
+	)
 }
 
 function isOptionElement(element: Element): element is HTMLOptionElement {
