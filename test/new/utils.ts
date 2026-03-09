@@ -1,3 +1,5 @@
+/* v8 ignore file -- @preserve */
+
 export function dom(html: string): HTMLElement {
 	const tmp = document.createElement("div")
 	tmp.innerHTML = html.trim()

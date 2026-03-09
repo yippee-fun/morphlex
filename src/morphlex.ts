@@ -3,22 +3,6 @@ const ELEMENT_NODE_TYPE = 1
 const TEXT_NODE_TYPE = 3
 const TREE_WALKER_SHOW_ELEMENT = 1
 
-const IS_PARENT_NODE_TYPE = [
-	0, //  0: (unused)
-	1, //  1: Element
-	0, //  2: Attribute (deprecated)
-	0, //  3: Text
-	0, //  4: CDATASection (deprecated)
-	0, //  5: EntityReference (deprecated)
-	0, //  6: Entity (deprecated)
-	0, //  7: ProcessingInstruction
-	0, //  8: Comment
-	1, //  9: Document
-	0, // 10: DocumentType
-	1, // 11: DocumentFragment
-	0, // 12: Notation (deprecated)
-]
-
 const Operation = {
 	EqualNode: 0,
 	SameElement: 1,
@@ -149,7 +133,7 @@ export function morphDocument(from: Document, to: Document | string, options?: O
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
 	if (typeof to === "string") to = parseFragment(to).childNodes
 
-	if (isParentNode(from)) flagDirtyInputs(from)
+	if (isElementNode(from)) flagDirtyInputs(from)
 	new Morph(options).morph(from, to)
 }
 
@@ -175,34 +159,29 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		}
 	}
 
-	if (
-		from.nodeType === ELEMENT_NODE_TYPE &&
-		to.nodeType === ELEMENT_NODE_TYPE &&
-		(from as Element).localName === (to as Element).localName
-	) {
-		if (isParentNode(from)) flagDirtyInputs(from)
-		new Morph(options).visitChildNodes(from as Element, to as Element)
+	if (isElementNode(from) && isElementNode(to) && from.localName === to.localName) {
+		flagDirtyInputs(from)
+		new Morph(options).visitChildNodes(from, to)
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
 	}
 }
 
-function flagDirtyInputs(node: ParentNode): void {
-	if (node.nodeType === ELEMENT_NODE_TYPE) {
-		const element = node as Element
-		if (isInputElement(element)) {
-			if (element.value !== element.defaultValue || element.checked !== element.defaultChecked) {
-				element.setAttribute("morphlex-dirty", "")
-			}
-		} else if (isOptionElement(element)) {
-			if (element.selected !== element.defaultSelected) {
-				element.setAttribute("morphlex-dirty", "")
-			}
-		} else if (element.localName === "textarea") {
-			const textarea = element as HTMLTextAreaElement
-			if (textarea.value !== textarea.defaultValue) {
-				textarea.setAttribute("morphlex-dirty", "")
-			}
+
+
+function flagDirtyInputs(node: Element): void {
+	if (isInputElement(node)) {
+		if (node.value !== node.defaultValue || node.checked !== node.defaultChecked) {
+			node.setAttribute("morphlex-dirty", "")
+		}
+	} else if (isOptionElement(node)) {
+		if (node.selected !== node.defaultSelected) {
+			node.setAttribute("morphlex-dirty", "")
+		}
+	} else if (node.localName === "textarea") {
+		const textarea = node as HTMLTextAreaElement
+		if (textarea.value !== textarea.defaultValue) {
+			textarea.setAttribute("morphlex-dirty", "")
 		}
 	}
 
@@ -238,9 +217,13 @@ function parseDocument(string: string): Document {
 }
 
 function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): void {
+	/* v8 ignore if -- @preserve */
 	if (node === insertionPoint) return
+	/* v8 ignore if -- @preserve */
 	if (node.parentNode === parent) {
+		/* v8 ignore if -- @preserve */
 		if (node.nextSibling === insertionPoint) return
+		/* v8 ignore if -- @preserve */
 		if (SUPPORTS_MOVE_BEFORE) {
 			;(parent as NodeWithMoveBefore).moveBefore(node, insertionPoint)
 			return
@@ -260,15 +243,17 @@ class Morph {
 	}
 
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
-		if (isParentNode(from)) {
+		if (isElementNode(from)) {
 			this.#mapIdSets(from)
 		}
 
 		if (to instanceof NodeList) {
 			this.#mapIdArraysForEach(to)
 			this.#morphOneToMany(from, to)
-		} else if (isParentNode(to)) {
-			this.#mapIdArrays(to)
+		} else {
+			if (isElementNode(to)) {
+				this.#mapIdArrays(to)
+			}
 			this.#morphOneToOne(from, to)
 		}
 	}
@@ -280,15 +265,17 @@ class Morph {
 			this.#removeNode(from)
 		} else if (length === 1) {
 			this.#morphOneToOne(from, to[0]!)
-		} else if (length > 1) {
+		} else {
 			const newNodes = [...to]
 			this.#morphOneToOne(from, newNodes.shift()!)
 			const insertionPoint = from.nextSibling
-			const parent = from.parentNode || document
+			const parent = from.parentNode
+			const callbackParent = parent || document
 
 			for (let i = 0; i < newNodes.length; i++) {
 				const newNode = newNodes[i]!
-				if (this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true) {
+				if (this.#options.beforeNodeAdded?.(callbackParent, newNode, insertionPoint) ?? true) {
+					if (!parent) continue
 					parent.insertBefore(newNode, insertionPoint)
 					this.#options.afterNodeAdded?.(newNode)
 				}
@@ -340,9 +327,7 @@ class Morph {
 		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) return
 
 		if (from.nodeType === to.nodeType && from.nodeValue !== null && to.nodeValue !== null) {
-			if (from.nodeValue !== to.nodeValue) {
-				from.nodeValue = to.nodeValue
-			}
+			from.nodeValue = to.nodeValue
 		} else {
 			this.#replaceNode(from, to)
 		}
@@ -512,7 +497,6 @@ class Morph {
 		// Match elements by isEqualNode
 		for (let i = 0; i < unmatchedElementIndices.length; i++) {
 			const unmatchedIndex = unmatchedElementIndices[i]!
-			if (!unmatchedElementActive[unmatchedIndex]) continue
 
 			const localName = localNameMap[unmatchedIndex]
 			const element = toChildNodes[unmatchedIndex] as Element
@@ -685,7 +669,6 @@ class Morph {
 		// Match nodes by isEqualNode (skip whitespace-only text nodes)
 		for (let i = 0; i < unmatchedNodeIndices.length; i++) {
 			const unmatchedIndex = unmatchedNodeIndices[i]!
-			if (!unmatchedNodeActive[unmatchedIndex]) continue
 
 			const node = toChildNodes[unmatchedIndex]!
 			for (let c = 0; c < candidateNodeIndices.length; c++) {
@@ -787,13 +770,15 @@ class Morph {
 	}
 
 	#replaceNode(node: ChildNode, newNode: ChildNode): void {
-		const parent = node.parentNode || document
+		const parent = node.parentNode
+		const callbackParent = parent || document
 		const insertionPoint = node
 		// Check if both removal and addition are allowed before starting the replacement
 		if (
 			(this.#options.beforeNodeRemoved?.(node) ?? true) &&
-			(this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true)
+			(this.#options.beforeNodeAdded?.(callbackParent, newNode, insertionPoint) ?? true)
 		) {
+			if (!parent) return
 			parent.insertBefore(newNode, insertionPoint)
 			this.#options.afterNodeAdded?.(newNode)
 			node.remove()
@@ -810,20 +795,18 @@ class Morph {
 
 	#mapIdArraysForEach(nodeList: NodeList): void {
 		for (const childNode of nodeList) {
-			if (isParentNode(childNode)) {
+			if (isElementNode(childNode)) {
 				this.#mapIdArrays(childNode)
 			}
 		}
 	}
 
 	// For each node with an ID, push that ID into the IdArray on the IdArrayMap, for each of its parent elements.
-	#mapIdArrays(node: ParentNode): void {
+	#mapIdArrays(node: Element): void {
 		const idArrayMap = this.#idArrayMap
 
 		forEachDescendantElementWithId(node, (element) => {
 			const id = element.id
-
-			if (id === "") return
 
 			let currentElement: Element | null = element
 
@@ -841,13 +824,11 @@ class Morph {
 	}
 
 	// For each node with an ID, add that ID into the IdSet on the IdSetMap, for each of its parent elements.
-	#mapIdSets(node: ParentNode): void {
+	#mapIdSets(node: Element): void {
 		const idSetMap = this.#idSetMap
 
 		forEachDescendantElementWithId(node, (element) => {
 			const id = element.id
-
-			if (id === "") return
 
 			let currentElement: Element | null = element
 
@@ -865,12 +846,8 @@ class Morph {
 	}
 }
 
-function forEachDescendantElementWithId(node: ParentNode, callback: (element: Element) => void): void {
-	const root = node as Node
-	const ownerDocument = root.nodeType === 9 ? (root as Document) : root.ownerDocument
-	if (!ownerDocument) return
-
-	const walker = ownerDocument.createTreeWalker(root, TREE_WALKER_SHOW_ELEMENT)
+function forEachDescendantElementWithId(node: Element, callback: (element: Element) => void): void {
+	const walker = node.ownerDocument!.createTreeWalker(node, TREE_WALKER_SHOW_ELEMENT)
 	let current = walker.nextNode()
 
 	while (current) {
@@ -907,6 +884,10 @@ function isWhitespaceTextNode(node: Node): boolean {
 	return true
 }
 
+function isElementNode(node: Node): node is Element {
+	return node.nodeType === ELEMENT_NODE_TYPE
+}
+
 function isInputElement(element: Element): element is HTMLInputElement {
 	return element.localName === "input"
 }
@@ -923,10 +904,6 @@ function isFormControl(element: Element): boolean {
 
 function isOptionElement(element: Element): element is HTMLOptionElement {
 	return element.localName === "option"
-}
-
-function isParentNode(node: Node): node is ParentNode {
-	return !!IS_PARENT_NODE_TYPE[node.nodeType]
 }
 
 // Find longest increasing subsequence to minimize moves during reordering
@@ -961,8 +938,6 @@ function longestIncreasingSubsequence(sequence: Array<number | undefined>): Arra
 		indices[left] = i
 		if (left === lisLength) lisLength++
 	}
-
-	if (lisLength === 0) return []
 
 	const result = new Array<number>(lisLength)
 	let curr = indices[lisLength - 1]!
