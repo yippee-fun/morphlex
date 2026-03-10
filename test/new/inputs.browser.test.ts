@@ -120,6 +120,16 @@ describe("text input", () => {
 		expect(input.value).toBe("c")
 		expect(input.defaultValue).toBe("d")
 	})
+
+	test("removing the value attribute clears the default value", () => {
+		const input = dom(`<input type="text" value="before">`) as HTMLInputElement
+
+		morph(input, dom(`<input type="text">`))
+
+		expect(input.getAttribute("value")).toBe(null)
+		expect(input.defaultValue).toBe("")
+		expect(input.value).toBe("")
+	})
 })
 
 describe("checkbox", () => {
