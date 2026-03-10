@@ -41,25 +41,25 @@ type ReusedNodeExpectation = {
 
 type ControlSpec =
 	| {
-		kind: "input-text"
-		id: string
-		defaultValue: string
-	}
+			kind: "input-text"
+			id: string
+			defaultValue: string
+	  }
 	| {
-		kind: "checkbox"
-		id: string
-		checked: boolean
-	}
+			kind: "checkbox"
+			id: string
+			checked: boolean
+	  }
 	| {
-		kind: "textarea"
-		id: string
-		defaultValue: string
-	}
+			kind: "textarea"
+			id: string
+			defaultValue: string
+	  }
 	| {
-		kind: "select"
-		id: string
-		options: Array<{ value: string; selected: boolean }>
-	}
+			kind: "select"
+			id: string
+			options: Array<{ value: string; selected: boolean }>
+	  }
 
 type PreserveCase = {
 	from: HTMLElement
@@ -138,7 +138,6 @@ test("seeded fuzz keeps dirty form state while syncing defaults", () => {
 				expect(Array.from(select?.options ?? [], (option) => option.defaultSelected)).toEqual(control.targetSelected)
 			}
 		}
-
 	}
 })
 
@@ -147,8 +146,12 @@ function createMatchingCase(seed: number): MatchingCase {
 	const baseCount = randomInt(random, 4, 8)
 	const baseSpecs = Array.from({ length: baseCount }, (_, index) => createBaseElementSpec(random, index))
 	const overlap = baseSpecs.filter(() => random() > 0.28)
-	const fromOnly = Array.from({ length: randomInt(random, 0, 2) }, (_, index) => createLooseElementSpec(random, `from-${seed}-${index}`))
-	const toOnly = Array.from({ length: randomInt(random, 1, 3) }, (_, index) => createLooseElementSpec(random, `to-${seed}-${index}`))
+	const fromOnly = Array.from({ length: randomInt(random, 0, 2) }, (_, index) =>
+		createLooseElementSpec(random, `from-${seed}-${index}`),
+	)
+	const toOnly = Array.from({ length: randomInt(random, 1, 3) }, (_, index) =>
+		createLooseElementSpec(random, `to-${seed}-${index}`),
+	)
 
 	if (overlap.length === 0) overlap.push(baseSpecs[0]!)
 
@@ -189,7 +192,9 @@ function createPreserveCase(seed: number): PreserveCase {
 	const dirtyControls: Array<DirtyControlExpectation> = []
 	const fromNodes = shuffle(random, [
 		...overlap.map((spec) => createControlElement(spec)),
-		...Array.from({ length: randomInt(random, 0, 2) }, (_, index) => createControlElement(createControlSpec(random, seed + 1, index + 20))),
+		...Array.from({ length: randomInt(random, 0, 2) }, (_, index) =>
+			createControlElement(createControlSpec(random, seed + 1, index + 20)),
+		),
 	])
 	const toNodes = shuffle(random, [
 		...overlap.map((spec, index) => {
@@ -578,9 +583,7 @@ function cloneSpec<T extends NodeSpec>(spec: T): T {
 
 function assertDomEqual(from: HTMLElement, expected: HTMLElement, seed: number, phase: string): void {
 	if (!from.isEqualNode(expected)) {
-		throw new Error(
-			`Seed ${seed} failed during ${phase}\nexpected: ${expected.outerHTML}\nreceived: ${from.outerHTML}`,
-		)
+		throw new Error(`Seed ${seed} failed during ${phase}\nexpected: ${expected.outerHTML}\nreceived: ${from.outerHTML}`)
 	}
 }
 

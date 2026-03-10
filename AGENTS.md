@@ -14,7 +14,7 @@ The `flagDirtyInputs` function sets a `morphlex-dirty` attribute on form element
 
 ### Content attributes vs DOM properties for form elements
 
-In `#visitAttributes`, there's a deliberate separation between content attribute updates (`setAttribute`/`removeAttribute`) and DOM property updates (`.value`, `.checked`, `.selected`). The `preserveChanges` option only guards the *property* assignments, not the attribute calls. This is correct because in all modern browsers, `setAttribute("checked", "")` only changes `defaultChecked`, not `.checked`, and `setAttribute("selected", "")` only changes `defaultSelected`, not `.selected`. Once a user interacts with the element, the property decouples from the attribute per the HTML spec.
+In `#visitAttributes`, there's a deliberate separation between content attribute updates (`setAttribute`/`removeAttribute`) and DOM property updates (`.value`, `.checked`, `.selected`). The `preserveChanges` option only guards the _property_ assignments, not the attribute calls. This is correct because in all modern browsers, `setAttribute("checked", "")` only changes `defaultChecked`, not `.checked`, and `setAttribute("selected", "")` only changes `defaultSelected`, not `.selected`. Once a user interacts with the element, the property decouples from the attribute per the HTML spec.
 
 ### Asymmetry in attribute removal for `value` vs `checked`/`selected`
 

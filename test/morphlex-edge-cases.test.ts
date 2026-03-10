@@ -89,10 +89,10 @@ describe("Morphlex Edge Cases & Error Handling", () => {
 			morph(parent, "<div><article>new</article><p>existing</p></div>")
 
 			expect(parent.children.length).toBe(2)
-		expect(parent.children[0].nodeName).toBe("ARTICLE")
-		expect(parent.children[0].textContent).toBe("new")
-		expect(parent.children[1].nodeName).toBe("P")
-		expect(parent.children[1].textContent).toBe("existing")
+			expect(parent.children[0].nodeName).toBe("ARTICLE")
+			expect(parent.children[0].textContent).toBe("new")
+			expect(parent.children[1].nodeName).toBe("P")
+			expect(parent.children[1].textContent).toBe("existing")
 		})
 
 		it("should not soft-match same-localName children across namespaces", () => {
