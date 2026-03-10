@@ -400,7 +400,7 @@ class Morph {
 		}
 
 		// Second pass: remove excess attributes
-		for (const { name, value } of [...from.attributes]) {
+		for (const { name, value } of Array.from(from.attributes)) {
 			if (!to.hasAttribute(name)) {
 				if (name === "selected") {
 					if (isOptionElement(from) && from.selected) {
