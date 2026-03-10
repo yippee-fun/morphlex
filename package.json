@@ -26,6 +26,7 @@
 		"test:watch": "vitest",
 		"test:ui": "vitest --ui",
 		"test:browser": "vitest run -c vitest.config.browser.ts",
+		"test:browser:fuzz": "VITE_MORPHLEX_FUZZ_MATCHING_SEEDS=5000 VITE_MORPHLEX_FUZZ_PRESERVE_SEEDS=2000 vitest run -c vitest.config.browser.ts test/new/fuzz.browser.test.ts",
 		"test:browser:watch": "vitest -c vitest.config.browser.ts",
 		"test:all": "vitest run && vitest run -c vitest.config.browser.ts",
 		"serve": "bun --bun vite --open /benchmark/"
