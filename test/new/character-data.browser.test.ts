@@ -49,3 +49,11 @@ test("changed text nodes still emit a characterData mutation", () => {
 	expect(mutations.characterDataChanges).toBe(1)
 	expect(mutations.childListChanges).toBe(0)
 })
+
+test("string targets preserve leading and trailing text whitespace", () => {
+	const text = document.createTextNode("before")
+
+	morph(text, " after ")
+
+	expect(text.nodeValue).toBe(" after ")
+})

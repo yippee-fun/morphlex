@@ -224,7 +224,8 @@ function flagDirtyInputs(node: Element): void {
 
 function parseFragment(string: string): DocumentFragment {
 	const template = document.createElement("template")
-	template.innerHTML = string.trim()
+	template.innerHTML = string
+	trimFragmentEdgeWhitespace(template.content)
 
 	return template.content
 }
@@ -899,6 +900,27 @@ function isWhitespaceTextNode(node: Node): boolean {
 	}
 
 	return true
+}
+
+function trimFragmentEdgeWhitespace(fragment: DocumentFragment): void {
+	let hasElementChild = false
+
+	for (let current = fragment.firstChild; current; current = current.nextSibling) {
+		if (current.nodeType === ELEMENT_NODE_TYPE) {
+			hasElementChild = true
+			break
+		}
+	}
+
+	if (!hasElementChild) return
+
+	while (fragment.firstChild && isWhitespaceTextNode(fragment.firstChild)) {
+		fragment.firstChild.remove()
+	}
+
+	while (fragment.lastChild && isWhitespaceTextNode(fragment.lastChild)) {
+		fragment.lastChild.remove()
+	}
 }
 
 function isInputElement(element: Element): element is HTMLInputElement {
