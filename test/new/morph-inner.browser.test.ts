@@ -14,9 +14,7 @@ test("morphInner rejects strings that are not a single element", () => {
 	const from = document.createElement("div")
 
 	expect(() => morphInner(from, `text only`)).toThrow("[Morphlex] The string was not a valid HTML element.")
-	expect(() => morphInner(from, `<div></div><div></div>`)).toThrow(
-		"[Morphlex] The string was not a valid HTML element.",
-	)
+	expect(() => morphInner(from, `<div></div><div></div>`)).toThrow("[Morphlex] The string was not a valid HTML element.")
 })
 
 test("morphInner rejects mismatched element names", () => {

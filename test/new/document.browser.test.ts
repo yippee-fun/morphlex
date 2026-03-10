@@ -45,10 +45,7 @@ test("morphing a document preserves id-based matching from the document root", (
 		"text/html",
 	)
 
-	morphDocument(
-		originalDocument,
-		`<html><body><main><p>tail</p><section id="keep">after</section></main></body></html>`,
-	)
+	morphDocument(originalDocument, `<html><body><main><p>tail</p><section id="keep">after</section></main></body></html>`)
 
 	const kept = originalDocument.querySelector("#keep")
 	expect(kept?.textContent).toBe("after")

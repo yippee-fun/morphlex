@@ -187,7 +187,6 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 	}
 }
 
-
 function flagDirtyInputs(node: Element): void {
 	if (isInputElement(node)) {
 		if (node.value !== node.defaultValue || node.checked !== node.defaultChecked) {
@@ -240,12 +239,10 @@ function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNo
 	if (node === insertionPoint) return
 	if (node.parentNode === parent) {
 		if (node.nextSibling === insertionPoint) return
-		/* v8 ignore start -- engine-dependent fast path */
 		if (SUPPORTS_MOVE_BEFORE) {
 			;(parent as NodeWithMoveBefore).moveBefore(node, insertionPoint)
 			return
 		}
-		/* v8 ignore stop */
 	}
 	parent.insertBefore(node, insertionPoint)
 }
@@ -310,7 +307,7 @@ class Morph {
 		if (from.isEqualNode(to)) return
 
 		if (from.nodeType === ELEMENT_NODE_TYPE && to.nodeType === ELEMENT_NODE_TYPE) {
-			if ((from as Element).localName === (to as Element).localName) {
+			if (canMorphElementInPlace(from as Element, to as Element)) {
 				this.#morphMatchingElements(from as Element, to as Element)
 			} else {
 				this.#morphNonMatchingElements(from as Element, to as Element)
@@ -351,9 +348,7 @@ class Morph {
 		const toValue = to.nodeValue
 
 		if (from.nodeType === to.nodeType && fromValue !== null && toValue !== null) {
-			if (fromValue !== toValue) {
-				from.nodeValue = toValue
-			}
+			from.nodeValue = toValue
 		} else {
 			this.#replaceNode(from, to)
 		}
@@ -655,14 +650,7 @@ class Morph {
 
 			const element = toChildNodes[unmatchedIndex] as Element
 
-			if (
-				element.id !== "" ||
-				isFormControl(element) ||
-				this.#idArrayMap.has(element) ||
-				element.hasAttribute("name") ||
-				element.hasAttribute("href") ||
-				element.hasAttribute("src")
-			) continue
+			if (!canSoftMatchByTagName(element, this.#idArrayMap.has(element))) continue
 
 			const localName = localNameMap[unmatchedIndex]
 
@@ -672,13 +660,7 @@ class Morph {
 
 				const candidate = fromChildNodes[candidateIndex] as Element
 
-				if (
-					isFormControl(candidate) ||
-					this.#idSetMap.has(candidate) ||
-					candidate.hasAttribute("name") ||
-					candidate.hasAttribute("href") ||
-					candidate.hasAttribute("src")
-				) continue
+				if (!canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) continue
 
 				const candidateLocalName = candidateLocalNameMap[candidateIndex]
 
@@ -919,6 +901,36 @@ function isWhitespaceTextNode(node: Node): boolean {
 
 function isInputElement(element: Element): element is HTMLInputElement {
 	return element.localName === "input"
+}
+
+function canMorphElementInPlace(from: Element, to: Element): boolean {
+	if (from.localName !== to.localName) return false
+	if (isFormControl(from) && isFormControl(to)) {
+		const fromId = from.id
+		const toId = to.id
+
+		if ((fromId !== "" || toId !== "") && fromId !== toId) {
+			return false
+		}
+	}
+
+	if (isInputElement(from) && isInputElement(to)) {
+		return from.type === to.type
+	}
+
+	return true
+}
+
+function canSoftMatchByTagName(element: Element, hasDescendantIdMarker: boolean): boolean {
+	return !hasStableSoftMatchIdentity(element, hasDescendantIdMarker)
+}
+
+function hasStableSoftMatchIdentity(element: Element, hasDescendantIdMarker: boolean): boolean {
+	return element.id !== "" || isFormControl(element) || hasDescendantIdMarker || hasMatchKeyAttribute(element)
+}
+
+function hasMatchKeyAttribute(element: Element): boolean {
+	return element.hasAttribute("name") || element.hasAttribute("href") || element.hasAttribute("src")
 }
 
 function isFormControl(element: Element): boolean {

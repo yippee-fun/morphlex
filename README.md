@@ -74,10 +74,10 @@ morph(currentNode, newNode, {
 
 ```javascript
 morph(currentNode, newNode, {
-	beforeAttributeUpdated: (element, name) => {
-		if (element.tagName === "DETAILS" && name === "open") return false
-		return true
-	},
+  beforeAttributeUpdated: (element, name) => {
+    if (element.tagName === "DETAILS" && name === "open") return false
+    return true
+  },
 })
 ```
 

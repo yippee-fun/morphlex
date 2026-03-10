@@ -35,10 +35,7 @@ test("document roots also collect descendant ids for matching", () => {
 		"text/html",
 	)
 
-	morphDocument(
-		from,
-		`<html><body><main><section><em id="shared">after</em></section></main></body></html>`,
-	)
+	morphDocument(from, `<html><body><main><section><em id="shared">after</em></section></main></body></html>`)
 
 	expect(from.querySelector("main section em#shared")?.textContent).toBe("after")
 })
