@@ -280,9 +280,9 @@ class Morph {
 			this.#morphOneToOne(from, to[0]!)
 		} else {
 			const newNodes = [...to]
-			this.#morphOneToOne(from, newNodes.shift()!)
 			const insertionPoint = from.nextSibling
 			const parent = from.parentNode
+			this.#morphOneToOne(from, newNodes.shift()!)
 
 			if (!parent) {
 				for (let i = 0; i < newNodes.length; i++) {
