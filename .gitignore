@@ -2,5 +2,8 @@ node_modules
 .DS_Store
 dist
 coverage
+.coverage-tmp*
+.coverage-debug*
+.coverage*
 reference
 test/**/__screenshots__

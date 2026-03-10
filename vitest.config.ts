@@ -6,5 +6,8 @@ export default defineConfig({
 		globals: true,
 		testTimeout: 10000,
 		hookTimeout: 10000,
+		coverage: {
+			include: ["src/morphlex.ts"],
+		},
 	},
 })
