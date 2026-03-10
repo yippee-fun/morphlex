@@ -1,0 +1,74 @@
+<div id="app" data-view="overview">
+	<header class="shell-header">
+		<div class="brand-row">
+			<a href="/" class="wordmark">Morphlex</a>
+			<nav aria-label="Primary">
+				<a href="/overview" aria-current="page">Overview</a>
+				<a href="/releases">Releases</a>
+				<a href="/settings">Settings</a>
+			</nav>
+		</div>
+		<div class="status-row">
+			<p data-status="draft">Draft rollout</p>
+			<button type="button">Review notes</button>
+		</div>
+	</header>
+	<main>
+		<section aria-labelledby="hero-title" class="hero-panel">
+			<p class="eyebrow">Deployment board</p>
+			<h1 id="hero-title">Northwind migration</h1>
+			<p>Track the phased migration for storefront traffic, checkout APIs, and backoffice tooling.</p>
+			<ul class="hero-metrics">
+				<li><strong>14</strong><span>Services mapped</span></li>
+				<li><strong>3</strong><span>Open blockers</span></li>
+				<li><strong>72%</strong><span>Traffic mirrored</span></li>
+			</ul>
+		</section>
+		<section aria-labelledby="workstreams-title" class="grid-shell">
+			<div class="workstreams">
+				<div class="section-heading">
+					<h2 id="workstreams-title">Workstreams</h2>
+					<p>Priority items for this week.</p>
+				</div>
+				<article data-card="alpha" class="work-card tone-sand">
+					<h3>Storefront routes</h3>
+					<p>Align dynamic route caching with the edge rollout plan.</p>
+					<ul>
+						<li>Audit stale paths</li>
+						<li>Compare response timing</li>
+					</ul>
+				</article>
+				<article data-card="beta" class="work-card tone-ink">
+					<h3>Checkout handoff</h3>
+					<p>Validate payment redirects across all gateway providers.</p>
+					<ul>
+						<li>Replay webhook traffic</li>
+						<li>Confirm retry policy</li>
+					</ul>
+				</article>
+			</div>
+			<aside class="side-panel" aria-labelledby="notes-title">
+				<h2 id="notes-title">Release notes</h2>
+				<ol>
+					<li>Docs review with support</li>
+					<li>Confirm rollback snapshot</li>
+					<li>Prepare launch comms</li>
+				</ol>
+				<form aria-busy="true">
+					<label>
+						Summary
+						<textarea>Need PM sign-off on release copy.</textarea>
+					</label>
+					<label>
+						Owner
+						<input type="text" value="Avery" />
+					</label>
+					<button type="submit">Save draft</button>
+				</form>
+			</aside>
+		</section>
+	</main>
+	<footer>
+		<p>Last synced 09:00 UTC</p>
+	</footer>
+</div>
