@@ -4,8 +4,12 @@ import { dom } from "../new/utils"
 
 describe("attribute removal edge cases", () => {
 	test("removing selected attribute from option with multiple options selected", () => {
-		const a = dom(`<select multiple><option value="a" selected>A</option><option value="b" selected>B</option></select>`) as HTMLSelectElement
-		const b = dom(`<select multiple><option value="a">A</option><option value="b" selected>B</option></select>`) as HTMLSelectElement
+		const a = dom(
+			`<select multiple><option value="a" selected>A</option><option value="b" selected>B</option></select>`,
+		) as HTMLSelectElement
+		const b = dom(
+			`<select multiple><option value="a">A</option><option value="b" selected>B</option></select>`,
+		) as HTMLSelectElement
 
 		morph(a, b, { preserveChanges: true })
 

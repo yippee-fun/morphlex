@@ -66,3 +66,25 @@ test("whitespace is reused when both have whitespace", () => {
 	expect(from.childNodes[1]).toBe(originalTextNode1)
 	expect(from.childNodes[3]).toBe(originalTextNode2)
 })
+
+test("empty text nodes are treated as whitespace and removed", () => {
+	const from = document.createElement("div")
+	from.append(document.createTextNode(""), document.createElement("span"))
+
+	const to = dom(`<div><span></span></div>`)
+
+	morph(from, to)
+
+	expect(from.childNodes).toHaveLength(1)
+	expect(from.firstChild?.nodeName).toBe("SPAN")
+})
+
+test("unicode whitespace text nodes are treated as whitespace", () => {
+	const from = dom(`<div><span>A</span>&nbsp;<span>B</span></div>`)
+	const to = dom(`<div><span>A</span><span>B</span></div>`)
+
+	morph(from, to)
+
+	expect(from.childNodes).toHaveLength(2)
+	expect(from.textContent).toBe("AB")
+})

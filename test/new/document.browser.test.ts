@@ -37,3 +37,17 @@ test("morphing an entire document", () => {
 	expect(originalDocument.querySelector('meta[name="description"]')?.getAttribute("content")).toBe("new")
 	expect(originalDocument.querySelector("#content")?.textContent).toBe("New Content")
 })
+
+test("morphing a document preserves id-based matching from the document root", () => {
+	const parser = new DOMParser()
+	const originalDocument = parser.parseFromString(
+		`<html><body><main><section id="keep">before</section><p>tail</p></main></body></html>`,
+		"text/html",
+	)
+
+	morphDocument(originalDocument, `<html><body><main><p>tail</p><section id="keep">after</section></main></body></html>`)
+
+	const kept = originalDocument.querySelector("#keep")
+	expect(kept?.textContent).toBe("after")
+	expect(originalDocument.querySelector("main")?.lastElementChild).toBe(kept)
+})

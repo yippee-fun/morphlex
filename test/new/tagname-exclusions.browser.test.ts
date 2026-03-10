@@ -168,49 +168,55 @@ test("input elements with matching id are still reused", () => {
 	expect(a.children[0]).toBe(original)
 })
 
-test.skipIf(!("attachInternals" in HTMLElement.prototype))("form-associated custom elements in the from-side are not matched by tag name", () => {
-	class MyControl extends HTMLElement {
-		static formAssociated = true
-		constructor() {
-			super()
-			this.attachInternals()
+test.skipIf(!("attachInternals" in HTMLElement.prototype))(
+	"form-associated custom elements in the from-side are not matched by tag name",
+	() => {
+		class MyControl extends HTMLElement {
+			static formAssociated = true
+			constructor() {
+				super()
+				this.attachInternals()
+			}
 		}
-	}
-	if (!customElements.get("my-control")) {
-		customElements.define("my-control", MyControl)
-	}
+		if (!customElements.get("my-control")) {
+			customElements.define("my-control", MyControl)
+		}
 
-	const a = document.createElement("div")
-	const control = document.createElement("my-control")
-	control.setAttribute("class", "old")
-	a.appendChild(control)
+		const a = document.createElement("div")
+		const control = document.createElement("my-control")
+		control.setAttribute("class", "old")
+		a.appendChild(control)
 
-	const b = dom(`<div><my-control class="new"></my-control></div>`)
+		const b = dom(`<div><my-control class="new"></my-control></div>`)
 
-	morph(a, b)
+		morph(a, b)
 
-	// The from-side custom element is form-associated, so it should not
-	// be matched by tag name — it should be replaced
-	expect(a.children[0]).not.toBe(control)
-	expect(a.children[0]!.className).toBe("new")
-})
+		// The from-side custom element is form-associated, so it should not
+		// be matched by tag name — it should be replaced
+		expect(a.children[0]).not.toBe(control)
+		expect(a.children[0]!.className).toBe("new")
+	},
+)
 
-test.skipIf(!("attachInternals" in HTMLElement.prototype))("non-form-associated custom elements are still matched by tag name", () => {
-	class MyWidget extends HTMLElement {}
-	if (!customElements.get("my-widget")) {
-		customElements.define("my-widget", MyWidget)
-	}
+test.skipIf(!("attachInternals" in HTMLElement.prototype))(
+	"non-form-associated custom elements are still matched by tag name",
+	() => {
+		class MyWidget extends HTMLElement {}
+		if (!customElements.get("my-widget")) {
+			customElements.define("my-widget", MyWidget)
+		}
 
-	const a = document.createElement("div")
-	const widget = document.createElement("my-widget")
-	widget.setAttribute("class", "old")
-	a.appendChild(widget)
+		const a = document.createElement("div")
+		const widget = document.createElement("my-widget")
+		widget.setAttribute("class", "old")
+		a.appendChild(widget)
 
-	const b = dom(`<div><my-widget class="new"></my-widget></div>`)
+		const b = dom(`<div><my-widget class="new"></my-widget></div>`)
 
-	morph(a, b)
+		morph(a, b)
 
-	// Non-form-associated custom element — should still match by tag name
-	expect(a.children[0]).toBe(widget)
-	expect(a.children[0]!.className).toBe("new")
-})
+		// Non-form-associated custom element — should still match by tag name
+		expect(a.children[0]).toBe(widget)
+		expect(a.children[0]!.className).toBe("new")
+	},
+)

@@ -3,6 +3,34 @@ import { morph } from "../../src/morphlex"
 import { dom } from "./utils"
 
 describe("text input", () => {
+	test("morphing a rooted input with a different id replaces the element", () => {
+		const parent = document.createElement("div")
+		const from = dom(`<input type="text" id="a" value="before">`) as HTMLInputElement
+		const to = dom(`<input type="text" id="b" value="after">`) as HTMLInputElement
+
+		parent.appendChild(from)
+		morph(from, to)
+
+		const result = parent.firstElementChild as HTMLInputElement
+		expect(result).not.toBe(from)
+		expect(result.id).toBe("b")
+		expect(result.value).toBe("after")
+	})
+
+	test("morphing a rooted input with the same id keeps the element", () => {
+		const parent = document.createElement("div")
+		const from = dom(`<input type="text" id="a" value="before">`) as HTMLInputElement
+		const to = dom(`<input type="text" id="a" value="after">`) as HTMLInputElement
+
+		parent.appendChild(from)
+		morph(from, to)
+
+		const result = parent.firstElementChild as HTMLInputElement
+		expect(result).toBe(from)
+		expect(result.id).toBe("a")
+		expect(result.value).toBe("after")
+	})
+
 	test("morphing a modified value with preserveChanges enabled", () => {
 		const a = dom(`<input type="text" value="a">`) as HTMLInputElement
 		const b = dom(`<input type="text" value="b">`) as HTMLInputElement

@@ -220,6 +220,25 @@ describe("Morphlex - Remaining Uncovered Lines", () => {
 			parent.remove()
 		})
 
+		it("should keep trailing nodes when the first one-to-many morph replaces the source node", () => {
+			const parent = document.createElement("div")
+			const single = document.createElement("span")
+			single.id = "single"
+			single.textContent = "Single"
+			parent.appendChild(single)
+			document.body.appendChild(parent)
+
+			morph(single, "<div id='first'>First</div><em id='second'>Second</em>")
+
+			expect(parent.children.length).toBe(2)
+			expect(parent.children[0]?.tagName).toBe("DIV")
+			expect(parent.children[0]?.id).toBe("first")
+			expect(parent.children[1]?.tagName).toBe("EM")
+			expect(parent.children[1]?.id).toBe("second")
+
+			parent.remove()
+		})
+
 		it("should call callbacks when morphing one to many", () => {
 			const parent = document.createElement("div")
 			const single = document.createElement("span")

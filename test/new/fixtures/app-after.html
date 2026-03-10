@@ -1,0 +1,83 @@
+<div id="app" data-view="release">
+	<header class="shell-header">
+		<div class="brand-row">
+			<a href="/" class="wordmark">Morphlex</a>
+			<nav aria-label="Primary">
+				<a href="/overview">Overview</a>
+				<a href="/releases" aria-current="page">Releases</a>
+				<a href="/insights">Insights</a>
+				<a href="/settings">Settings</a>
+			</nav>
+		</div>
+		<div class="status-row">
+			<p data-status="live">Live release</p>
+			<button type="button">Open changelog</button>
+		</div>
+	</header>
+	<main>
+		<section aria-labelledby="hero-title" class="hero-panel is-live">
+			<p class="eyebrow">Deployment board</p>
+			<h1 id="hero-title">Northwind migration</h1>
+			<p>Traffic has fully switched to the new storefront and the release train is now in monitoring mode.</p>
+			<ul class="hero-metrics">
+				<li><strong>18</strong><span>Services verified</span></li>
+				<li><strong>0</strong><span>Open blockers</span></li>
+				<li><strong>100%</strong><span>Traffic on new stack</span></li>
+			</ul>
+		</section>
+		<section aria-labelledby="workstreams-title" class="grid-shell">
+			<div class="workstreams">
+				<div class="section-heading">
+					<h2 id="workstreams-title">Workstreams</h2>
+					<p>Post-launch follow-up and monitoring.</p>
+				</div>
+				<article data-card="beta" class="work-card tone-ink">
+					<h3>Checkout handoff</h3>
+					<p>Payment redirect telemetry now feeds the launch dashboard.</p>
+					<ul>
+						<li>Webhook retries healthy</li>
+						<li>Provider drift below threshold</li>
+					</ul>
+				</article>
+				<article data-card="alpha" class="work-card tone-sand">
+					<h3>Storefront routes</h3>
+					<p>Cache keys are aligned and old route aliases have been retired.</p>
+					<ul>
+						<li>Stale paths removed</li>
+						<li>Edge timings stable</li>
+					</ul>
+				</article>
+				<article data-card="gamma" class="work-card tone-mint">
+					<h3>Support handoff</h3>
+					<p>Operational runbooks and incident macros are ready for on-call.</p>
+					<ul>
+						<li>Macros published</li>
+						<li>Rotation briefed</li>
+					</ul>
+				</article>
+			</div>
+			<aside class="side-panel" aria-labelledby="notes-title">
+				<h2 id="notes-title">Release notes</h2>
+				<ol>
+					<li>Launch comms sent</li>
+					<li>Rollback snapshot archived</li>
+					<li>Monitoring handoff complete</li>
+				</ol>
+				<form aria-busy="false">
+					<label>
+						Summary
+						<textarea>Launch complete. Monitoring errors and conversion metrics for the next 24 hours.</textarea>
+					</label>
+					<label>
+						Owner
+						<input type="text" value="Avery" />
+					</label>
+					<button type="submit">Publish follow-up</button>
+				</form>
+			</aside>
+		</section>
+	</main>
+	<footer>
+		<p>Last synced 14:30 UTC</p>
+	</footer>
+</div>

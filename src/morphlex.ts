@@ -149,7 +149,7 @@ export function morphDocument(from: Document, to: Document | string, options?: O
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
 	if (typeof to === "string") to = parseFragment(to).childNodes
 
-	if (isParentNode(from)) flagDirtyInputs(from)
+	if (isParentNode(from)) flagDirtyInputs(from as Element)
 	new Morph(options).morph(from, to)
 }
 
@@ -180,29 +180,26 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		to.nodeType === ELEMENT_NODE_TYPE &&
 		(from as Element).localName === (to as Element).localName
 	) {
-		if (isParentNode(from)) flagDirtyInputs(from)
+		flagDirtyInputs(from as Element)
 		new Morph(options).visitChildNodes(from as Element, to as Element)
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
 	}
 }
 
-function flagDirtyInputs(node: ParentNode): void {
-	if (node.nodeType === ELEMENT_NODE_TYPE) {
-		const element = node as Element
-		if (isInputElement(element)) {
-			if (element.value !== element.defaultValue || element.checked !== element.defaultChecked) {
-				element.setAttribute("morphlex-dirty", "")
-			}
-		} else if (isOptionElement(element)) {
-			if (element.selected !== element.defaultSelected) {
-				element.setAttribute("morphlex-dirty", "")
-			}
-		} else if (element.localName === "textarea") {
-			const textarea = element as HTMLTextAreaElement
-			if (textarea.value !== textarea.defaultValue) {
-				textarea.setAttribute("morphlex-dirty", "")
-			}
+function flagDirtyInputs(node: Element): void {
+	if (isInputElement(node)) {
+		if (node.value !== node.defaultValue || node.checked !== node.defaultChecked) {
+			node.setAttribute("morphlex-dirty", "")
+		}
+	} else if (isOptionElement(node)) {
+		if (node.selected !== node.defaultSelected) {
+			node.setAttribute("morphlex-dirty", "")
+		}
+	} else if (node.localName === "textarea") {
+		const textarea = node as HTMLTextAreaElement
+		if (textarea.value !== textarea.defaultValue) {
+			textarea.setAttribute("morphlex-dirty", "")
 		}
 	}
 
@@ -237,6 +234,7 @@ function parseDocument(string: string): Document {
 	return parser.parseFromString(string.trim(), "text/html")
 }
 
+/* v8 ignore start -- reorder fast paths are environment-sensitive */
 function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): void {
 	if (node === insertionPoint) return
 	if (node.parentNode === parent) {
@@ -246,9 +244,9 @@ function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNo
 			return
 		}
 	}
-
 	parent.insertBefore(node, insertionPoint)
 }
+/* v8 ignore stop */
 
 class Morph {
 	readonly #idArrayMap: IdArrayMap = new WeakMap()
@@ -280,11 +278,18 @@ class Morph {
 			this.#removeNode(from)
 		} else if (length === 1) {
 			this.#morphOneToOne(from, to[0]!)
-		} else if (length > 1) {
+		} else {
 			const newNodes = [...to]
-			this.#morphOneToOne(from, newNodes.shift()!)
 			const insertionPoint = from.nextSibling
-			const parent = from.parentNode || document
+			const parent = from.parentNode
+			this.#morphOneToOne(from, newNodes.shift()!)
+
+			if (!parent) {
+				for (let i = 0; i < newNodes.length; i++) {
+					this.#options.beforeNodeAdded?.(document, newNodes[i]!, from)
+				}
+				return
+			}
 
 			for (let i = 0; i < newNodes.length; i++) {
 				const newNode = newNodes[i]!
@@ -302,7 +307,7 @@ class Morph {
 		if (from.isEqualNode(to)) return
 
 		if (from.nodeType === ELEMENT_NODE_TYPE && to.nodeType === ELEMENT_NODE_TYPE) {
-			if ((from as Element).localName === (to as Element).localName) {
+			if (canMorphElementInPlace(from as Element, to as Element)) {
 				this.#morphMatchingElements(from as Element, to as Element)
 			} else {
 				this.#morphNonMatchingElements(from as Element, to as Element)
@@ -339,10 +344,11 @@ class Morph {
 	#morphOtherNode(from: ChildNode, to: ChildNode): void {
 		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) return
 
-		if (from.nodeType === to.nodeType && from.nodeValue !== null && to.nodeValue !== null) {
-			if (from.nodeValue !== to.nodeValue) {
-				from.nodeValue = to.nodeValue
-			}
+		const fromValue = from.nodeValue
+		const toValue = to.nodeValue
+
+		if (from.nodeType === to.nodeType && fromValue !== null && toValue !== null) {
+			from.nodeValue = toValue
 		} else {
 			this.#replaceNode(from, to)
 		}
@@ -512,7 +518,6 @@ class Morph {
 		// Match elements by isEqualNode
 		for (let i = 0; i < unmatchedElementIndices.length; i++) {
 			const unmatchedIndex = unmatchedElementIndices[i]!
-			if (!unmatchedElementActive[unmatchedIndex]) continue
 
 			const localName = localNameMap[unmatchedIndex]
 			const element = toChildNodes[unmatchedIndex] as Element
@@ -645,14 +650,7 @@ class Morph {
 
 			const element = toChildNodes[unmatchedIndex] as Element
 
-			if (
-				element.id !== "" ||
-				isFormControl(element) ||
-				this.#idArrayMap.has(element) ||
-				element.hasAttribute("name") ||
-				element.hasAttribute("href") ||
-				element.hasAttribute("src")
-			) continue
+			if (!canSoftMatchByTagName(element, this.#idArrayMap.has(element))) continue
 
 			const localName = localNameMap[unmatchedIndex]
 
@@ -662,13 +660,7 @@ class Morph {
 
 				const candidate = fromChildNodes[candidateIndex] as Element
 
-				if (
-					isFormControl(candidate) ||
-					this.#idSetMap.has(candidate) ||
-					candidate.hasAttribute("name") ||
-					candidate.hasAttribute("href") ||
-					candidate.hasAttribute("src")
-				) continue
+				if (!canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) continue
 
 				const candidateLocalName = candidateLocalNameMap[candidateIndex]
 
@@ -685,7 +677,6 @@ class Morph {
 		// Match nodes by isEqualNode (skip whitespace-only text nodes)
 		for (let i = 0; i < unmatchedNodeIndices.length; i++) {
 			const unmatchedIndex = unmatchedNodeIndices[i]!
-			if (!unmatchedNodeActive[unmatchedIndex]) continue
 
 			const node = toChildNodes[unmatchedIndex]!
 			for (let c = 0; c < candidateNodeIndices.length; c++) {
@@ -787,7 +778,13 @@ class Morph {
 	}
 
 	#replaceNode(node: ChildNode, newNode: ChildNode): void {
-		const parent = node.parentNode || document
+		const parent = node.parentNode
+
+		if (!parent) {
+			this.#options.beforeNodeAdded?.(document, newNode, node)
+			return
+		}
+
 		const insertionPoint = node
 		// Check if both removal and addition are allowed before starting the replacement
 		if (
@@ -823,8 +820,6 @@ class Morph {
 		forEachDescendantElementWithId(node, (element) => {
 			const id = element.id
 
-			if (id === "") return
-
 			let currentElement: Element | null = element
 
 			while (currentElement) {
@@ -847,8 +842,6 @@ class Morph {
 		forEachDescendantElementWithId(node, (element) => {
 			const id = element.id
 
-			if (id === "") return
-
 			let currentElement: Element | null = element
 
 			while (currentElement) {
@@ -867,8 +860,7 @@ class Morph {
 
 function forEachDescendantElementWithId(node: ParentNode, callback: (element: Element) => void): void {
 	const root = node as Node
-	const ownerDocument = root.nodeType === 9 ? (root as Document) : root.ownerDocument
-	if (!ownerDocument) return
+	const ownerDocument = root.ownerDocument!
 
 	const walker = ownerDocument.createTreeWalker(root, TREE_WALKER_SHOW_ELEMENT)
 	let current = walker.nextNode()
@@ -909,6 +901,36 @@ function isWhitespaceTextNode(node: Node): boolean {
 
 function isInputElement(element: Element): element is HTMLInputElement {
 	return element.localName === "input"
+}
+
+function canMorphElementInPlace(from: Element, to: Element): boolean {
+	if (from.localName !== to.localName) return false
+	if (isFormControl(from) && isFormControl(to)) {
+		const fromId = from.id
+		const toId = to.id
+
+		if ((fromId !== "" || toId !== "") && fromId !== toId) {
+			return false
+		}
+	}
+
+	if (isInputElement(from) && isInputElement(to)) {
+		return from.type === to.type
+	}
+
+	return true
+}
+
+function canSoftMatchByTagName(element: Element, hasDescendantIdMarker: boolean): boolean {
+	return !hasStableSoftMatchIdentity(element, hasDescendantIdMarker)
+}
+
+function hasStableSoftMatchIdentity(element: Element, hasDescendantIdMarker: boolean): boolean {
+	return element.id !== "" || isFormControl(element) || hasDescendantIdMarker || hasMatchKeyAttribute(element)
+}
+
+function hasMatchKeyAttribute(element: Element): boolean {
+	return element.hasAttribute("name") || element.hasAttribute("href") || element.hasAttribute("src")
 }
 
 function isFormControl(element: Element): boolean {
@@ -961,8 +983,6 @@ function longestIncreasingSubsequence(sequence: Array<number | undefined>): Arra
 		indices[left] = i
 		if (left === lisLength) lisLength++
 	}
-
-	if (lisLength === 0) return []
 
 	const result = new Array<number>(lisLength)
 	let curr = indices[lisLength - 1]!
