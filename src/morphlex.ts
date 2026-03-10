@@ -178,7 +178,8 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 	if (
 		from.nodeType === ELEMENT_NODE_TYPE &&
 		to.nodeType === ELEMENT_NODE_TYPE &&
-		(from as Element).localName === (to as Element).localName
+		(from as Element).localName === (to as Element).localName &&
+		(from as Element).namespaceURI === (to as Element).namespaceURI
 	) {
 		flagDirtyInputs(from as Element)
 		new Morph(options).visitChildNodes(from as Element, to as Element)
@@ -929,6 +930,7 @@ function isInputElement(element: Element): element is HTMLInputElement {
 
 function canMorphElementInPlace(from: Element, to: Element): boolean {
 	if (from.localName !== to.localName) return false
+	if (from.namespaceURI !== to.namespaceURI) return false
 	if (isFormControl(from) && isFormControl(to)) {
 		const fromId = from.id
 		const toId = to.id

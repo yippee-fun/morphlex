@@ -206,6 +206,21 @@ describe("SVG morphing", () => {
 		expect(morphedCircle.tagName).toBe("circle")
 	})
 
+	test("should replace same-localName elements when namespaces differ", () => {
+		const parent = document.createElement("div")
+		const from = document.createElement("a")
+		from.textContent = "html"
+		parent.append(from)
+
+		const to = document.createElementNS("http://www.w3.org/2000/svg", "a")
+		to.textContent = "svg"
+
+		morph(from, to)
+
+		expect(parent.firstChild).toBe(to)
+		expect((parent.firstChild as Element | null)?.namespaceURI).toBe("http://www.w3.org/2000/svg")
+	})
+
 	test("should morph SVG defs and use elements", () => {
 		const from = svg(`
 			<svg>
