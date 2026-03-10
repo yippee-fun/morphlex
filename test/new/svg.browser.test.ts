@@ -221,6 +221,25 @@ describe("SVG morphing", () => {
 		expect((parent.firstChild as Element | null)?.namespaceURI).toBe("http://www.w3.org/2000/svg")
 	})
 
+	test("should not reuse matched children when namespaces differ", () => {
+		const from = document.createElement("div")
+		const fromChild = document.createElement("a")
+		fromChild.id = "shared"
+		fromChild.textContent = "html"
+		from.append(fromChild)
+
+		const to = document.createElement("div")
+		const toChild = document.createElementNS("http://www.w3.org/2000/svg", "a")
+		toChild.id = "shared"
+		toChild.textContent = "svg"
+		to.append(toChild)
+
+		morph(from, to)
+
+		expect(from.firstChild).toBe(toChild)
+		expect((from.firstChild as Element | null)?.namespaceURI).toBe("http://www.w3.org/2000/svg")
+	})
+
 	test("should morph SVG defs and use elements", () => {
 		const from = svg(`
 			<svg>

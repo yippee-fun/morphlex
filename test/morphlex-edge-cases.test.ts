@@ -89,10 +89,46 @@ describe("Morphlex Edge Cases & Error Handling", () => {
 			morph(parent, "<div><article>new</article><p>existing</p></div>")
 
 			expect(parent.children.length).toBe(2)
-			expect(parent.children[0].nodeName).toBe("ARTICLE")
-			expect(parent.children[0].textContent).toBe("new")
-			expect(parent.children[1].nodeName).toBe("P")
-			expect(parent.children[1].textContent).toBe("existing")
+		expect(parent.children[0].nodeName).toBe("ARTICLE")
+		expect(parent.children[0].textContent).toBe("new")
+		expect(parent.children[1].nodeName).toBe("P")
+		expect(parent.children[1].textContent).toBe("existing")
+		})
+
+		it("should not soft-match same-localName children across namespaces", () => {
+			const from = document.createElement("div")
+			const fromChild = document.createElement("a")
+			fromChild.id = "shared"
+			fromChild.textContent = "html"
+			from.appendChild(fromChild)
+
+			const to = document.createElement("div")
+			const toChild = document.createElementNS("http://www.w3.org/2000/svg", "a")
+			toChild.id = "shared"
+			toChild.textContent = "svg"
+			to.appendChild(toChild)
+
+			morph(from, to)
+
+			expect(from.firstChild).toBe(toChild)
+			expect((from.firstChild as Element | null)?.namespaceURI).toBe("http://www.w3.org/2000/svg")
+		})
+
+		it("should not equal-match same-localName children across namespaces", () => {
+			const from = document.createElement("div")
+			const fromChild = document.createElement("a")
+			fromChild.textContent = "same"
+			from.appendChild(fromChild)
+
+			const to = document.createElement("div")
+			const toChild = document.createElementNS("http://www.w3.org/2000/svg", "a")
+			toChild.textContent = "same"
+			to.appendChild(toChild)
+
+			morph(from, to)
+
+			expect(from.firstChild).toBe(toChild)
+			expect((from.firstChild as Element | null)?.namespaceURI).toBe("http://www.w3.org/2000/svg")
 		})
 
 		it("should trigger line 402 by moving an element in browsers with moveBefore", () => {

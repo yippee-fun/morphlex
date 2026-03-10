@@ -467,6 +467,8 @@ class Morph {
 		const candidateNodeTypeMap: Array<number> = []
 		const localNameMap: Array<string> = []
 		const candidateLocalNameMap: Array<string> = []
+		const namespaceURIMap: Array<string | null> = []
+		const candidateNamespaceURIMap: Array<string | null> = []
 
 		for (let i = 0; i < fromChildNodes.length; i++) {
 			const candidate = fromChildNodes[i]!
@@ -476,6 +478,7 @@ class Morph {
 			if (nodeType === ELEMENT_NODE_TYPE) {
 				const candidateElement = candidate as Element
 				candidateLocalNameMap[i] = candidateElement.localName
+				candidateNamespaceURIMap[i] = candidateElement.namespaceURI
 				const candidateId = candidateElement.id
 				if (candidateId !== "") {
 					candidateElementWithIdActive[i] = 1
@@ -509,6 +512,7 @@ class Morph {
 			if (nodeType === ELEMENT_NODE_TYPE) {
 				const element = node as Element
 				localNameMap[i] = element.localName
+				namespaceURIMap[i] = element.namespaceURI
 				unmatchedElementActive[i] = 1
 				unmatchedElementIndices.push(i)
 			} else if (isWhitespaceTextNode(node)) {
@@ -530,6 +534,7 @@ class Morph {
 				const candidateIndex = candidateElementIndices[c]!
 				if (!candidateElementActive[candidateIndex]) continue
 				if (localName !== candidateLocalNameMap[candidateIndex]) continue
+				if (namespaceURIMap[unmatchedIndex] !== candidateNamespaceURIMap[candidateIndex]) continue
 				const candidate = fromChildNodes[candidateIndex] as Element
 
 				if (candidate.isEqualNode(element)) {
@@ -560,7 +565,10 @@ class Morph {
 					const candidateIndex = candidateBucket[c]!
 					if (!candidateElementWithIdActive[candidateIndex]) continue
 
-					if (localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex]) {
+					if (
+						localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] &&
+						namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex]
+					) {
 						matches[unmatchedIndex] = candidateIndex
 						op[unmatchedIndex] = Operation.SameElement
 						candidateElementWithIdActive[candidateIndex] = 0
@@ -572,7 +580,10 @@ class Morph {
 				const candidateIndex = candidateBucket
 				if (!candidateElementWithIdActive[candidateIndex]) continue
 
-				if (localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex]) {
+				if (
+					localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] &&
+					namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex]
+				) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
 					candidateElementWithIdActive[candidateIndex] = 0
@@ -598,7 +609,10 @@ class Morph {
 
 				const candidate = fromChildNodes[candidateIndex] as Element
 
-				if (localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex]) {
+				if (
+					localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] &&
+					namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex]
+				) {
 					const candidateIdSet = this.#idSetMap.get(candidate)
 					if (candidateIdSet) {
 						for (let i = 0; i < idArray.length; i++) {
@@ -634,6 +648,7 @@ class Morph {
 
 				if (
 					localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] &&
+					namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex] &&
 					((name && name === candidate.getAttribute("name")) ||
 						(href && href === candidate.getAttribute("href")) ||
 						(src && src === candidate.getAttribute("src")))
@@ -668,7 +683,7 @@ class Morph {
 
 				const candidateLocalName = candidateLocalNameMap[candidateIndex]
 
-				if (localName === candidateLocalName) {
+				if (localName === candidateLocalName && namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex]) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
 					candidateElementActive[candidateIndex] = 0
