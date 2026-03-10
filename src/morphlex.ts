@@ -265,8 +265,10 @@ class Morph {
 		if (to instanceof NodeList) {
 			this.#mapIdArraysForEach(to)
 			this.#morphOneToMany(from, to)
-		} else if (isParentNode(to)) {
-			this.#mapIdArrays(to)
+		} else {
+			if (isParentNode(to)) {
+				this.#mapIdArrays(to)
+			}
 			this.#morphOneToOne(from, to)
 		}
 	}

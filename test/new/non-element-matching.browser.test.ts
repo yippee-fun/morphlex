@@ -1,6 +1,15 @@
 import { expect, test } from "vitest"
 import { morph } from "../../src/morphlex"
 
+test("direct morphs update root text nodes", () => {
+	const from = document.createTextNode("before")
+	const to = document.createTextNode("after")
+
+	morph(from, to)
+
+	expect(from.nodeValue).toBe("after")
+})
+
 test("equal non-element nodes are skipped by the nodeType fallback pass", () => {
 	const from = document.createElement("div")
 	const comment = document.createComment("same")
@@ -45,7 +54,7 @@ test("nodeType fallback skips mismatched non-element candidates before finding a
 	expect(from.textContent).toBe("after")
 })
 
-test("direct morphs to non-parent targets are a no-op", () => {
+test("direct morphs from detached elements to non-parent targets remain a no-op", () => {
 	const from = document.createElement("div")
 	from.textContent = "before"
 
