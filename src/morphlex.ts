@@ -386,7 +386,7 @@ class Morph {
 		// First pass: update/add attributes from reference (iterate forwards)
 		for (const { name, value } of to.attributes) {
 			if (name === "value") {
-				if (isInputElement(from) && from.value !== value) {
+				if (isInputElement(from) && from.type !== "file" && from.value !== value) {
 					if (!this.#options.preserveChanges) {
 						from.value = value
 					}
