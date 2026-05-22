@@ -130,6 +130,12 @@ type NodeWithMoveBefore = ParentNode & {
  * ```ts
  * morphDocument(document, "<html>...</html>", { preserveChanges: true })
  * ```
+ *
+ * @remarks
+ * **Security:** When `to` is a string, it is parsed as HTML and nodes from the parsed
+ * tree are inserted into the live document. Inline event handler attributes (e.g.
+ * `onclick`) and resource-loading attributes (e.g. `src`, `href`) take effect once
+ * the nodes are adopted. Do not pass untrusted HTML; sanitize it first.
  */
 export function morphDocument(from: Document, to: Document | string, options?: Options): void {
 	if (typeof to === "string") to = parseDocument(to)
@@ -145,6 +151,12 @@ export function morphDocument(from: Document, to: Document | string, options?: O
  * ```ts
  * morph(originalDom, newDom)
  * ```
+ *
+ * @remarks
+ * **Security:** When `to` is a string, it is parsed as HTML and nodes from the parsed
+ * tree are inserted into the live document. Inline event handler attributes (e.g.
+ * `onclick`) and resource-loading attributes (e.g. `src`, `href`) take effect once
+ * the nodes are adopted. Do not pass untrusted HTML; sanitize it first.
  */
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
 	if (typeof to === "string") to = parseFragment(to).childNodes
@@ -163,6 +175,12 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
  * ```ts
  * morphInner(originalDom, newDom)
  * ```
+ *
+ * @remarks
+ * **Security:** When `to` is a string, it is parsed as HTML and nodes from the parsed
+ * tree are inserted into the live document. Inline event handler attributes (e.g.
+ * `onclick`) and resource-loading attributes (e.g. `src`, `href`) take effect once
+ * the nodes are adopted. Do not pass untrusted HTML; sanitize it first.
  */
 export function morphInner(from: ChildNode, to: ChildNode | string, options: Options = {}): void {
 	if (typeof to === "string") {
