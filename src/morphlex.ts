@@ -615,8 +615,8 @@ class Morph {
 				) {
 					const candidateIdSet = this.#idSetMap.get(candidate)
 					if (candidateIdSet) {
-						for (let i = 0; i < idArray.length; i++) {
-							const arrayId = idArray[i]!
+						for (let a = 0; a < idArray.length; a++) {
+							const arrayId = idArray[a]!
 							if (candidateIdSet.has(arrayId)) {
 								matches[unmatchedIndex] = candidateIndex
 								op[unmatchedIndex] = Operation.SameElement
