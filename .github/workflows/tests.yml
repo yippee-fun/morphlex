@@ -10,39 +10,35 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+      - name: Setup mise
+        uses: jdx/mise-action@v2
 
       - name: Install dependencies
-        run: bun install
-
-      - name: Get Playwright version
-        id: playwright-version
-        run: echo "version=$(bun pm ls | grep '@playwright/test' | awk '{print $2}')" >> $GITHUB_OUTPUT
+        run: aube ci
 
       - name: Cache Playwright browsers
         uses: actions/cache@v3
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('aube-lock.yaml') }}
 
       - name: Install Playwright Browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: bunx playwright install --with-deps chromium firefox webkit
+        run: aube exec playwright install --with-deps chromium firefox webkit
 
       - name: Install Playwright System Dependencies
         if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: bunx playwright install-deps chromium firefox webkit
+        run: aube exec playwright install-deps chromium firefox webkit
 
       - name: Build
-        run: bun run build
+        run: aube run build
 
       - name: Run Unit Tests
-        run: bun run test
+        run: aube run test
 
       - name: Run Browser Tests
-        run: bun run test:browser
+        run: aube run test:browser
 
       - name: Generate Coverage Report
-        run: bun run test --coverage
+        run: aube run test --coverage

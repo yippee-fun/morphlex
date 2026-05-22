@@ -1,11 +1,12 @@
 [tools]
-bun = "latest"
+aube = "latest"
+node = "latest"
 
 [tasks.test]
-run = "bun run test:all"
+run = "aube run test:all"
 
 [tasks.lint]
-run = "bun run lint"
+run = "aube run lint"
 
 [tasks.build]
-run = "bun run build"
+run = "aube run build"
