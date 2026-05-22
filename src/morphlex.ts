@@ -264,7 +264,7 @@ class Morph {
 			this.#mapIdSets(from)
 		}
 
-		if (to instanceof NodeList) {
+		if (isNodeList(to)) {
 			this.#mapIdArraysForEach(to)
 			this.#morphOneToMany(from, to)
 		} else {
@@ -990,6 +990,10 @@ function isOptionElement(element: Element): element is HTMLOptionElement {
 
 function isParentNode(node: Node): node is ParentNode {
 	return !!IS_PARENT_NODE_TYPE[node.nodeType]
+}
+
+function isNodeList(value: ChildNode | NodeListOf<ChildNode>): value is NodeListOf<ChildNode> {
+	return Object.prototype.toString.call(value) === "[object NodeList]"
 }
 
 // Find longest increasing subsequence to minimize moves during reordering
