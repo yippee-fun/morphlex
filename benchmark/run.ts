@@ -1,5 +1,5 @@
 import { Window } from "happy-dom"
-import type { Options } from "../src/morphlex"
+import type { Options } from "../src/morphlex.ts"
 
 type BenchmarkCase = {
 	name: string
@@ -67,7 +67,7 @@ for (const [key, value] of Object.entries(globals)) {
 	Object.assign(globalThis, { [key]: value })
 }
 
-const { morph } = await import("../src/morphlex")
+const { morph } = await import("../src/morphlex.ts")
 
 const noopOptions: Options = {
 	beforeNodeVisited: () => true,

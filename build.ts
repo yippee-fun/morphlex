@@ -1,20 +1,25 @@
-import { build } from "bun"
-import { $ } from "bun"
-import { gzipSync } from "zlib"
-import { statSync, readFileSync } from "fs"
+import { execFile } from "node:child_process"
+import { gzipSync } from "node:zlib"
+import { statSync, readFileSync } from "node:fs"
+import { promisify } from "node:util"
+import { build } from "esbuild"
 
-// Build and minify with Bun
+const execFileAsync = promisify(execFile)
+
 await build({
-	entrypoints: ["./src/morphlex.ts"],
+	entryPoints: ["./src/morphlex.ts"],
 	outdir: "./dist",
+	bundle: true,
+	format: "esm",
 	minify: true,
-	sourcemap: "external",
-	naming: "[dir]/[name].min.[ext]",
-	target: "browser",
+	sourcemap: true,
+	outExtension: { ".js": ".min.js" },
+	platform: "browser",
+	target: "es2022",
 })
 
 // Generate TypeScript declarations (skip lib check to avoid node type errors)
-await $`tsgo --emitDeclarationOnly --declaration --outDir dist --skipLibCheck`
+await execFileAsync("tsgo", ["--emitDeclarationOnly", "--declaration", "--outDir", "dist", "--skipLibCheck"])
 
 // Calculate and display file sizes
 const minifiedPath = "./dist/morphlex.min.js"
