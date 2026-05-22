@@ -161,8 +161,9 @@ export function morphDocument(from: Document, to: Document | string, options?: O
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
 	if (typeof to === "string") to = parseFragment(to).childNodes
 
-	if (isParentNode(from)) flagDirtyInputs(from as Element)
+	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
 	new Morph(options).morph(from, to)
+	if (flagged) clearDirtyFlags(flagged)
 }
 
 /**
@@ -199,44 +200,65 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		(from as Element).localName === (to as Element).localName &&
 		(from as Element).namespaceURI === (to as Element).namespaceURI
 	) {
-		flagDirtyInputs(from as Element)
-		new Morph(options).visitChildNodes(from as Element, to as Element)
+		const fromElement = from as Element
+		const flagged = flagDirtyInputs(fromElement)
+		new Morph(options).visitChildNodes(fromElement, to as Element)
+		clearDirtyFlags(flagged)
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
 	}
 }
 
-function flagDirtyInputs(node: Element): void {
+function flagDirtyInputs(node: Element): Array<Element> {
+	const flagged: Array<Element> = []
+
 	if (isInputElement(node)) {
 		if (node.value !== node.defaultValue || node.checked !== node.defaultChecked) {
 			node.setAttribute("morphlex-dirty", "")
+			flagged.push(node)
 		}
 	} else if (isOptionElement(node)) {
 		if (node.selected !== node.defaultSelected) {
 			node.setAttribute("morphlex-dirty", "")
+			flagged.push(node)
 		}
 	} else if (node.localName === "textarea") {
 		const textarea = node as HTMLTextAreaElement
 		if (textarea.value !== textarea.defaultValue) {
 			textarea.setAttribute("morphlex-dirty", "")
+			flagged.push(textarea)
 		}
 	}
 
 	for (const input of node.querySelectorAll("input")) {
 		if (input.value !== input.defaultValue || input.checked !== input.defaultChecked) {
 			input.setAttribute("morphlex-dirty", "")
+			flagged.push(input)
 		}
 	}
 
 	for (const element of node.querySelectorAll("option")) {
 		if (element.selected !== element.defaultSelected) {
 			element.setAttribute("morphlex-dirty", "")
+			flagged.push(element)
 		}
 	}
 
 	for (const element of node.querySelectorAll("textarea")) {
 		if (element.value !== element.defaultValue) {
 			element.setAttribute("morphlex-dirty", "")
+			flagged.push(element)
+		}
+	}
+
+	return flagged
+}
+
+function clearDirtyFlags(elements: Array<Element>): void {
+	for (let i = 0; i < elements.length; i++) {
+		const element = elements[i]!
+		if (element.hasAttribute("morphlex-dirty")) {
+			element.removeAttribute("morphlex-dirty")
 		}
 	}
 }
