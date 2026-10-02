@@ -3,6 +3,7 @@ const ELEMENT_NODE_TYPE = 1
 const TEXT_NODE_TYPE = 3
 const TREE_WALKER_SHOW_ELEMENT = 1
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+const DETACHED_NODE_ERROR = "[Morphlex] Cannot replace a detached node. It needs a parent."
 
 const IS_PARENT_NODE_TYPE = [
 	0, //  0: (unused)
@@ -163,8 +164,11 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 	if (typeof to === "string") to = parseFragment(to).childNodes
 
 	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
-	new Morph(options).morph(from, to)
-	if (flagged) clearDirtyFlags(flagged)
+	try {
+		new Morph(options).morph(from, to)
+	} finally {
+		if (flagged) clearDirtyFlags(flagged)
+	}
 }
 
 /**
@@ -324,17 +328,12 @@ class Morph {
 		} else if (length === 1) {
 			this.#morphOneToOne(from, to[0]!)
 		} else {
+			const parent = from.parentNode
+			if (!parent) throw new Error(DETACHED_NODE_ERROR)
+
 			const newNodes = [...to]
 			const insertionPoint = from.nextSibling
-			const parent = from.parentNode
 			this.#morphOneToOne(from, newNodes.shift()!)
-
-			if (!parent) {
-				for (let i = 0; i < newNodes.length; i++) {
-					this.#options.beforeNodeAdded?.(document, newNodes[i]!, from)
-				}
-				return
-			}
 
 			for (let i = 0; i < newNodes.length; i++) {
 				const newNode = newNodes[i]!
@@ -853,11 +852,7 @@ class Morph {
 
 	#replaceNode(node: ChildNode, newNode: ChildNode): void {
 		const parent = node.parentNode
-
-		if (!parent) {
-			this.#options.beforeNodeAdded?.(document, newNode, node)
-			return
-		}
+		if (!parent) throw new Error(DETACHED_NODE_ERROR)
 
 		const insertionPoint = node
 		// Check if both removal and addition are allowed before starting the replacement
