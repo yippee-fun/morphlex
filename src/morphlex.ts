@@ -273,7 +273,7 @@ function parseFragment(string: string): DocumentFragment {
 
 function parseDocument(string: string): Document {
 	const parser = new DOMParser()
-	return parser.parseFromString(string.trim(), "text/html")
+	return parser.parseFromString(trimAsciiWhitespace(string), "text/html")
 }
 
 /* v8 ignore start -- reorder fast paths are environment-sensitive */
@@ -950,13 +950,26 @@ function isWhitespaceTextNode(node: Node): boolean {
 	if (!value) return true
 
 	for (let i = 0; i < value.length; i++) {
-		const code = value.charCodeAt(i)
-		if (code === 32 || code === 9 || code === 10 || code === 13 || code === 12) continue
-		if (code <= 127) return false
-		return value.trim() === ""
+		if (!isAsciiWhitespace(value.charCodeAt(i))) return false
 	}
 
 	return true
+}
+
+// HTML's ASCII whitespace: tab, LF, FF, CR and space. Unlike `String.prototype.trim`, this excludes
+// characters such as U+00A0 (`&nbsp;`), which are meaningful content.
+function isAsciiWhitespace(code: number): boolean {
+	return code === 32 || code === 9 || code === 10 || code === 13 || code === 12
+}
+
+function trimAsciiWhitespace(string: string): string {
+	let start = 0
+	let end = string.length
+
+	while (start < end && isAsciiWhitespace(string.charCodeAt(start))) start++
+	while (end > start && isAsciiWhitespace(string.charCodeAt(end - 1))) end--
+
+	return string.slice(start, end)
 }
 
 function trimFragmentEdgeWhitespace(fragment: DocumentFragment): void {

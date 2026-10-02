@@ -79,7 +79,7 @@ test("empty text nodes are treated as whitespace and removed", () => {
 	expect(from.firstChild?.nodeName).toBe("SPAN")
 })
 
-test("unicode whitespace text nodes are treated as whitespace", () => {
+test("&nbsp; text nodes are removed when target has no text between elements", () => {
 	const from = dom(`<div><span>A</span>&nbsp;<span>B</span></div>`)
 	const to = dom(`<div><span>A</span><span>B</span></div>`)
 
