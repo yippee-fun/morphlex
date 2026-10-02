@@ -121,3 +121,13 @@ test("a namespaced open attribute on a dialog is synced like any other", () => {
 		from.remove()
 	}
 })
+
+test("preserveChanges still updates the value of an existing open attribute", () => {
+	const from = mount(`<div><details open="client"><summary>Summary</summary>Body</details></div>`)
+	const details = from.querySelector("details")!
+
+	morph(from, `<div><details open="server"><summary>Summary</summary>Body</details></div>`, { preserveChanges: true })
+
+	expect(details.getAttribute("open")).toBe("server")
+	from.remove()
+})

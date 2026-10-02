@@ -419,7 +419,16 @@ class Morph {
 		// First pass: update/add attributes from reference (iterate forwards)
 		for (const { name, localName, value, namespaceURI } of to.attributes) {
 			if (name === "morphlex-dirty") continue
-			if (name === "open" && namespaceURI === null && this.#options.preserveChanges && hasOpenState(from)) continue
+			// Adding `open` would open it, but changing the value of an existing one is fine.
+			if (
+				name === "open" &&
+				namespaceURI === null &&
+				this.#options.preserveChanges &&
+				hasOpenState(from) &&
+				!from.hasAttribute("open")
+			) {
+				continue
+			}
 			if (name === "value") {
 				if (isInputElement(from) && from.type !== "file" && from.value !== value) {
 					if (!this.#options.preserveChanges) {
