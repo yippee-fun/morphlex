@@ -418,6 +418,7 @@ class Morph {
 		// First pass: update/add attributes from reference (iterate forwards)
 		for (const { name, localName, value, namespaceURI } of to.attributes) {
 			if (name === "morphlex-dirty") continue
+			if (name === "open" && this.#options.preserveChanges && hasOpenState(from)) continue
 			if (name === "value") {
 				if (isInputElement(from) && from.type !== "file" && from.value !== value) {
 					if (!this.#options.preserveChanges) {
@@ -457,6 +458,8 @@ class Morph {
 		// Second pass: remove excess attributes
 		for (const { name, localName, value, namespaceURI } of Array.from(from.attributes)) {
 			if (!to.hasAttributeNS(namespaceURI, localName)) {
+				if (name === "open" && this.#options.preserveChanges && hasOpenState(from)) continue
+
 				if (name === "selected") {
 					if (isOptionElement(from) && from.selected) {
 						if (!this.#options.preserveChanges) {
@@ -474,7 +477,12 @@ class Morph {
 				}
 
 				if (this.#options.beforeAttributeUpdated?.(from, name, null) ?? true) {
-					from.removeAttributeNS(namespaceURI, localName)
+					// Removing `open` from a modal dialog leaves it stuck in the top layer, so close it properly.
+					if (name === "open" && isDialogElement(from)) {
+						from.close()
+					} else {
+						from.removeAttributeNS(namespaceURI, localName)
+					}
 					this.#options.afterAttributeUpdated?.(from, name, value)
 				}
 			}
@@ -1122,6 +1130,15 @@ function isFormControl(element: Element): boolean {
 		localName === "select" ||
 		(localName.includes("-") && (element.constructor as unknown as Record<string, unknown>)["formAssociated"] === true)
 	)
+}
+
+function isDialogElement(element: Element): element is HTMLDialogElement {
+	return element.localName === "dialog" && element.namespaceURI === HTML_NAMESPACE
+}
+
+// The `open` attribute on these elements is the live state the user toggles, not a default.
+function hasOpenState(element: Element): boolean {
+	return isDialogElement(element) || (element.localName === "details" && element.namespaceURI === HTML_NAMESPACE)
 }
 
 function isOptionElement(element: Element): element is HTMLOptionElement {
