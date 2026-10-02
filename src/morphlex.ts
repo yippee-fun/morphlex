@@ -1,4 +1,4 @@
-const SUPPORTS_MOVE_BEFORE = "moveBefore" in Element.prototype
+const SUPPORTS_MOVE_BEFORE = typeof Element !== "undefined" && "moveBefore" in Element.prototype
 const ELEMENT_NODE_TYPE = 1
 const TEXT_NODE_TYPE = 3
 const TREE_WALKER_SHOW_ELEMENT = 1
