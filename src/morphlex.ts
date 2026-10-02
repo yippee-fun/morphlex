@@ -407,7 +407,7 @@ class Morph {
 		}
 
 		// First pass: update/add attributes from reference (iterate forwards)
-		for (const { name, value, namespaceURI } of to.attributes) {
+		for (const { name, localName, value, namespaceURI } of to.attributes) {
 			if (name === "morphlex-dirty") continue
 			if (name === "value") {
 				if (isInputElement(from) && from.type !== "file" && from.value !== value) {
@@ -433,7 +433,7 @@ class Morph {
 				}
 			}
 
-			const oldValue = from.getAttribute(name)
+			const oldValue = from.getAttributeNS(namespaceURI, localName)
 
 			if (oldValue !== value && (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
 				if (namespaceURI) {
@@ -446,8 +446,8 @@ class Morph {
 		}
 
 		// Second pass: remove excess attributes
-		for (const { name, value } of Array.from(from.attributes)) {
-			if (!to.hasAttribute(name)) {
+		for (const { name, localName, value, namespaceURI } of Array.from(from.attributes)) {
+			if (!to.hasAttributeNS(namespaceURI, localName)) {
 				if (name === "selected") {
 					if (isOptionElement(from) && from.selected) {
 						if (!this.#options.preserveChanges) {
@@ -465,7 +465,7 @@ class Morph {
 				}
 
 				if (this.#options.beforeAttributeUpdated?.(from, name, null) ?? true) {
-					from.removeAttribute(name)
+					from.removeAttributeNS(namespaceURI, localName)
 					this.#options.afterAttributeUpdated?.(from, name, value)
 				}
 			}
