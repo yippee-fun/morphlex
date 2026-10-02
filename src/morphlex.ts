@@ -2,6 +2,7 @@ const SUPPORTS_MOVE_BEFORE = typeof Element !== "undefined" && "moveBefore" in E
 const ELEMENT_NODE_TYPE = 1
 const TEXT_NODE_TYPE = 3
 const TREE_WALKER_SHOW_ELEMENT = 1
+const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
 
 const IS_PARENT_NODE_TYPE = [
 	0, //  0: (unused)
@@ -348,7 +349,7 @@ class Morph {
 	#morphOneToOne(from: ChildNode, to: ChildNode): void {
 		// Fast path: if nodes are exactly the same object, skip morphing
 		if (from === to) return
-		if (from.isEqualNode(to)) return
+		if (isEqualNode(from, to)) return
 
 		if (from.nodeType === ELEMENT_NODE_TYPE && to.nodeType === ELEMENT_NODE_TYPE) {
 			if (canMorphElementInPlace(from as Element, to as Element)) {
@@ -370,7 +371,7 @@ class Morph {
 
 		if ("textarea" === from.localName && "textarea" === to.localName) {
 			this.#visitTextArea(from as HTMLTextAreaElement, to as HTMLTextAreaElement)
-		} else if (from.hasChildNodes() || to.hasChildNodes()) {
+		} else if (from.hasChildNodes() || to.hasChildNodes() || isTemplateElement(from)) {
 			this.visitChildNodes(from, to)
 		}
 
@@ -483,6 +484,13 @@ class Morph {
 
 	visitChildNodes(from: Element, to: Element): void {
 		if (!(this.#options.beforeChildrenVisited?.(from) ?? true)) return
+
+		if (isTemplateElement(from) && isTemplateElement(to)) {
+			this.#visitTemplateContent(from, to)
+			this.#options.afterChildrenVisited?.(from)
+			return
+		}
+
 		const parent = from
 
 		const fromChildNodes = nodeListToArray(from.childNodes)
@@ -578,7 +586,7 @@ class Morph {
 				if (namespaceURIMap[unmatchedIndex] !== candidateNamespaceURIMap[candidateIndex]) continue
 				const candidate = fromChildNodes[candidateIndex] as Element
 
-				if (candidate.isEqualNode(element)) {
+				if (isEqualNode(candidate, element)) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.EqualNode
 					candidateElementActive[candidateIndex] = 0
@@ -837,6 +845,12 @@ class Morph {
 		this.#options.afterChildrenVisited?.(from)
 	}
 
+	// Template content is replaced wholesale rather than morphed, so no node callbacks fire inside it.
+	#visitTemplateContent(from: HTMLTemplateElement, to: HTMLTemplateElement): void {
+		if (isEqualNode(from.content, to.content)) return
+		from.content.replaceChildren(to.content)
+	}
+
 	#replaceNode(node: ChildNode, newNode: ChildNode): void {
 		const parent = node.parentNode
 
@@ -991,6 +1005,36 @@ function trimFragmentEdgeWhitespace(fragment: DocumentFragment): void {
 	while (fragment.lastChild && isWhitespaceTextNode(fragment.lastChild)) {
 		fragment.lastChild.remove()
 	}
+}
+
+// `isEqualNode` ignores template content, so templates need comparing separately.
+function isEqualNode(from: Node, to: Node): boolean {
+	if (!from.isEqualNode(to)) return false
+	if (!isParentNode(from)) return true
+
+	if (
+		isTemplateElement(from as Element) &&
+		!isEqualNode((from as HTMLTemplateElement).content, (to as HTMLTemplateElement).content)
+	) {
+		return false
+	}
+
+	const fromTemplates = (from as ParentNode).querySelectorAll("template")
+	if (fromTemplates.length === 0) return true
+
+	// The trees are equal, so their templates line up one-to-one.
+	const toTemplates = (to as ParentNode).querySelectorAll("template")
+	for (let i = 0; i < fromTemplates.length; i++) {
+		const fromTemplate = fromTemplates[i]!
+		if (!isTemplateElement(fromTemplate)) continue
+		if (!isEqualNode(fromTemplate.content, (toTemplates[i] as HTMLTemplateElement).content)) return false
+	}
+
+	return true
+}
+
+function isTemplateElement(element: Element): element is HTMLTemplateElement {
+	return element.localName === "template" && element.namespaceURI === HTML_NAMESPACE
 }
 
 function isInputElement(element: Element): element is HTMLInputElement {
