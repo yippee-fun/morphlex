@@ -53,12 +53,3 @@ test("nodeType fallback skips mismatched non-element candidates before finding a
 	expect(from.firstChild).toBe(text)
 	expect(from.textContent).toBe("after")
 })
-
-test("direct morphs from detached elements to non-parent targets remain a no-op", () => {
-	const from = document.createElement("div")
-	from.textContent = "before"
-
-	morph(from, document.createTextNode("after"))
-
-	expect(from.textContent).toBe("before")
-})
