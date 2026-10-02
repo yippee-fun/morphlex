@@ -112,3 +112,44 @@ test("hidden input value is left alone", () => {
 	expect(input.hasAttribute("value")).toBe(false)
 	expect(input.value).toBe("")
 })
+
+test("reset checkbox follows later markup when preserving changes", () => {
+	const from = dom(`<div><input type="checkbox" name="x" value="1"></div>`)
+	const input = from.querySelector("input")!
+	input.checked = true
+
+	morph(from, dom(`<div><input type="checkbox" name="x" value="1"></div>`))
+	morph(from, dom(`<div><input type="checkbox" name="x" value="1" checked></div>`), { preserveChanges: true })
+
+	expect(input.checked).toBe(true)
+})
+
+test("reset text input follows later markup when preserving changes", () => {
+	const from = dom(`<div><input type="text" name="q"></div>`)
+	const input = from.querySelector("input")!
+	input.value = "typed"
+
+	morph(from, dom(`<div><input type="text" name="q"></div>`))
+	morph(from, dom(`<div><input type="text" name="q" value="new"></div>`), { preserveChanges: true })
+
+	expect(input.value).toBe("new")
+})
+
+test("reset option follows later markup when preserving changes", () => {
+	const from = dom(`<select><option>a</option><option>b</option></select>`) as HTMLSelectElement
+	from.selectedIndex = 1
+
+	morph(from, dom(`<select><option>a</option><option>b</option></select>`))
+	morph(from, dom(`<select><option>a</option><option selected>b</option></select>`), { preserveChanges: true })
+
+	expect(from.selectedIndex).toBe(1)
+})
+
+test("untouched root option is not flagged dirty", () => {
+	const from = dom(`<option>a</option>`) as HTMLOptionElement
+
+	morph(from, dom(`<option>b</option>`))
+
+	expect(from.textContent).toBe("b")
+	expect(from.selected).toBe(false)
+})
