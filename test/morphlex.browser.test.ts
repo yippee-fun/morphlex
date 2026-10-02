@@ -83,8 +83,8 @@ describe("Morphlex Browser Tests", () => {
 
 			// Focus should be preserved on the same element
 			expect(document.activeElement).toBe(original)
-			// Value is NOT updated - morphlex no longer updates input values
-			expect(original.value).toBe("initial")
+			// Neither input has a value attribute, so the value is reset
+			expect(original.value).toBe("")
 			expect(original.placeholder).toBe("Enter text")
 		})
 
