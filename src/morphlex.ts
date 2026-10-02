@@ -3,6 +3,7 @@ const ELEMENT_NODE_TYPE = 1
 const TEXT_NODE_TYPE = 3
 const TREE_WALKER_SHOW_ELEMENT = 1
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+const DETACHED_NODE_ERROR = "[Morphlex] Cannot replace a detached node. It needs a parent."
 
 const IS_PARENT_NODE_TYPE = [
 	0, //  0: (unused)
@@ -163,8 +164,11 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 	if (typeof to === "string") to = parseFragment(to).childNodes
 
 	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
-	new Morph(options).morph(from, to)
-	if (flagged) clearDirtyFlags(flagged)
+	try {
+		new Morph(options).morph(from, to)
+	} finally {
+		if (flagged) clearDirtyFlags(flagged)
+	}
 }
 
 /**
@@ -324,17 +328,12 @@ class Morph {
 		} else if (length === 1) {
 			this.#morphOneToOne(from, to[0]!)
 		} else {
+			const parent = from.parentNode
+			if (!parent) throw new Error(DETACHED_NODE_ERROR)
+
 			const newNodes = [...to]
 			const insertionPoint = from.nextSibling
-			const parent = from.parentNode
 			this.#morphOneToOne(from, newNodes.shift()!)
-
-			if (!parent) {
-				for (let i = 0; i < newNodes.length; i++) {
-					this.#options.beforeNodeAdded?.(document, newNodes[i]!, from)
-				}
-				return
-			}
 
 			for (let i = 0; i < newNodes.length; i++) {
 				const newNode = newNodes[i]!
@@ -407,7 +406,7 @@ class Morph {
 		}
 
 		// First pass: update/add attributes from reference (iterate forwards)
-		for (const { name, value } of to.attributes) {
+		for (const { name, localName, value, namespaceURI } of to.attributes) {
 			if (name === "morphlex-dirty") continue
 			if (name === "value") {
 				if (isInputElement(from) && from.type !== "file" && from.value !== value) {
@@ -433,17 +432,21 @@ class Morph {
 				}
 			}
 
-			const oldValue = from.getAttribute(name)
+			const oldValue = from.getAttributeNS(namespaceURI, localName)
 
 			if (oldValue !== value && (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
-				from.setAttribute(name, value)
+				if (namespaceURI) {
+					from.setAttributeNS(namespaceURI, name, value)
+				} else {
+					from.setAttribute(name, value)
+				}
 				this.#options.afterAttributeUpdated?.(from, name, oldValue)
 			}
 		}
 
 		// Second pass: remove excess attributes
-		for (const { name, value } of Array.from(from.attributes)) {
-			if (!to.hasAttribute(name)) {
+		for (const { name, localName, value, namespaceURI } of Array.from(from.attributes)) {
+			if (!to.hasAttributeNS(namespaceURI, localName)) {
 				if (name === "selected") {
 					if (isOptionElement(from) && from.selected) {
 						if (!this.#options.preserveChanges) {
@@ -461,7 +464,7 @@ class Morph {
 				}
 
 				if (this.#options.beforeAttributeUpdated?.(from, name, null) ?? true) {
-					from.removeAttribute(name)
+					from.removeAttributeNS(namespaceURI, localName)
 					this.#options.afterAttributeUpdated?.(from, name, value)
 				}
 			}
@@ -886,11 +889,7 @@ class Morph {
 
 	#replaceNode(node: ChildNode, newNode: ChildNode): void {
 		const parent = node.parentNode
-
-		if (!parent) {
-			this.#options.beforeNodeAdded?.(document, newNode, node)
-			return
-		}
+		if (!parent) throw new Error(DETACHED_NODE_ERROR)
 
 		const insertionPoint = node
 		// Check if both removal and addition are allowed before starting the replacement
