@@ -19,3 +19,7 @@ In `#visitAttributes`, there's a deliberate separation between content attribute
 ### Asymmetry in attribute removal for `value` vs `checked`/`selected`
 
 In the second pass of `#visitAttributes` (removing attributes not present in the target), there's special `preserveChanges` handling for `checked` and `selected` (which explicitly sets the property to `false`) but not for `value`. This is intentional — removing the `value` attribute only resets `defaultValue` to `""`, never `.value`. There's no equivalent need to guard `value` removal because `.value` is always a string and can't be meaningfully "unset" the way `.checked` and `.selected` can be set to `false`.
+
+### Resetting user changes when not preserving
+
+The attribute passes only touch `.value`, `.checked` and `.selected` when the matching attribute is added, changed or removed. So when `preserveChanges` is false, `#resetFormProperties` runs after them and sets each property to what the target markup says, which covers edits where neither side has the attribute. It skips a property when its attribute still differs from the target, because that means `beforeAttributeUpdated` vetoed the update. It never assigns `.value` on checkbox, radio or file inputs.

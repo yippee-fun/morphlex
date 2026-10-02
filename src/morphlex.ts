@@ -466,6 +466,39 @@ class Morph {
 				}
 			}
 		}
+
+		if (!this.#options.preserveChanges) {
+			this.#resetFormProperties(from, to)
+		}
+	}
+
+	// Reset user changes to match the target markup. Skip any property whose
+	// attribute update was vetoed, since the attributes then still differ.
+	#resetFormProperties(from: Element, to: Element): void {
+		if (isInputElement(from)) {
+			const checked = to.hasAttribute("checked")
+			if (from.checked !== checked && from.hasAttribute("checked") === checked) {
+				from.checked = checked
+			}
+
+			// Checkbox and radio values aren't user-editable, and assigning them writes the value attribute.
+			const type = from.type
+			const value = to.getAttribute("value")
+			if (
+				type !== "file" &&
+				type !== "checkbox" &&
+				type !== "radio" &&
+				from.value !== (value ?? "") &&
+				from.getAttribute("value") === value
+			) {
+				from.value = value ?? ""
+			}
+		} else if (isOptionElement(from)) {
+			const selected = to.hasAttribute("selected")
+			if (from.selected !== selected && from.hasAttribute("selected") === selected) {
+				from.selected = selected
+			}
+		}
 	}
 
 	#visitTextArea(from: HTMLTextAreaElement, to: HTMLTextAreaElement): void {
