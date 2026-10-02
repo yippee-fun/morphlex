@@ -40,6 +40,7 @@ export interface Options {
 	/**
 	 * When `true`, preserves modified form inputs during morphing.
 	 * This prevents user-entered data from being overwritten.
+	 * It also leaves the `open` state of `<details>` and `<dialog>` elements alone.
 	 * @default false
 	 */
 	preserveChanges?: boolean
