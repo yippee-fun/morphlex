@@ -105,3 +105,19 @@ test("preserveChanges still syncs open on other elements", () => {
 	expect(from.outerHTML).toBe(`<div><div></div><span open=""></span></div>`)
 	from.remove()
 })
+
+test("a namespaced open attribute on a dialog is synced like any other", () => {
+	for (const preserveChanges of [true, false]) {
+		const from = mount(`<div><dialog>Dialog</dialog></div>`)
+		const dialog = from.querySelector("dialog")!
+		const to = dom(`<div><dialog>Dialog</dialog></div>`)
+		to.querySelector("dialog")!.setAttributeNS("urn:x", "open", "")
+
+		morph(from, to, { preserveChanges })
+		expect(dialog.getAttributeNS("urn:x", "open")).toBe("")
+
+		morph(from, `<div><dialog>Dialog</dialog></div>`, { preserveChanges })
+		expect(dialog.hasAttributeNS("urn:x", "open")).toBe(false)
+		from.remove()
+	}
+})

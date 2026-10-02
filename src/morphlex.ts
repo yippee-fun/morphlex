@@ -419,7 +419,7 @@ class Morph {
 		// First pass: update/add attributes from reference (iterate forwards)
 		for (const { name, localName, value, namespaceURI } of to.attributes) {
 			if (name === "morphlex-dirty") continue
-			if (name === "open" && this.#options.preserveChanges && hasOpenState(from)) continue
+			if (name === "open" && namespaceURI === null && this.#options.preserveChanges && hasOpenState(from)) continue
 			if (name === "value") {
 				if (isInputElement(from) && from.type !== "file" && from.value !== value) {
 					if (!this.#options.preserveChanges) {
@@ -459,7 +459,7 @@ class Morph {
 		// Second pass: remove excess attributes
 		for (const { name, localName, value, namespaceURI } of Array.from(from.attributes)) {
 			if (!to.hasAttributeNS(namespaceURI, localName)) {
-				if (name === "open" && this.#options.preserveChanges && hasOpenState(from)) continue
+				if (name === "open" && namespaceURI === null && this.#options.preserveChanges && hasOpenState(from)) continue
 
 				if (name === "selected") {
 					if (isOptionElement(from) && from.selected) {
@@ -479,7 +479,7 @@ class Morph {
 
 				if (this.#options.beforeAttributeUpdated?.(from, name, null) ?? true) {
 					// Removing `open` from a modal dialog leaves it stuck in the top layer, so close it properly.
-					if (name === "open" && isDialogElement(from)) {
+					if (name === "open" && namespaceURI === null && isDialogElement(from)) {
 						from.close()
 					} else {
 						from.removeAttributeNS(namespaceURI, localName)
