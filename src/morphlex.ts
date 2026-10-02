@@ -406,7 +406,7 @@ class Morph {
 		}
 
 		// First pass: update/add attributes from reference (iterate forwards)
-		for (const { name, value } of to.attributes) {
+		for (const { name, value, namespaceURI } of to.attributes) {
 			if (name === "morphlex-dirty") continue
 			if (name === "value") {
 				if (isInputElement(from) && from.type !== "file" && from.value !== value) {
@@ -435,7 +435,11 @@ class Morph {
 			const oldValue = from.getAttribute(name)
 
 			if (oldValue !== value && (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
-				from.setAttribute(name, value)
+				if (namespaceURI) {
+					from.setAttributeNS(namespaceURI, name, value)
+				} else {
+					from.setAttribute(name, value)
+				}
 				this.#options.afterAttributeUpdated?.(from, name, oldValue)
 			}
 		}
