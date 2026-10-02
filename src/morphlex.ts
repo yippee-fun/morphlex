@@ -213,7 +213,7 @@ function flagDirtyInputs(node: Element): Array<Element> {
 	const flagged: Array<Element> = []
 
 	if (isInputElement(node)) {
-		if (node.value !== node.defaultValue || node.checked !== node.defaultChecked) {
+		if (isDirtyInput(node)) {
 			node.setAttribute("morphlex-dirty", "")
 			flagged.push(node)
 		}
@@ -231,7 +231,7 @@ function flagDirtyInputs(node: Element): Array<Element> {
 	}
 
 	for (const input of node.querySelectorAll("input")) {
-		if (input.value !== input.defaultValue || input.checked !== input.defaultChecked) {
+		if (isDirtyInput(input)) {
 			input.setAttribute("morphlex-dirty", "")
 			flagged.push(input)
 		}
@@ -252,6 +252,16 @@ function flagDirtyInputs(node: Element): Array<Element> {
 	}
 
 	return flagged
+}
+
+// Checkboxes and radios report a `.value` of "on" when they have no `value` attribute,
+// while `defaultValue` is "", so only their checkedness tells us if the user changed them.
+function isDirtyInput(input: HTMLInputElement): boolean {
+	if (input.type === "checkbox" || input.type === "radio") {
+		return input.checked !== input.defaultChecked
+	}
+
+	return input.value !== input.defaultValue
 }
 
 function clearDirtyFlags(elements: Array<Element>): void {
