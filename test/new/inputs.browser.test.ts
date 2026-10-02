@@ -112,13 +112,12 @@ describe("text input", () => {
 		expect(input.value).toBe("b")
 		expect(input.defaultValue).toBe("c")
 
-		// A value matching the default counts as clean, so it follows the markup
 		input.value = "c"
 		expect(input.value).toBe("c")
 		expect(input.defaultValue).toBe("c")
 
 		morph(input, dom(`<input type="text" value="d">`), { preserveChanges: true })
-		expect(input.value).toBe("d")
+		expect(input.value).toBe("c")
 		expect(input.defaultValue).toBe("d")
 	})
 

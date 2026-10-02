@@ -223,7 +223,7 @@ function flagDirtyInputs(node: Element): Array<Element> {
 			flagged.push(node)
 		}
 	} else if (isOptionElement(node)) {
-		if (node.selected !== node.hasAttribute("selected")) {
+		if (node.selected !== node.defaultSelected) {
 			node.setAttribute("morphlex-dirty", "")
 			flagged.push(node)
 		}
@@ -243,7 +243,7 @@ function flagDirtyInputs(node: Element): Array<Element> {
 	}
 
 	for (const element of node.querySelectorAll("option")) {
-		if (element.selected !== element.hasAttribute("selected")) {
+		if (element.selected !== element.defaultSelected) {
 			element.setAttribute("morphlex-dirty", "")
 			flagged.push(element)
 		}
@@ -401,8 +401,7 @@ class Morph {
 	}
 
 	#visitAttributes(from: Element, to: Element): void {
-		const dirty = from.hasAttribute("morphlex-dirty")
-		if (dirty) {
+		if (from.hasAttribute("morphlex-dirty")) {
 			from.removeAttribute("morphlex-dirty")
 		}
 
@@ -471,14 +470,12 @@ class Morph {
 			}
 		}
 
-		// Clean controls are synced even when preserving changes. Assigning a property leaves a control
-		// internally dirty in the browser, so later attribute changes would no longer reach it.
-		if (!this.#options.preserveChanges || !dirty) {
+		if (!this.#options.preserveChanges) {
 			this.#resetFormProperties(from, to)
 		}
 	}
 
-	// Sync form properties to the target markup. Skip any property whose
+	// Reset user changes to match the target markup. Skip any property whose
 	// attribute update was vetoed, since the attributes then still differ.
 	#resetFormProperties(from: Element, to: Element): void {
 		if (isInputElement(from)) {
