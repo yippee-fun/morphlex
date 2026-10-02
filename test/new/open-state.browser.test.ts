@@ -55,12 +55,11 @@ test("preserveChanges keeps a modal dialog open", () => {
 	from.remove()
 })
 
-test("removing open from a modal dialog closes it properly", () => {
+test("removing open from a modal dialog closes it properly", async () => {
 	const from = mount(`<div><dialog>Dialog</dialog></div>`)
 	const dialog = from.querySelector("dialog")!
 	dialog.showModal()
-	let closed = false
-	dialog.addEventListener("close", () => (closed = true))
+	const closed = new Promise((resolve) => dialog.addEventListener("close", resolve, { once: true }))
 	const updated: Array<[string, string | null]> = []
 
 	morph(from, `<div><dialog>Dialog</dialog></div>`, {
@@ -70,13 +69,8 @@ test("removing open from a modal dialog closes it properly", () => {
 	expect(dialog.open).toBe(false)
 	expect(dialog.matches(":modal")).toBe(false)
 	expect(updated).toEqual([["open", ""]])
-	return new Promise<void>((resolve) => {
-		setTimeout(() => {
-			expect(closed).toBe(true)
-			from.remove()
-			resolve()
-		})
-	})
+	await closed
+	from.remove()
 })
 
 test("a vetoed open removal leaves the modal dialog open", () => {
