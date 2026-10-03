@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { morph } from "../../src/morphlex"
+import { morph, morphInner } from "../../src/morphlex"
 
 function mount(html: string): HTMLElement {
 	const host = document.createElement("div")
@@ -337,5 +337,53 @@ test("a list box whose size has leading whitespace and a plus sign is untouched"
 	const host = mount(html)
 
 	expect(countMutations(host, html)).toBe(0)
+	host.remove()
+})
+
+test("preserveChanges applies a new selected attribute to an option the morph reset earlier", () => {
+	const host = mount(`<div><select id="s"><option>a</option><option>b</option></select></div>`)
+	const select = host.querySelector("select")!
+	morph(host.firstElementChild!, parse(`<div><select id="s" size="3"><option>a</option><option>b</option></select></div>`))
+
+	morph(select.options[0]!, parse(`<option selected>a</option>`), { preserveChanges: true })
+
+	expect(select.options[0]!.selected).toBe(true)
+	host.remove()
+})
+
+test("an SVG element named option inside a select is untouched", () => {
+	const host = mount(`<div><select id="s"><option>a</option></select></div>`)
+	host.querySelector("select")!.append(document.createElementNS("http://www.w3.org/2000/svg", "option"))
+	const html = host.innerHTML
+
+	const observer = new MutationObserver(() => {})
+	observer.observe(host, { subtree: true, attributes: true, childList: true })
+	morph(host.firstElementChild!, host.firstElementChild!.cloneNode(true) as Element)
+
+	expect(observer.takeRecords()).toHaveLength(0)
+	expect(host.innerHTML).toBe(html)
+	observer.disconnect()
+	host.remove()
+})
+
+test("an inner morph of an optgroup shows the select's new first option", () => {
+	const host = mount(`<div><select id="s"><optgroup id="g"><option id="a">a</option></optgroup></select></div>`)
+	const select = host.querySelector("select")!
+
+	morphInner(host.querySelector("optgroup")!, `<optgroup id="g"><option>x</option><option id="a">a</option></optgroup>`)
+
+	expect(select.value).toBe("x")
+	host.remove()
+})
+
+test("preserveChanges keeps the user's choice when morphing an option inside the select", () => {
+	const host = mount(`<div><select id="s"><option>a</option><option>b</option></select></div>`)
+	const select = host.querySelector("select")!
+	select.value = "b"
+
+	morph(select.options[0]!, parse(`<option>a2</option>`), { preserveChanges: true })
+
+	expect(select.value).toBe("b")
+	expect(select.options[0]!.textContent).toBe("a2")
 	host.remove()
 })
