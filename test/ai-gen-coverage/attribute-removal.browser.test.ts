@@ -14,8 +14,8 @@ describe("attribute removal edge cases", () => {
 		morph(a, b, { preserveChanges: true })
 
 		// Line 417-418: when selected === defaultSelected, we set selected = false
-		expect(a.options[0].hasAttribute("selected")).toBe(false)
-		expect(a.options[0].selected).toBe(false)
+		expect(a.options[0]!.hasAttribute("selected")).toBe(false)
+		expect(a.options[0]!.selected).toBe(false)
 	})
 
 	test("removing selected attribute preserves user selection when it differs from default", () => {
@@ -23,13 +23,13 @@ describe("attribute removal edge cases", () => {
 		const b = dom(`<select><option value="a">A</option><option value="b">B</option></select>`) as HTMLSelectElement
 
 		// User changes selection - now selected !== defaultSelected
-		a.options[0].selected = true
+		a.options[0]!.selected = true
 
 		morph(a, b, { preserveChanges: true })
 
 		// Should preserve the user's selection
-		expect(a.options[1].hasAttribute("selected")).toBe(false)
-		expect(a.options[0].selected).toBe(true)
+		expect(a.options[1]!.hasAttribute("selected")).toBe(false)
+		expect(a.options[0]!.selected).toBe(true)
 	})
 
 	test("removing checked attribute from checkbox when preserveChanges disabled", () => {

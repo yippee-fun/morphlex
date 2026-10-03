@@ -154,7 +154,7 @@ describe("Morphlex - Coverage Tests", () => {
 
 			morph(parent, reference)
 
-			expect(parent.children[0].id).toBe("child1")
+			expect(parent.children[0]!.id).toBe("child1")
 		})
 
 		it("should insert new node when no match found and beforeNodeAdded returns true", () => {
@@ -180,7 +180,7 @@ describe("Morphlex - Coverage Tests", () => {
 			})
 
 			expect(addedNode).toBeTruthy()
-			expect(parent.children[0].id).toBe("new")
+			expect(parent.children[0]!.id).toBe("new")
 		})
 
 		it("should not insert new node when beforeNodeAdded returns false", () => {
@@ -211,7 +211,7 @@ describe("Morphlex - Coverage Tests", () => {
 			// beforeNodeAdded should have been called
 			expect(addCallbackCalled).toBe(true)
 			// The existing div will be morphed to match reference
-			expect(parent.children[0].tagName).toBe("DIV")
+			expect(parent.children[0]!.tagName).toBe("DIV")
 		})
 
 		it("should call afterNodeVisited for child elements even when new node inserted", () => {
@@ -246,7 +246,7 @@ describe("Morphlex - Coverage Tests", () => {
 			reference.setAttribute("data-keep", "value")
 
 			morph(div, reference, {
-				beforeAttributeUpdated: (element, name, value) => {
+				beforeAttributeUpdated: (_element, name, value) => {
 					if (name === "data-remove" && value === null) {
 						return false // Cancel removal
 					}
@@ -374,7 +374,7 @@ describe("Morphlex - Coverage Tests", () => {
 
 			morph(parent, reference)
 
-			expect(parent.children[0].id).toBe("outer2")
+			expect(parent.children[0]!.id).toBe("outer2")
 		})
 
 		it("should add completely new element when no match found by tag or ID", () => {
@@ -407,7 +407,7 @@ describe("Morphlex - Coverage Tests", () => {
 
 			expect(addedNode).toBeTruthy()
 			expect(afterAddedCalled).toBe(true)
-			expect(parent.children[0].tagName).toBe("ARTICLE")
+			expect(parent.children[0]!.tagName).toBe("ARTICLE")
 		})
 
 		describe("DOMParser edge cases", () => {

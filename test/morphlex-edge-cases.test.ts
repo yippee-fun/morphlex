@@ -61,8 +61,8 @@ describe("Morphlex Edge Cases & Error Handling", () => {
 			morph(parent, `<div><span id="child2">2</span><span id="child1">1</span></div>`)
 
 			// The reordering should work even without moveBefore
-			expect(parent.children[0].id).toBe("child2")
-			expect(parent.children[1].id).toBe("child1")
+			expect(parent.children[0]!.id).toBe("child2")
+			expect(parent.children[1]!.id).toBe("child1")
 		})
 	})
 
@@ -75,8 +75,8 @@ describe("Morphlex Edge Cases & Error Handling", () => {
 			morph(parent, "<div><span>1</span><span>2</span></div>")
 
 			expect(parent.children.length).toBe(2)
-			expect(parent.children[0].textContent).toBe("1")
-			expect(parent.children[1].textContent).toBe("2")
+			expect(parent.children[0]!.textContent).toBe("1")
+			expect(parent.children[1]!.textContent).toBe("2")
 		})
 
 		it("should add new node when no match exists (lines 370-373)", () => {
@@ -89,10 +89,10 @@ describe("Morphlex Edge Cases & Error Handling", () => {
 			morph(parent, "<div><article>new</article><p>existing</p></div>")
 
 			expect(parent.children.length).toBe(2)
-			expect(parent.children[0].nodeName).toBe("ARTICLE")
-			expect(parent.children[0].textContent).toBe("new")
-			expect(parent.children[1].nodeName).toBe("P")
-			expect(parent.children[1].textContent).toBe("existing")
+			expect(parent.children[0]!.nodeName).toBe("ARTICLE")
+			expect(parent.children[0]!.textContent).toBe("new")
+			expect(parent.children[1]!.nodeName).toBe("P")
+			expect(parent.children[1]!.textContent).toBe("existing")
 		})
 
 		it("should not soft-match same-localName children across namespaces", () => {
@@ -163,8 +163,8 @@ describe("Morphlex Edge Cases & Error Handling", () => {
 
 				morph(parent, '<div><span id="b"></span><span id="a"></span></div>')
 
-				expect(parent.children[0].id).toBe("b")
-				expect(parent.children[1].id).toBe("a")
+				expect(parent.children[0]!.id).toBe("b")
+				expect(parent.children[1]!.id).toBe("a")
 			}
 		})
 	})

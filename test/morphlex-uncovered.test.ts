@@ -212,10 +212,10 @@ describe("Morphlex - Remaining Uncovered Lines", () => {
 
 			// Should have morphed the first element and added the rest
 			expect(parent.children.length).toBe(3)
-			expect(parent.children[0].id).toBe("first")
-			expect(parent.children[0].textContent).toBe("First")
-			expect(parent.children[1].id).toBe("second")
-			expect(parent.children[2].id).toBe("third")
+			expect(parent.children[0]!.id).toBe("first")
+			expect(parent.children[0]!.textContent).toBe("First")
+			expect(parent.children[1]!.id).toBe("second")
+			expect(parent.children[2]!.id).toBe("third")
 
 			parent.remove()
 		})
@@ -284,8 +284,8 @@ describe("Morphlex - Remaining Uncovered Lines", () => {
 
 			// Only the first element should be morphed, second should not be added
 			expect(parent.children.length).toBe(1)
-			expect(parent.children[0].id).toBe("first") // First was morphed
-			expect(parent.children[0].textContent).toBe("First")
+			expect(parent.children[0]!.id).toBe("first") // First was morphed
+			expect(parent.children[0]!.textContent).toBe("First")
 
 			parent.remove()
 		})
@@ -327,7 +327,7 @@ describe("Morphlex - Remaining Uncovered Lines", () => {
 				;(parent as any).moveBefore = vi.fn((node: Node, before: Node | null) => {
 					// Simulate moveBefore behavior
 					if (node.parentNode === parent) {
-						parent.insertBefore(node, before)
+						;(parent as Node).insertBefore(node, before)
 					}
 				})
 			}
@@ -336,8 +336,8 @@ describe("Morphlex - Remaining Uncovered Lines", () => {
 			morph(parent, '<div><span id="second"></span><span id="first"></span></div>')
 
 			// Check order is reversed
-			expect(parent.children[0].id).toBe("second")
-			expect(parent.children[1].id).toBe("first")
+			expect(parent.children[0]!.id).toBe("second")
+			expect(parent.children[1]!.id).toBe("first")
 
 			// Restore original moveBefore (if it existed)
 			if (originalMoveBefore === undefined) {
@@ -370,8 +370,8 @@ describe("Morphlex - Remaining Uncovered Lines", () => {
 			morph(parent, '<div><span id="b"></span><span id="a"></span></div>')
 
 			// Check order is reversed
-			expect(parent.children[0].id).toBe("b")
-			expect(parent.children[1].id).toBe("a")
+			expect(parent.children[0]!.id).toBe("b")
+			expect(parent.children[1]!.id).toBe("a")
 
 			// Restore original moveBefore if it existed
 			if (originalMoveBefore !== undefined) {
