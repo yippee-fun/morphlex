@@ -495,7 +495,16 @@ class Morph {
 	readonly #idSetMap: IdSetMap = new WeakMap()
 	readonly #options: Options
 	readonly #clobbered: Set<Element> | null
-	#vetoedOptions: Set<Element> | null = null
+	#vetoedControls: Set<Element> | null = null
+	// Nodes whose visit or children's visit was vetoed.
+	#vetoedNodes: Array<Node> | null = null
+	// Radios whose checkedness the morph reset or whose radio group a move changed. Their groups are
+	// synced to the markup when the morph settles, because moves complete out of document order.
+	#radiosToSync: Set<HTMLInputElement> | null = null
+	// The morph's own nodes are inside this node, between these two siblings when there are any.
+	#scope: Node | null = null
+	#scopeStart: Node | null = null
+	#scopeEnd: Node | null = null
 	// Selects synced to their markup, synced again when the morph settles, after options have moved or gone.
 	#syncedSelects: Set<HTMLSelectElement> | null = null
 	// Live elements by id, and how often each id appears in the target. An element whose id appears
@@ -508,10 +517,12 @@ class Morph {
 	#deferredRemovals: Array<ChildNode> | null = null
 	// Moves wait for the morph to settle, because a later veto can still pin the element where it is.
 	#pendingMoves: Array<PendingMove> | null = null
-	readonly #claimedElements: Set<Element> = new Set()
+	readonly #claimedElements: Map<Element, PendingMove> = new Map()
 	// Pending moves and removals are settled when the root's children have been visited, or when
 	// the root is replaced, so the root's own callbacks see the finished DOM.
 	#root: Node | null = null
+	// The element whose move is completing, which settles the moves it starts before its own after callbacks.
+	#movingElement: Node | null = null
 	#preserveChanges: boolean
 
 	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
@@ -522,6 +533,10 @@ class Morph {
 
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
 		this.#root = from
+		// A detached root has no siblings, so it's its own scope.
+		this.#scope = from.parentNode ?? from
+		this.#scopeStart = from.previousSibling
+		this.#scopeEnd = from.nextSibling
 		if (isParentNode(from)) {
 			this.#mapIdSets(from)
 		}
@@ -541,6 +556,7 @@ class Morph {
 
 	morphChildren(from: Element, to: Element): void {
 		this.#root = from
+		this.#scope = from
 		this.#mapIdSets(from)
 		this.#mapIdArrays(to, false)
 		this.visitChildNodes(from, to)
@@ -549,19 +565,11 @@ class Morph {
 
 	#settleIfRoot(node: Node): void {
 		if (node === this.#root) this.#finish()
+		else if (node === this.#movingElement) this.#completeMoves()
 	}
 
 	#finish(): void {
-		// Completing a move morphs the element, which can claim more elements, so keep going until none are left.
-		// An element inside another claimed element waits for that one, whose morph can still pin it.
-		for (let moves = this.#pendingMoves; moves; moves = this.#pendingMoves) {
-			this.#pendingMoves = null
-			for (let i = 0; i < moves.length; i++) {
-				const move = moves[i]!
-				if (this.#isInsideClaimedElement(move.live)) (this.#pendingMoves ??= []).push(move)
-				else this.#completeMove(move)
-			}
-		}
+		this.#completeMoves()
 
 		const unplaced = this.#unplacedElements
 		if (unplaced) {
@@ -591,6 +599,21 @@ class Morph {
 			this.#preserveChanges = preserveChanges
 			this.#syncedSelects = null
 		}
+
+		const radios = this.#radiosToSync
+		if (radios) {
+			this.#radiosToSync = null
+			this.#syncRadioGroups(radios)
+		}
+	}
+
+	// Completing a move morphs the element, which can claim more elements, so keep going until none are left.
+	// While a moved element is morphed, the moves it started complete before its own after callbacks.
+	#completeMoves(): void {
+		for (let moves = this.#pendingMoves; moves; moves = this.#pendingMoves) {
+			this.#pendingMoves = null
+			for (let i = 0; i < moves.length; i++) this.#completeMove(moves[i]!)
+		}
 	}
 
 	#morphOneToMany(from: ChildNode, to: NodeListOf<ChildNode>): void {
@@ -613,6 +636,14 @@ class Morph {
 			}
 
 			this.#morphOneToOne(from, first)
+
+			// The first node went in after the others, so a radio it checks can uncheck a later one.
+			if (!this.#preserveChanges) {
+				for (let i = 0; i < newNodes.length; i++) {
+					const node = newNodes[i]!
+					if (isElement(node) && node.parentNode === parent) this.#noteRadioGroups(node)
+				}
+			}
 		}
 	}
 
@@ -746,6 +777,10 @@ class Morph {
 			const checked = to.hasAttribute("checked")
 			if (from.checked !== checked && from.hasAttribute("checked") === checked) {
 				from.checked = checked
+				if (from.type === "radio") (this.#radiosToSync ??= new Set()).add(from)
+			} else if (checked && from.type === "radio") {
+				// Adding `checked` checks the radio, which unchecks the others in its group, even later ones.
+				;(this.#radiosToSync ??= new Set()).add(from)
 			}
 
 			// Checkbox and radio values aren't user-editable, and assigning them writes the value attribute.
@@ -1200,7 +1235,7 @@ class Morph {
 		if (this.#preserveChanges) return
 
 		const options = select.options
-		const vetoed = this.#vetoedOptions
+		const vetoed = this.#vetoedControls
 		if (vetoed) {
 			for (let i = 0; i < options.length; i++) {
 				if (vetoed.has(options[i]!)) return
@@ -1219,8 +1254,62 @@ class Morph {
 	}
 
 	// A vetoed `selected` update leaves the selection alone, like other vetoed form attributes.
+	// A radio that moved or was added out of order can uncheck the rest of its group, so note the whole
+	// group now, in case the morph then removes the radio.
+	#noteRadioGroups(element: Element): void {
+		const inputs = isInputElement(element) ? [element] : element.querySelectorAll("input")
+		for (let i = 0; i < inputs.length; i++) {
+			const input = inputs[i]!
+			if (input.type === "radio") {
+				const radios = (this.#radiosToSync ??= new Set())
+				for (const member of radioGroupOf(input)) radios.add(member)
+			}
+		}
+	}
+
+	// Check each radio the markup checks, in document order, so the last one wins as when parsing.
+	// Radios outside the morph, in a vetoed subtree or with a vetoed `checked` update stay as they are.
+	#syncRadioGroups(radios: Set<HTMLInputElement>): void {
+		const done = new Set<HTMLInputElement>()
+		for (const radio of radios) {
+			if (done.has(radio)) continue
+
+			const group = radioGroupOf(radio)
+			for (let i = 0; i < group.length; i++) {
+				const member = group[i]!
+				done.add(member)
+				if (!this.#inScope(member) || this.#isVetoed(member)) continue
+				const checked = member.hasAttribute("checked")
+				if (member.checked !== checked) member.checked = checked
+			}
+		}
+	}
+
+	#inScope(node: Node): boolean {
+		if (!this.#scope!.contains(node)) return false
+
+		const start = this.#scopeStart
+		const end = this.#scopeEnd
+		if (start && (start.contains(node) || !(start.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING))) return false
+		if (end && (end.contains(node) || !(end.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_PRECEDING))) return false
+		return true
+	}
+
+	#isVetoed(control: Element): boolean {
+		if (this.#vetoedControls?.has(control)) return true
+		const nodes = this.#vetoedNodes
+		if (nodes) {
+			for (let i = 0; i < nodes.length; i++) {
+				if (nodes[i]!.contains(control)) return true
+			}
+		}
+		return false
+	}
+
 	#noteVetoedAttribute(element: Element, name: string): void {
-		if (name === "selected" && isOptionElement(element)) (this.#vetoedOptions ??= new Set()).add(element)
+		if ((name === "selected" && isOptionElement(element)) || (name === "checked" && isInputElement(element))) {
+			;(this.#vetoedControls ??= new Set()).add(element)
+		}
 	}
 
 	// Template content is replaced wholesale rather than morphed, so no node callbacks fire inside it.
@@ -1253,7 +1342,17 @@ class Morph {
 	// Put the live element where its placeholder is and morph it into the target, unless a veto
 	// pinned it in the meantime. Then the target is added as a new node instead.
 	#completeMove({ live, target, placeholder, preserveChanges }: PendingMove): void {
-		this.#claimedElements.delete(live)
+		// A move completes once, even when an inner move completed it first.
+		if (!this.#claimedElements.delete(live)) return
+
+		// A claimed element inside another claimed element waits for that one, whose morph can still pin it.
+		for (let ancestor = live.parentElement; ancestor; ancestor = ancestor.parentElement) {
+			const move = this.#claimedElements.get(ancestor)
+			if (move) {
+				this.#completeMove(move)
+				break
+			}
+		}
 
 		// A custom element's `connectedCallback` can replace its children, placeholder included.
 		const parent = placeholder.parentNode
@@ -1266,7 +1365,11 @@ class Morph {
 			this.#liveElementsById.delete(target.id)
 			moveInto(parent, live, placeholder)
 			placeholder.remove()
+			if (!this.#preserveChanges) this.#noteRadioGroups(live)
+			const movingElement = this.#movingElement
+			this.#movingElement = live
 			this.#morphOneToOne(live, target)
+			this.#movingElement = movingElement
 		} else {
 			this.#insertNewNode(parent, target, placeholder)
 			placeholder.remove()
@@ -1330,6 +1433,7 @@ class Morph {
 
 	// A vetoed visit leaves the node's subtree alone, so nothing inside it moves elsewhere.
 	#pinSubtree(node: Node): void {
+		;(this.#vetoedNodes ??= []).push(node)
 		const ids = this.#idSetMap.get(node)
 		if (!ids) return
 
@@ -1358,13 +1462,6 @@ class Morph {
 		return false
 	}
 
-	#isInsideClaimedElement(element: Element): boolean {
-		for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-			if (this.#claimedElements.has(parent)) return true
-		}
-		return false
-	}
-
 	// Claim the live element with the target's id, if it can be morphed into the target where the
 	// target goes. Returns a placeholder for the target's place, where the move completes when the
 	// morph settles.
@@ -1381,8 +1478,9 @@ class Morph {
 		const live = this.#liveElementsById.get(target.id)!
 
 		const placeholder = live.ownerDocument.createComment("")
-		;(this.#pendingMoves ??= []).push({ live, target, placeholder, preserveChanges: this.#preserveChanges })
-		this.#claimedElements.add(live)
+		const move = { live, target, placeholder, preserveChanges: this.#preserveChanges }
+		;(this.#pendingMoves ??= []).push(move)
+		this.#claimedElements.set(live, move)
 		return placeholder
 	}
 
@@ -1602,6 +1700,22 @@ function isEqualNode(from: Node, to: Node): boolean {
 
 function isTemplateElement(element: Element): element is HTMLTemplateElement {
 	return element.localName === "template" && element.namespaceURI === HTML_NAMESPACE
+}
+
+// The radios in the same group as this one, in document order: same name and form owner, in the same tree.
+function radioGroupOf(radio: HTMLInputElement): Array<HTMLInputElement> {
+	const name = radio.name
+	const form = radio.form
+	const group: Array<HTMLInputElement> = []
+	if (name === "") return [radio]
+
+	const scope = form ?? (radio.getRootNode() as ParentNode)
+	const inputs = form ? form.elements : scope.querySelectorAll("input")
+	for (let i = 0; i < inputs.length; i++) {
+		const input = inputs[i] as Element
+		if (isInputElement(input) && input.type === "radio" && input.name === name && input.form === form) group.push(input)
+	}
+	return group
 }
 
 function isInputElement(element: Element): element is HTMLInputElement {

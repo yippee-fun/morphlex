@@ -650,3 +650,72 @@ test.skipIf(!supportsOptionWrappers())("a select shows its markup's default afte
 	expect(host.querySelector<HTMLSelectElement>("select")!.value).toBe("y")
 	host.remove()
 })
+
+test("a checked radio that moves into another form leaves that form's checked radio checked", () => {
+	const host = mount(
+		`<div><form id="a"><input id="x" type="radio" name="r" checked></form><form id="b"><input id="y" type="radio" name="r" checked></form></div>`,
+	)
+	const x = host.querySelector<HTMLInputElement>("#x")!
+	const y = host.querySelector<HTMLInputElement>("#y")!
+
+	morph(
+		host.firstElementChild!,
+		parse(
+			`<div><form id="a"></form><form id="b"><input id="x" type="radio" name="r"><input id="y" type="radio" name="r" checked></form></div>`,
+		),
+	)
+
+	expect(host.querySelector("#x")).toBe(x)
+	expect(x.checked).toBe(false)
+	expect(y.checked).toBe(true)
+	host.remove()
+})
+
+test("a radio that moves out of a form keeps the checkedness its markup gives it", () => {
+	const host = mount(
+		`<div><form id="f"><input id="x" type="radio" name="r" checked><input id="y" type="radio" name="r" checked></form></div>`,
+	)
+	const x = host.querySelector<HTMLInputElement>("#x")!
+	const y = host.querySelector<HTMLInputElement>("#y")!
+
+	morph(
+		host.firstElementChild!,
+		parse(
+			`<div><input id="y" type="radio" name="r" checked><form id="f"><input id="x" type="radio" name="r" checked></form></div>`,
+		),
+	)
+
+	expect(x.checked).toBe(true)
+	expect(y.checked).toBe(true)
+	host.remove()
+})
+
+test("a moved element's callbacks see the moves inside it completed", () => {
+	const host = mount(`<div><section id="s"><input id="x"></section></div>`)
+	const section = host.querySelector("#s")!
+	const seen: Array<string> = []
+
+	morph(host.firstElementChild!, parse(`<div><footer><section id="s"><label><input id="x"></label></section></footer></div>`), {
+		afterChildrenVisited: (node) => node === section && seen.push(section.innerHTML),
+		afterNodeVisited: (node) => node === section && seen.push(section.innerHTML),
+	})
+
+	expect(seen).toEqual([`<label><input id="x"></label>`, `<label><input id="x"></label>`])
+	host.remove()
+})
+
+test("a moved element's callbacks see an element moved in from another moving element", () => {
+	const host = mount(`<div><label><form id="a"></form><form id="b"><button id="x"></button></form></label></div>`)
+	const a = host.querySelector("#a")!
+	const button = host.querySelector("#x")!
+	const seen: Array<string> = []
+
+	morph(host.firstElementChild!, parse(`<div><form id="a"><button id="x"></button></form><form id="b"></form></div>`), {
+		afterNodeVisited: (node) => node === a && seen.push(a.innerHTML),
+	})
+
+	expect(host.innerHTML).toBe(`<div><form id="a"><button id="x"></button></form><form id="b"></form></div>`)
+	expect(host.querySelector("#x")).toBe(button)
+	expect(seen).toEqual([`<button id="x"></button>`])
+	host.remove()
+})

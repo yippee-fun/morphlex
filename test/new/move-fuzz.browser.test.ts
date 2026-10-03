@@ -22,7 +22,7 @@ const SEEDS = Array.from({ length: SEED_COUNT }, (_, index) => 0x3a00 + index)
 const CONTAINERS = ["div", "span", "section", "b", "label", "form", "details"] as const
 const LEAVES = ["input", "textarea", "button", "img", "select"] as const
 const VOID_TAGS = ["input", "img"]
-const INPUT_TYPES = ["text", "checkbox", "hidden"]
+const INPUT_TYPES = ["text", "checkbox", "radio", "hidden"]
 const TEXTS = ["hello", "x y", "123", " "]
 
 test("the result matches the target, and every element that can move keeps its node", () => {
@@ -42,20 +42,17 @@ test("the result matches the target, and every element that can move keeps its n
 	})
 })
 
-test("every select shows what the target markup selects", () => {
+test("every select and checkable input shows what the target markup says", () => {
 	check((scenario, fail) => {
 		const host = mount(scenario.fromHtml)
 		run(host, scenario)
 
-		const expected = mount(scenario.toHtml)
-		const selects = [...host.querySelectorAll("select")]
-		const targets = [...expected.querySelectorAll("select")]
-		expected.remove()
-		for (let index = 0; index < selects.length; index++) {
-			const actual = selectionOf(selects[index]!)
-			const wanted = selectionOf(targets[index]!)
-			if (actual !== wanted) fail(host, `a select shows ${actual}, but the target selects ${wanted}`)
-		}
+		// A separate document, so its radios don't join the live radio groups.
+		const expected = document.implementation.createHTMLDocument("")
+		expected.body.innerHTML = scenario.toHtml
+		const actual = stateOf(host.firstChild as Element)
+		const wanted = stateOf(expected.body.firstChild as Element)
+		if (actual !== wanted) fail(host, `controls show ${actual}, but the target says ${wanted}`)
 	})
 })
 
@@ -97,6 +94,14 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 			snapshots.set(element, { html: element.innerHTML, nodes: descendants(element) })
 		}
 
+		// An element moved to another parent is morphed after it moves, so its callbacks see its finished subtree.
+		const parents = new Map<Node, Node | null>(live.map((element) => [element, element.parentNode]))
+		const checkMoved = (node: Node) => {
+			if (isElement(node) && parents.get(node) !== node.parentNode && node.innerHTML.includes("<!---->")) {
+				fail(host, `a moved element's callbacks saw a placeholder: ${describe(node)}`)
+			}
+		}
+
 		const visited = new Set<Node>()
 		const childrenChecked = new Set<Node>()
 		const removed: Array<Node> = []
@@ -111,6 +116,7 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 			},
 			afterNodeVisited: (from) => {
 				if (from === root) rootViews.push(host.innerHTML)
+				else checkMoved(from)
 			},
 			beforeChildrenVisited: (parent) => {
 				childrenChecked.add(parent)
@@ -118,6 +124,7 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 			},
 			afterChildrenVisited: (parent) => {
 				if (parent === root) rootViews.push(host.innerHTML)
+				else checkMoved(parent)
 			},
 			beforeNodeAdded: (_parent, node) => !(vetoAdded && isElement(node) && node.id !== "" && random() < 0.3),
 			afterNodeAdded: (node) => {
@@ -132,7 +139,9 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 		})
 
 		const final = host.innerHTML
-		if (rootViews.some((view) => view !== final)) fail(host, "the root's callbacks saw an unsettled DOM")
+		// A dirty control whose visit was vetoed still has its sentinel until the morph returns.
+		if (rootViews.some((view) => view.replaceAll(' morphlex-dirty=""', "") !== final))
+			fail(host, "the root's callbacks saw an unsettled DOM")
 		if (final.includes("<!---->")) fail(host, "a placeholder was left behind")
 		for (const node of removed) {
 			if (host.contains(node)) fail(host, "a removed node came back")
@@ -255,10 +264,15 @@ function createCase(seed: number): Case {
 	const random = createRandom(seed)
 	const ids = { next: 0 }
 	// Some cases focus on selects, with options in nested wrappers that move around inside them.
-	const selects = random() < 0.25
-	const from = Array.from({ length: randomInt(random, 1, 4) }, () =>
-		selects && random() < 0.6 ? createSelect(random, ids) : createNode(random, 3, ids),
-	)
+	// Others focus on forms of radios, which move between radio groups.
+	const focus = random()
+	const selects = focus < 0.25
+	const forms = focus > 0.8
+	const from = Array.from({ length: randomInt(random, 1, 4) }, () => {
+		if (selects && random() < 0.6) return createSelect(random, ids)
+		if (forms && random() < 0.7) return createForm(random, ids)
+		return createNode(random, 3, ids)
+	})
 
 	let to = from.map((node) => clone(node))
 	for (let count = randomInt(random, 1, 5); count > 0; count--) {
@@ -285,7 +299,12 @@ function createNode(random: Random, depth: number, ids: { next: number }): TreeN
 	const tag = leaf ? pick(random, LEAVES) : pick(random, CONTAINERS)
 	const attributes: Array<[string, string]> = []
 	if (random() < 0.7) attributes.push(["id", `i${ids.next++}`])
-	if (tag === "input") attributes.push(["type", pick(random, INPUT_TYPES)])
+	if (tag === "input") {
+		const type = pick(random, INPUT_TYPES)
+		attributes.push(["type", type])
+		if (type === "radio") attributes.push(["name", pick(random, ["r", "s"])])
+		if ((type === "radio" || type === "checkbox") && random() < 0.4) attributes.push(["checked", ""])
+	}
 	if (random() < 0.3) attributes.push(["class", pick(random, ["a", "b"])])
 
 	const children: Array<TreeNode> = []
@@ -296,6 +315,19 @@ function createNode(random: Random, depth: number, ids: { next: number }): TreeN
 	}
 
 	return { kind: "element", tag, attributes, children }
+}
+
+function createForm(random: Random, ids: { next: number }): ElementNode {
+	const inputs = Array.from({ length: randomInt(random, 1, 3) }, (): ElementNode => {
+		const attributes: Array<[string, string]> = [
+			["id", `i${ids.next++}`],
+			["type", random() < 0.8 ? "radio" : "checkbox"],
+			["name", random() < 0.8 ? "r" : "s"],
+		]
+		if (random() < 0.5) attributes.push(["checked", ""])
+		return { kind: "element", tag: "input", attributes, children: [] }
+	})
+	return { kind: "element", tag: "form", attributes: random() < 0.5 ? [["id", `i${ids.next++}`]] : [], children: inputs }
 }
 
 function createSelect(random: Random, ids: { next: number }): ElementNode {
@@ -354,6 +386,8 @@ function mutate(random: Random, nodes: Array<TreeNode>, ids: { next: number }): 
 	} else if (operation === 6) {
 		if (random() < 0.5) parent.children.splice(index, 1)
 		else parent.children.splice(index, 0, createNode(random, 2, ids))
+	} else if (node.kind === "element" && isCheckable(node) && random() < 0.5) {
+		toggleAttribute(node, "checked")
 	} else if (node.kind === "element") {
 		node.attributes = node.attributes.filter(([name]) => name !== "class")
 		node.attributes.push(["class", pick(random, ["a", "b", "c"])])
@@ -373,8 +407,7 @@ function mutateSelect(random: Random, top: ElementNode, ids: { next: number }): 
 	const node = parent.children[index] as ElementNode
 
 	if (node.tag === "option" && random() < 0.3) {
-		const selected = node.attributes.some(([name]) => name === "selected")
-		node.attributes = selected ? node.attributes.filter(([name]) => name !== "selected") : [...node.attributes, ["selected", ""]]
+		toggleAttribute(node, "selected")
 		return top.children
 	}
 
@@ -476,6 +509,31 @@ function isSameChildren(a: Node, b: Node): boolean {
 		if (!isSameTree(a.childNodes[index]!, b.childNodes[index]!)) return false
 	}
 	return true
+}
+
+function isCheckable(node: ElementNode): boolean {
+	return (
+		node.tag === "input" &&
+		node.attributes.some(([name, value]) => name === "type" && (value === "radio" || value === "checkbox"))
+	)
+}
+
+function toggleAttribute(node: ElementNode, attribute: string): void {
+	const has = node.attributes.some(([name]) => name === attribute)
+	node.attributes = has ? node.attributes.filter(([name]) => name !== attribute) : [...node.attributes, [attribute, ""]]
+}
+
+// Each select's selection and each checkbox or radio's checkedness, in document order.
+function stateOf(root: Element): string {
+	return [...root.querySelectorAll("select, input")]
+		.map((control) =>
+			control.localName === "select"
+				? selectionOf(control as HTMLSelectElement)
+				: (control as HTMLInputElement).checked
+					? "x"
+					: "-",
+		)
+		.join(" ")
 }
 
 function selectionOf(select: HTMLSelectElement): string {
