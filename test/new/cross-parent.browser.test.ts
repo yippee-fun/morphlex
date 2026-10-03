@@ -263,3 +263,73 @@ test("options and optgroups with ids don't move to another select", () => {
 		host.remove()
 	}
 })
+
+test("an element moves into a later node of a node list", () => {
+	const host = mount(`<div><div><input id="d"></div></div>`)
+	const input = host.querySelector("input")!
+	input.value = "typed"
+
+	const template = document.createElement("template")
+	template.innerHTML = `<div></div><input id="d">`
+	morph(host.firstElementChild!.firstElementChild!, template.content.childNodes, { preserveChanges: true })
+
+	expect(host.innerHTML).toBe(`<div><div></div><input id="d"></div>`)
+	expect(host.querySelector("input")).toBe(input)
+	expect(input.value).toBe("typed")
+	host.remove()
+})
+
+test("an element sharing its id with the morph root isn't moved", () => {
+	const host = mount(`<div id="x"><p><input id="x"></p></div>`)
+	const input = host.querySelector("input")!
+
+	morph(host.firstElementChild!, parse(`<div id="x"><input id="x"></div>`))
+
+	expect(host.innerHTML).toBe(`<div id="x"><input id="x"></div>`)
+	expect(host.querySelector("input")).not.toBe(input)
+	host.remove()
+})
+
+test("the root's callbacks see the finished DOM after a move", () => {
+	const host = mount(`<div><p><input id="d"></p></div>`)
+	const root = host.firstElementChild!
+	const p = host.querySelector("p")!
+	const log: Array<string> = []
+
+	morph(root, parse(`<div><input id="d"></div>`), {
+		afterNodeRemoved: (node) => log.push(`removed ${(node as Element).localName}`),
+		afterChildrenVisited: (node) => node === root && log.push(`children ${root.innerHTML}`),
+		afterNodeVisited: (node) => node === root && log.push("visited"),
+	})
+
+	expect(log).toEqual(["removed p", `children <input id="d">`, "visited"])
+	expect(p.isConnected).toBe(false)
+	host.remove()
+})
+
+test("elements inside a subtree whose visit is vetoed don't move", () => {
+	for (const options of [
+		{ beforeChildrenVisited: (node: ParentNode) => (node as Element).id !== "s" },
+		{ beforeNodeVisited: (node: Node) => (node as Element).id !== "s" },
+	]) {
+		const host = mount(`<div><section id="s"><input id="x"></section><aside id="a"></aside></div>`)
+		const input = host.querySelector("input")!
+
+		morph(host.firstElementChild!, parse(`<div><section id="s"></section><aside id="a"><input id="x"></aside></div>`), options)
+
+		expect(input.parentElement).toBe(host.querySelector("section"))
+		expect(host.querySelector("aside")!.innerHTML).toBe(`<input id="x">`)
+		host.remove()
+	}
+})
+
+test("an element can be recreated while another moves in the same morph", () => {
+	const host = mount(`<div><input id="d" type="text"><p><input id="e"></p></div>`)
+	const e = host.querySelector("#e")!
+
+	morph(host.firstElementChild!, parse(`<div><input id="d" type="checkbox"><input id="e"></div>`))
+
+	expect(host.innerHTML).toBe(`<div><input id="d" type="checkbox"><input id="e"></div>`)
+	expect(host.querySelector("#e")).toBe(e)
+	host.remove()
+})

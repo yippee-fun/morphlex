@@ -490,6 +490,9 @@ class Morph {
 	#unplacedElements: Array<Element> | null = null
 	// Approved removals put off until the end, because the node holds an element that may move out.
 	#deferredRemovals: Array<ChildNode> | null = null
+	// Pending moves and removals are settled when the root's children have been visited, or when
+	// the root is replaced, so the root's own callbacks see the finished DOM.
+	#root: Node | null = null
 	#preserveChanges: boolean
 
 	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
@@ -499,6 +502,7 @@ class Morph {
 	}
 
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
+		this.#root = from
 		if (isParentNode(from)) {
 			this.#mapIdSets(from)
 		}
@@ -517,10 +521,15 @@ class Morph {
 	}
 
 	morphChildren(from: Element, to: Element): void {
+		this.#root = from
 		this.#mapIdSets(from)
 		this.#mapIdArrays(to)
 		this.visitChildNodes(from, to)
 		this.#finish()
+	}
+
+	#settleIfRoot(node: Node): void {
+		if (node === this.#root) this.#finish()
 	}
 
 	#finish(): void {
@@ -530,6 +539,7 @@ class Morph {
 				const element = unplaced[i]!
 				if (this.#liveElementsById.has(element.id)) this.#removeNodeNow(element)
 			}
+			this.#unplacedElements = null
 		}
 
 		const deferred = this.#deferredRemovals
@@ -539,6 +549,7 @@ class Morph {
 				node.remove()
 				this.#options.afterNodeRemoved?.(node)
 			}
+			this.#deferredRemovals = null
 		}
 	}
 
@@ -553,17 +564,15 @@ class Morph {
 			const parent = from.parentNode
 			if (!parent) throw new Error(DETACHED_NODE_ERROR)
 
+			// Add the other nodes first, so moves into them are settled when the first node's morph finishes.
 			const newNodes = [...to]
+			const first = newNodes.shift()!
 			const insertionPoint = from.nextSibling
-			this.#morphOneToOne(from, newNodes.shift()!)
-
 			for (let i = 0; i < newNodes.length; i++) {
-				const newNode = newNodes[i]!
-				if (this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true) {
-					parent.insertBefore(newNode, insertionPoint)
-					this.#options.afterNodeAdded?.(newNode)
-				}
+				this.#addNode(parent, newNodes[i]!, insertionPoint)
 			}
+
+			this.#morphOneToOne(from, first)
 		}
 	}
 
@@ -584,7 +593,10 @@ class Morph {
 	}
 
 	#morphMatchingElements(from: Element, to: Element): void {
-		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) return
+		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) {
+			this.#pinSubtree(from)
+			return
+		}
 
 		// Discard user changes inside a `morphlex-clobber` element, as if `preserveChanges` were off.
 		const preserveChanges = this.#preserveChanges
@@ -605,7 +617,10 @@ class Morph {
 	}
 
 	#morphNonMatchingElements(from: Element, to: Element): void {
-		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) return
+		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) {
+			this.#pinSubtree(from)
+			return
+		}
 
 		this.#replaceNode(from, to)
 
@@ -613,7 +628,10 @@ class Morph {
 	}
 
 	#morphOtherNode(from: ChildNode, to: ChildNode): void {
-		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) return
+		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) {
+			this.#pinSubtree(from)
+			return
+		}
 
 		const fromValue = from.nodeValue
 		const toValue = to.nodeValue
@@ -728,7 +746,10 @@ class Morph {
 	}
 
 	visitChildNodes(from: Element, to: Element): void {
-		if (!(this.#options.beforeChildrenVisited?.(from) ?? true)) return
+		if (!(this.#options.beforeChildrenVisited?.(from) ?? true)) {
+			this.#pinSubtree(from)
+			return
+		}
 
 		if (isTemplateElement(from) && isTemplateElement(to)) {
 			this.#visitTemplateContent(from, to)
@@ -1100,20 +1121,11 @@ class Morph {
 
 				insertionPoint = match.nextSibling
 			} else {
-				const live = isElement(node) ? this.#takeMovableElement(node, parent) : null
-				if (live) {
-					moveInto(parent, live, insertionPoint)
-					this.#morphOneToOne(live, node)
-				} else if (this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true) {
-					clearImplicitSelection(node)
-					parent.insertBefore(node, insertionPoint)
-					this.#placeMovableDescendants(node)
-					this.#options.afterNodeAdded?.(node)
-					insertionPoint = node.nextSibling
-				}
+				if (this.#addNode(parent, node, insertionPoint)) insertionPoint = node.nextSibling
 			}
 		}
 
+		this.#settleIfRoot(from)
 		if (isSelectElement(from)) this.#syncDefaultSelection(from)
 
 		this.#options.afterChildrenVisited?.(from)
@@ -1165,6 +1177,22 @@ class Morph {
 		from.content.replaceChildren(to.content)
 	}
 
+	// Add a new node, or move in the live element with its id. Returns whether the new node was inserted.
+	#addNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): boolean {
+		const live = isElement(node) ? this.#takeMovableElement(node, parent) : null
+		if (live) {
+			moveInto(parent, live, insertionPoint)
+			this.#morphOneToOne(live, node)
+		} else if (this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true) {
+			clearImplicitSelection(node)
+			parent.insertBefore(node, insertionPoint)
+			this.#placeMovableDescendants(node)
+			this.#options.afterNodeAdded?.(node)
+			return true
+		}
+		return false
+	}
+
 	#replaceNode(node: ChildNode, newNode: ChildNode): void {
 		const parent = node.parentNode
 		if (!parent) throw new Error(DETACHED_NODE_ERROR)
@@ -1180,6 +1208,7 @@ class Morph {
 			this.#placeMovableDescendants(newNode)
 			this.#options.afterNodeAdded?.(newNode)
 			this.#removeApprovedNode(node)
+			this.#settleIfRoot(node)
 		}
 	}
 
@@ -1206,6 +1235,16 @@ class Morph {
 		} else {
 			node.remove()
 			this.#options.afterNodeRemoved?.(node)
+		}
+	}
+
+	// A vetoed visit leaves the node's subtree alone, so nothing inside it moves elsewhere.
+	#pinSubtree(node: Node): void {
+		const ids = this.#idSetMap.get(node)
+		if (!ids) return
+
+		for (const id of ids) {
+			if (this.#liveElementsById.get(id) !== node) this.#liveElementsById.set(id, null)
 		}
 	}
 
@@ -1288,6 +1327,7 @@ class Morph {
 		const idArrayMap = this.#idArrayMap
 
 		const targetIdCounts = this.#targetIdCounts
+		if (isElement(node) && node.id !== "") targetIdCounts.set(node.id, (targetIdCounts.get(node.id) ?? 0) + 1)
 
 		forEachDescendantElementWithId(node, (element) => {
 			const id = element.id
@@ -1312,7 +1352,9 @@ class Morph {
 	#mapIdSets(node: ParentNode): void {
 		const idSetMap = this.#idSetMap
 
+		// The root's id counts towards uniqueness, but the root itself never moves.
 		const liveElementsById = this.#liveElementsById
+		if (isElement(node) && node.id !== "") liveElementsById.set(node.id, null)
 
 		forEachDescendantElementWithId(node, (element) => {
 			const id = element.id
