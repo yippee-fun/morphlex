@@ -653,10 +653,9 @@ class Morph {
 			this.#radiosUncheckedForMove = null
 			const groups: RadioGroups = new Map()
 			for (const radio of unchecked) {
-				const vetoed = this.#isVetoed(radio)
-				if (radio.checked || !(vetoed || radio.hasAttribute("checked"))) continue
-				// Checking it would uncheck the rest of its new group, which a vetoed radio there keeps as it is.
-				if (!vetoed && radioGroupOf(radio, groups).some((member) => member.checked && this.#isVetoed(member))) continue
+				if (radio.checked || !(radio.hasAttribute("checked") || this.#isVetoed(radio))) continue
+				// Checking it would uncheck the rest of its new group, where a checked radio that's vetoed stays checked.
+				if (radioGroupOf(radio, groups).some((member) => member.checked && this.#isVetoed(member))) continue
 				radio.checked = true
 			}
 		}
