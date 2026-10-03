@@ -533,6 +533,8 @@ interface PendingMove {
 	target: Element
 	placeholder: Comment
 	preserveChanges: boolean
+	// A replacement asks `beforeNodeAdded` before it claims, so its target isn't asked again.
+	approved: boolean
 }
 
 class Morph {
@@ -649,8 +651,13 @@ class Morph {
 		const unchecked = this.#radiosUncheckedForMove
 		if (unchecked) {
 			this.#radiosUncheckedForMove = null
+			const groups: RadioGroups = new Map()
 			for (const radio of unchecked) {
-				if (!radio.checked && (radio.hasAttribute("checked") || this.#isVetoed(radio))) radio.checked = true
+				const vetoed = this.#isVetoed(radio)
+				if (radio.checked || !(vetoed || radio.hasAttribute("checked"))) continue
+				// Checking it would uncheck the rest of its new group, which a vetoed radio there keeps as it is.
+				if (!vetoed && radioGroupOf(radio, groups).some((member) => member.checked && this.#isVetoed(member))) continue
+				radio.checked = true
 			}
 		}
 
@@ -1421,8 +1428,8 @@ class Morph {
 		return this.#insertNewNode(parent, node, insertionPoint)
 	}
 
-	#insertNewNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): boolean {
-		if (!(this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true)) return false
+	#insertNewNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null, approved = false): boolean {
+		if (!approved && !(this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true)) return false
 
 		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, parent)
@@ -1434,7 +1441,7 @@ class Morph {
 
 	// Put the live element where its placeholder is and morph it into the target, unless a veto
 	// pinned it in the meantime. Then the target is added as a new node instead.
-	#completeMove({ live, target, placeholder, preserveChanges }: PendingMove): void {
+	#completeMove({ live, target, placeholder, preserveChanges, approved }: PendingMove): void {
 		// A move completes once, even when another move completed it first.
 		if (!this.#claimedElements.has(live)) return
 
@@ -1464,7 +1471,7 @@ class Morph {
 			if (!this.#preserveChanges) this.#noteRadioGroups(live)
 			this.#morphOneToOne(live, target)
 		} else {
-			this.#insertNewNode(parent, target, placeholder)
+			this.#insertNewNode(parent, target, placeholder, approved)
 			placeholder.remove()
 		}
 
@@ -1483,14 +1490,11 @@ class Morph {
 			(this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true)
 		) {
 			// The replacement can be a live element from elsewhere, even one inside the node it replaces.
-			const placeholder = isElement(newNode) ? this.#claimMovableElement(newNode, parent) : null
+			const placeholder = isElement(newNode) ? this.#claimMovableElement(newNode, parent, undefined, true) : null
 			if (placeholder) {
 				parent.insertBefore(placeholder, insertionPoint)
 			} else {
-				clearImplicitSelection(newNode, parent)
-				this.#placeMovableDescendants(newNode, parent)
-				parent.insertBefore(newNode, insertionPoint)
-				this.#options.afterNodeAdded?.(newNode)
+				this.#insertNewNode(parent, newNode, insertionPoint, true)
 			}
 			this.#removeApprovedNode(node)
 		}
@@ -1571,13 +1575,13 @@ class Morph {
 
 	// Claim the live element with the target's id, if it can be. Returns a placeholder for the target's
 	// place, where the move completes when the morph settles.
-	#claimMovableElement(target: Element, parent: ParentNode, select?: HTMLSelectElement | null): Comment | null {
+	#claimMovableElement(target: Element, parent: ParentNode, select?: HTMLSelectElement | null, approved = false): Comment | null {
 		if (!this.#canClaim(target, parent, select)) return null
 		const live = this.#liveElementsById.get(target.id)!
 
 		const placeholder = live.ownerDocument.createComment("")
 		const preserveChanges = this.#preserveChanges && !this.#clobbered?.has(target)
-		const move = { live, target, placeholder, preserveChanges }
+		const move = { live, target, placeholder, preserveChanges, approved }
 		;(this.#pendingMoves ??= []).push(move)
 		this.#claimedElements.set(live, move)
 		return placeholder

@@ -155,6 +155,7 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 		const view = () => `${host.innerHTML.replaceAll(' morphlex-dirty=""', "")} ${stateOf(host)}`
 
 		const visited = new Set<Node>()
+		const offered = new Set<Node>()
 		const childrenChecked = new Set<Node>()
 		const removed: Array<Node> = []
 		const removedDescendants: Array<Node> = []
@@ -176,7 +177,11 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 			afterChildrenVisited: (parent) => {
 				if (parent === root) rootViews.push(view())
 			},
-			beforeNodeAdded: (_parent, node) => !(vetoAllAdded || (vetoAdded && isElement(node) && node.id !== "" && random() < 0.3)),
+			beforeNodeAdded: (_parent, node) => {
+				if (offered.has(node)) fail(host, "beforeNodeAdded was asked twice for a node")
+				offered.add(node)
+				return !(vetoAllAdded || (vetoAdded && isElement(node) && node.id !== "" && random() < 0.3))
+			},
 			afterNodeAdded: (node) => {
 				if (!host.contains(node)) fail(host, "afterNodeAdded for a detached node")
 			},

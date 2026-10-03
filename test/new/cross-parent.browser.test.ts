@@ -582,6 +582,27 @@ test("vetoing the addition keeps a root that an input inside it would replace", 
 	host.remove()
 })
 
+test("a replacement whose element is pinned by another move is added without asking again", () => {
+	const host = mount(`<div id="r"><section id="a"><p id="x">x</p></section></div>`)
+	const section = host.querySelector("section")!
+	const template = document.createElement("template")
+	template.innerHTML = `<p id="x">x</p><section id="a"></section>`
+	const offered: Array<Node> = []
+
+	morph(host.firstElementChild!, template.content.childNodes, {
+		beforeNodeAdded: (_parent, node) => {
+			offered.push(node)
+			return offered.filter((offeredNode) => offeredNode === node).length === 1
+		},
+		beforeNodeVisited: (node) => node !== section,
+	})
+
+	expect(host.innerHTML).toBe(`<p id="x">x</p><section id="a"><p id="x">x</p></section>`)
+	expect(host.lastElementChild).toBe(section)
+	expect(new Set(offered).size).toBe(offered.length)
+	host.remove()
+})
+
 test("a parent of a moving input doesn't take the input's id", () => {
 	const host = mount(`<div><span><span id="d"><input></span></span><b id="e"></b></div>`)
 	const span = host.querySelector("#d")!

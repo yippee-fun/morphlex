@@ -324,6 +324,25 @@ test("a moved radio whose visit is vetoed stays checked", () => {
 	host.remove()
 })
 
+test("a moved radio stays unchecked rather than uncheck a vetoed radio in its new group", () => {
+	const host = mount(
+		`<div><form id="f"><span id="s"><input id="m" type="radio" name="r" checked></span></form><form id="g"><input id="v" type="radio" name="r" checked></form></div>`,
+	)
+
+	morph(
+		host.firstElementChild!,
+		parse(
+			`<div><form id="f"></form><form id="g"><input id="v" type="radio" name="r" class="a" checked><span id="s"><input id="m" type="radio" name="r" checked></span></form></div>`,
+		),
+		{
+			beforeNodeVisited: (node) => (node as Element).id !== "v",
+		},
+	)
+
+	expect(radio(host, "v").checked).toBe(true)
+	host.remove()
+})
+
 test("a moved radio the markup checks stays checked when its group isn't synced", () => {
 	const host = mount(
 		`<div><form id="f"><input id="m" type="radio" name="r"></form><form id="g"><span id="s"><input id="x" type="radio" name="r" checked></span></form></div>`,
