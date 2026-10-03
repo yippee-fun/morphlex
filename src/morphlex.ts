@@ -393,9 +393,14 @@ function clearImplicitOptionSelection(option: HTMLOptionElement): void {
 
 // Options belong to their select, so an element holding options only moves within its select.
 // Customizable selects allow options inside other elements.
-function movesOptionsBetweenSelects(live: Element, parent: ParentNode): boolean {
+function movesOptionsBetweenSelects(live: Element, select: HTMLSelectElement | null): boolean {
 	if (isSelectElement(live) || !live.querySelector("option")) return false
-	return selectOf(live) !== (isElement(parent) && isSelectElement(parent) ? parent : selectOf(parent))
+	return selectOf(live) !== select
+}
+
+// The select a child of the live `parent` belongs to.
+function selectAt(parent: ParentNode): HTMLSelectElement | null {
+	return isElement(parent) && isSelectElement(parent) ? parent : selectOf(parent)
 }
 
 // Customizable selects allow options nested inside other elements, so look past the parent.
@@ -501,6 +506,8 @@ class Morph {
 	// Radios whose checkedness the morph reset or whose radio group a move changed. Their groups are
 	// synced to the markup when the morph settles, because moves complete out of document order.
 	#radiosToSync: Set<HTMLInputElement> | null = null
+	// Checked radios that moved unchecked, so they couldn't uncheck the rest of a group they joined.
+	#radiosUncheckedForMove: Set<HTMLInputElement> | null = null
 	// The morph's own nodes are inside this node, between these two siblings when there are any.
 	#scope: Node | null = null
 	#scopeStart: Node | null = null
@@ -598,6 +605,14 @@ class Morph {
 			for (const select of selects) this.#syncDefaultSelection(select)
 			this.#preserveChanges = preserveChanges
 			this.#syncedSelects = null
+		}
+
+		const unchecked = this.#radiosUncheckedForMove
+		if (unchecked) {
+			this.#radiosUncheckedForMove = null
+			for (const radio of unchecked) {
+				if (!radio.checked && (radio.hasAttribute("checked") || this.#isVetoed(radio))) radio.checked = true
+			}
 		}
 
 		const radios = this.#radiosToSync
@@ -1046,7 +1061,10 @@ class Morph {
 		// A target whose live element is elsewhere is left for #addNode to claim, so no other candidate takes its id.
 		for (let i = 0; i < unmatchedElementIndices.length; i++) {
 			const unmatchedIndex = unmatchedElementIndices[i]!
-			if (unmatchedElementActive[unmatchedIndex] && this.#canClaim(toChildNodes[unmatchedIndex] as Element, parent)) {
+			if (
+				unmatchedElementActive[unmatchedIndex] &&
+				this.#canClaim(toChildNodes[unmatchedIndex] as Element, parent, selectAt(parent))
+			) {
 				unmatchedElementActive[unmatchedIndex] = 0
 			}
 		}
@@ -1314,6 +1332,42 @@ class Morph {
 		}
 	}
 
+	// Moving an element can change the form of radios inside it, and briefly of radios outside it
+	// whose form is inside it, and a checked radio that changes form unchecks the rest of its new
+	// group. So checked radios outside the element move unchecked and are checked again straight
+	// after. Without `preserveChanges`, checked radios inside it that change form move unchecked too,
+	// and are checked again when the morph settles if the markup or a veto keeps them checked.
+	// Returns the radios outside.
+	#uncheckRadiosForMove(element: Element, parent: ParentNode): Array<HTMLInputElement> {
+		const outside: Array<HTMLInputElement> = []
+		const forms = isFormElement(element) ? [element] : element.querySelectorAll("form")
+		for (let i = 0; i < forms.length; i++) {
+			const form = forms[i]!
+			if (!isFormElement(form)) continue
+			const controls = form.elements
+			for (let j = 0; j < controls.length; j++) {
+				const control = controls[j]!
+				if (isCheckedRadio(control) && !element.contains(control)) {
+					control.checked = false
+					outside.push(control)
+				}
+			}
+		}
+
+		if (!this.#preserveChanges) {
+			const inputs = isInputElement(element) ? [element] : element.querySelectorAll("input")
+			for (let i = 0; i < inputs.length; i++) {
+				const input = inputs[i]!
+				if (isCheckedRadio(input) && input.form !== formAfterMove(input, element, parent)) {
+					input.checked = false
+					;(this.#radiosUncheckedForMove ??= new Set()).add(input)
+				}
+			}
+		}
+
+		return outside
+	}
+
 	// Check each radio the markup checks, in document order, so the last one wins as when parsing.
 	// Radios outside the morph stay as they are, and so does a group with a radio in a vetoed subtree
 	// or with a vetoed `checked` update.
@@ -1382,7 +1436,7 @@ class Morph {
 		if (!(this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true)) return false
 
 		clearImplicitSelection(node)
-		this.#placeMovableDescendants(node)
+		this.#placeMovableDescendants(node, selectAt(parent))
 		parent.insertBefore(node, insertionPoint)
 		this.#options.afterNodeAdded?.(node)
 		return true
@@ -1414,8 +1468,10 @@ class Morph {
 
 		if (this.#liveElementsById.get(target.id) === live && !live.contains(parent)) {
 			this.#liveElementsById.delete(target.id)
+			const outsideRadios = this.#uncheckRadiosForMove(live, parent)
 			moveInto(parent, live, placeholder)
 			placeholder.remove()
+			for (const radio of outsideRadios) radio.checked = true
 			if (!this.#preserveChanges) this.#noteRadioGroups(live)
 			const movingElement = this.#movingElement
 			this.#movingElement = live
@@ -1447,7 +1503,7 @@ class Morph {
 			this.#removeApprovedNode(node)
 		} else if (this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true) {
 			clearImplicitSelection(newNode)
-			this.#placeMovableDescendants(newNode)
+			this.#placeMovableDescendants(newNode, selectAt(parent))
 			parent.insertBefore(newNode, insertionPoint)
 			this.#options.afterNodeAdded?.(newNode)
 			this.#removeApprovedNode(node)
@@ -1516,16 +1572,17 @@ class Morph {
 	// Claim the live element with the target's id, if it can be morphed into the target where the
 	// target goes. Returns a placeholder for the target's place, where the move completes when the
 	// morph settles.
-	#canClaim(target: Element, parent: ParentNode): boolean {
+	// `select` is the live select the target ends up in, since a new node's targets are still in their parsed select.
+	#canClaim(target: Element, parent: ParentNode, select: HTMLSelectElement | null): boolean {
 		const live = this.#movableElement(target.id)
 		// Claiming takes the target out of its parent, so an element holding options is only claimed where it can move.
 		return (
-			live !== null && canMorphElementInPlace(live, target) && !live.contains(parent) && !movesOptionsBetweenSelects(live, parent)
+			live !== null && canMorphElementInPlace(live, target) && !live.contains(parent) && !movesOptionsBetweenSelects(live, select)
 		)
 	}
 
-	#claimMovableElement(target: Element, parent: ParentNode): Comment | null {
-		if (!this.#canClaim(target, parent)) return null
+	#claimMovableElement(target: Element, parent: ParentNode, select = selectAt(parent)): Comment | null {
+		if (!this.#canClaim(target, parent, select)) return null
 		const live = this.#liveElementsById.get(target.id)!
 
 		const placeholder = live.ownerDocument.createComment("")
@@ -1539,31 +1596,34 @@ class Morph {
 	// A new node can hold targets for live elements elsewhere. Claim each live element, leaving a
 	// placeholder for its target. This runs before the new node is attached, so discarded targets
 	// never connect.
-	#placeMovableDescendants(node: ChildNode): void {
+	// `select` is the live select the node goes into.
+	#placeMovableDescendants(node: ChildNode, select: HTMLSelectElement | null): void {
 		if (!isElement(node)) return
 
 		const ids = this.#idArrayMap.get(node)
 		if (!ids?.some((id) => id !== node.id && this.#movableElement(id))) return
 
-		this.#placeMovableChildren(node)
+		this.#placeMovableChildren(node, select)
 	}
 
 	// Swap the targets under `parent` that claim a live element for placeholders. Inside a
 	// `morphlex-clobber` element, the moves discard user changes as if `preserveChanges` were off.
-	#placeMovableChildren(parent: Element): void {
+	#placeMovableChildren(parent: Element, outerSelect: HTMLSelectElement | null): void {
 		const preserveChanges = this.#preserveChanges
 		if (preserveChanges && this.#clobbered?.has(parent)) this.#preserveChanges = false
+		/* v8 ignore next -- happy-dom gives a select's children another parent, so it never gets here with a select */
+		const select = isSelectElement(parent) ? parent : outerSelect
 
 		let target = parent.firstElementChild
 		while (target) {
 			const next = target.nextElementSibling
 
 			if (this.#idArrayMap.has(target)) {
-				const placeholder = this.#claimMovableElement(target, parent)
+				const placeholder = this.#claimMovableElement(target, parent, select)
 				if (placeholder) {
 					parent.replaceChild(placeholder, target)
 				} else {
-					this.#placeMovableChildren(target)
+					this.#placeMovableChildren(target, select)
 				}
 			}
 
@@ -1768,6 +1828,29 @@ function radioGroupOf(radio: HTMLInputElement): Array<HTMLInputElement> {
 		if (isInputElement(input) && input.type === "radio" && input.name === name && input.form === form) group.push(input)
 	}
 	return group
+}
+
+// The form a control inside `element` belongs to once `element` moves into `parent`.
+function formAfterMove(control: HTMLInputElement, element: Element, parent: ParentNode): HTMLFormElement | null {
+	if (control.hasAttribute("form")) return control.form
+	const form = closestForm(control.parentNode)
+	return form && element.contains(form) ? form : closestForm(parent)
+}
+
+// The node itself or its nearest ancestor that is a form.
+function closestForm(node: Node | null): HTMLFormElement | null {
+	for (; node; node = node.parentNode) {
+		if (isFormElement(node as Element)) return node as HTMLFormElement
+	}
+	return null
+}
+
+function isFormElement(element: Element): element is HTMLFormElement {
+	return element.localName === "form" && element.namespaceURI === HTML_NAMESPACE
+}
+
+function isCheckedRadio(element: Element): element is HTMLInputElement {
+	return isInputElement(element) && element.type === "radio" && element.checked
 }
 
 function isInputElement(element: Element): element is HTMLInputElement {

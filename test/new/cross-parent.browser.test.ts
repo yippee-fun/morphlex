@@ -17,6 +17,18 @@ function supportsOptionWrappers(): boolean {
 	return "defaultSelected" in HTMLOptionElement.prototype && select.options.length === 1
 }
 
+// happy-dom puts radios in a form into the group of radios without one.
+function groupsRadiosByForm(): boolean {
+	const host = document.createElement("div")
+	host.innerHTML = `<form><input type="radio" name="r"></form><input type="radio" name="r">`
+	document.body.append(host)
+	const radios = [...host.querySelectorAll("input")]
+	for (const radio of radios) radio.checked = true
+	const checked = radios.filter((radio) => radio.checked).length
+	host.remove()
+	return checked === 2
+}
+
 function parse(html: string): Element {
 	const template = document.createElement("template")
 	template.innerHTML = html
@@ -671,7 +683,7 @@ test("a checked radio that moves into another form leaves that form's checked ra
 	host.remove()
 })
 
-test("a radio that moves out of a form keeps the checkedness its markup gives it", () => {
+test.skipIf(!groupsRadiosByForm())("a radio that moves out of a form keeps the checkedness its markup gives it", () => {
 	const host = mount(
 		`<div><form id="f"><input id="x" type="radio" name="r" checked><input id="y" type="radio" name="r" checked></form></div>`,
 	)
@@ -805,5 +817,36 @@ test("an element left in a moving element that nothing takes is removed before t
 
 	expect(host.innerHTML).toBe(`<div><footer><section id="s"></section></footer><aside><textarea id="x"></textarea></aside></div>`)
 	expect(seen).toEqual([""])
+	host.remove()
+})
+
+test.skipIf(!supportsOptionWrappers())("an option wrapper stays when a new element inside its select wraps it", () => {
+	const host = mount(`<div><select id="s"><div id="w"><option>a</option></div></select></div>`)
+	const wrapper = host.querySelector("#w")
+
+	morph(
+		host.firstElementChild!,
+		parse(`<div><select id="s"><section><div id="w"><option>a</option></div></section></select></div>`),
+	)
+
+	expect(host.querySelector("#w")).toBe(wrapper)
+	expect(host.innerHTML).toBe(`<div><select id="s"><section><div id="w"><option>a</option></div></section></select></div>`)
+	host.remove()
+})
+
+test.skipIf(!supportsOptionWrappers())("an element moves into a new select", () => {
+	const host = mount(`<div><div id="w"></div></div>`)
+	const wrapper = host.querySelector("#w")
+	const select = document.createElement("select")
+	const div = document.createElement("div")
+	div.id = "w"
+	select.append(div)
+	const target = document.createElement("div")
+	target.append(select)
+
+	morph(host.firstElementChild!, target)
+
+	expect(host.querySelector("#w")).toBe(wrapper)
+	expect(host.innerHTML).toBe(`<div><select><div id="w"></div></select></div>`)
 	host.remove()
 })

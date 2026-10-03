@@ -45,13 +45,20 @@ test("the result matches the target, and every element that can move keeps its n
 test("every select and checkable input shows what the target markup says", () => {
 	check((scenario, fail) => {
 		const host = mount(scenario.fromHtml)
+
+		// A checked radio outside the morph, in the group of a form inside it. Only the markup can uncheck it.
+		const formId = sharedFormId(host, scenario)
+		const outside = formId ? `<input type="radio" name="r" form="${formId}" checked data-move-fuzz>` : ""
+		host.insertAdjacentHTML("beforebegin", outside)
+		const radio = host.previousElementSibling as HTMLInputElement | null
+
 		run(host, scenario)
 
 		// A separate document, so its radios don't join the live radio groups.
 		const expected = document.implementation.createHTMLDocument("")
 		expected.body.innerHTML = scenario.toHtml
-		const actual = stateOf(host.firstChild as Element)
-		const wanted = stateOf(expected.body.firstChild as Element)
+		const actual = `${radio ? checkednessOf(radio) : ""} ${stateOf(host.firstChild as Element)}`
+		const wanted = `${formId ? outsideCheckedness(expected, formId) : ""} ${stateOf(expected.body.firstChild as Element)}`
 		if (actual !== wanted) fail(host, `controls show ${actual}, but the target says ${wanted}`)
 	})
 })
@@ -213,25 +220,60 @@ function movableElements(host: HTMLElement, scenario: Case): Map<string, Element
 	const root = host.firstChild as Element
 	const result = new Map<string, Element>()
 
-	for (const element of root.querySelectorAll("[id]")) {
-		if (scenario.shape === "list" && (element === root.firstChild || !root.firstChild?.contains(element))) continue
+	const keeps = (element: Element): boolean => {
+		if (scenario.shape === "list" && (element === root.firstChild || !root.firstChild?.contains(element))) return false
 		const id = element.id
+		if (!id) return false
 		const matches = target.querySelectorAll(`[id="${id}"]`)
-		if (matches.length !== 1 || root.querySelectorAll(`[id="${id}"]`).length !== 1 || root.id === id) continue
+		if (matches.length !== 1 || root.querySelectorAll(`[id="${id}"]`).length !== 1 || root.id === id) return false
 		// A root that can morph in place stays, and takes the id of its target.
-		if (scenario.shape === "one" && target.id === id) continue
-		if (scenario.shape === "list" && target.firstChild instanceof Element && target.firstChild.id === id) continue
+		if (scenario.shape === "one" && target.id === id) return false
+		if (scenario.shape === "list" && target.firstChild instanceof Element && target.firstChild.id === id) return false
 
 		const to = matches[0]!
-		if (to.localName !== element.localName) continue
-		if (element instanceof HTMLInputElement && element.type !== (to as HTMLInputElement).type) continue
-		if (element.closest("select") || to.closest("select")) continue
-		if (isInsideOwnDescendant(element, to, target)) continue
+		if (to.localName !== element.localName) return false
+		if (element instanceof HTMLInputElement && element.type !== (to as HTMLInputElement).type) return false
+		// An element in a select only stays when it stays in the same select, and that select stays too.
+		const select = element.parentElement!.closest("select")
+		const toSelect = to.parentElement?.closest("select")
+		if (select || toSelect) {
+			if (element.localName === "option" || !select || toSelect?.id !== select.id || !keeps(select)) return false
+		}
+		return !isInsideOwnDescendant(element, to, target)
+	}
 
-		result.set(id, element)
+	for (const element of root.querySelectorAll("[id]")) {
+		if (keeps(element)) result.set(element.id, element)
 	}
 
 	return result
+}
+
+// The id of a form that the morph keeps, outside any other form on both sides, so a radio
+// outside the morph stays in its radio group.
+function sharedFormId(host: HTMLElement, scenario: Case): string | null {
+	const target = parse(scenario.toHtml)
+	const root = host.firstChild as Element
+	const keeps = (side: Element, id: string) => {
+		const matches = side.querySelectorAll(`[id="${id}"]`)
+		const form = matches[0]
+		return (
+			matches.length === 1 && form!.localName === "form" && !form!.parentElement!.closest("form") && !form!.querySelector("form")
+		)
+	}
+	const scope = scenario.shape === "list" ? root.firstChild : root
+	if (!scope || !isElement(scope)) return null
+	const forms = [...scope.querySelectorAll("form[id]")].filter(
+		(form) => form.id !== root.id && form.id !== target.id && keeps(root, form.id) && keeps(target, form.id),
+	)
+	return forms[0]?.id ?? null
+}
+
+// The radio outside the morph stays checked unless the markup checks another radio in its group.
+function outsideCheckedness(expected: Document, formId: string): string {
+	const form = expected.getElementById(formId) as HTMLFormElement
+	const group = [...form.elements].filter((element) => element instanceof HTMLInputElement && element.type === "radio")
+	return group.some((radio) => (radio as HTMLInputElement).name === "r" && radio.hasAttribute("checked")) ? "-" : "x"
 }
 
 // Whether the target puts the element inside something that is currently inside it.
@@ -292,7 +334,10 @@ function createCase(seed: number): Case {
 	let to = from.map((node) => clone(node))
 	for (let count = randomInt(random, 1, 5); count > 0; count--) {
 		const top: ElementNode = { kind: "element", tag: "root", attributes: [], children: to }
-		to = (selects && random() < 0.7 && mutateSelect(random, top, ids)) || mutate(random, to, ids)
+		to =
+			(selects && random() < 0.7 && mutateSelect(random, top, ids)) ||
+			(forms && random() < 0.4 && moveRadio(random, top)) ||
+			mutate(random, to, ids)
 	}
 
 	const shape: Shape = pick(random, ["one", "one", "list", "inner"])
@@ -438,6 +483,24 @@ function mutateSelect(random: Random, top: ElementNode, ids: { next: number }): 
 	return top.children
 }
 
+// Move a radio into another form, sometimes changing whether the markup checks it.
+function moveRadio(random: Random, top: ElementNode): Array<TreeNode> | null {
+	const forms = elementsOf(top).filter((element) => element.tag === "form")
+	const [form, index] = pickChild(random, forms)
+	if (!form || forms.length < 2) return null
+	const node = form.children[index]!
+	if (node.kind !== "element" || !isCheckable(node)) return null
+
+	form.children.splice(index, 1)
+	const into = pick(
+		random,
+		forms.filter((other) => other !== form),
+	)
+	into.children.splice(randomInt(random, 0, into.children.length), 0, node)
+	if (random() < 0.5) toggleAttribute(node, "checked")
+	return top.children
+}
+
 // A select and the wrappers inside it, which can hold options and other wrappers.
 function optionPlacesOf(select: ElementNode): Array<ElementNode> {
 	return elementsOf(select).filter((element) => element === select || element.tag === "div")
@@ -542,13 +605,13 @@ function toggleAttribute(node: ElementNode, attribute: string): void {
 function stateOf(root: Element): string {
 	return [...root.querySelectorAll("select, input")]
 		.map((control) =>
-			control.localName === "select"
-				? selectionOf(control as HTMLSelectElement)
-				: (control as HTMLInputElement).checked
-					? "x"
-					: "-",
+			control.localName === "select" ? selectionOf(control as HTMLSelectElement) : checkednessOf(control as HTMLInputElement),
 		)
 		.join(" ")
+}
+
+function checkednessOf(input: HTMLInputElement): string {
+	return input.checked ? "x" : "-"
 }
 
 function selectionOf(select: HTMLSelectElement): string {
