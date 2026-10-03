@@ -1056,8 +1056,8 @@ class Morph {
 
 				if (operation === Operation.EqualNode) {
 				} else if (operation === Operation.SameElement) {
-					// this.#morphMatchingElements(match as Element, node as Element)
-					this.#morphMatchingElements(match as Element, node as Element)
+					// Elements matched by id skip the isEqualNode pass, so check here before visiting them.
+					if (!isEqualNode(match, node)) this.#morphMatchingElements(match as Element, node as Element)
 				} else {
 					this.#morphOneToOne(match, node)
 				}

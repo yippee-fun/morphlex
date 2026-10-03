@@ -75,7 +75,7 @@ morph(currentNode, newNode, {
 
 - **`preserveChanges`**: When `true`, form controls the user has changed keep their values, and the `open` state of `<details>` and `<dialog>` elements is left alone. See [Preserving changes](#preserving-changes). Default: `false`
 
-- **`beforeNodeVisited(fromNode, toNode)`**: Called before a node is visited during morphing. Return `false` to skip morphing this node.
+- **`beforeNodeVisited(fromNode, toNode)`**: Called before a node is visited during morphing. Return `false` to skip morphing this node. Nodes that already match their target are left alone without being visited, so this isn’t called for them.
 
 - **`afterNodeVisited(fromNode, toNode)`**: Called after a node has been visited and morphed.
 
