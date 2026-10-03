@@ -262,6 +262,7 @@ function takeClobbered(to: ChildNode | NodeListOf<ChildNode>): Set<Element> | nu
 function flagDirtyInputs(node: Element): Array<Element> {
 	const flagged: Array<Element> = []
 	const defaultOptions: DefaultOptionMap = new Map()
+	let optionSelects: Map<Element, HTMLSelectElement> | null = null
 
 	if (isInputElement(node)) {
 		if (isDirtyInput(node)) {
@@ -269,7 +270,8 @@ function flagDirtyInputs(node: Element): Array<Element> {
 			flagged.push(node)
 		}
 	} else if (isOptionElement(node)) {
-		if (isDirtyOption(node, defaultOptions)) {
+		optionSelects = optionSelectsOf(node)
+		if (isDirtyOption(node, optionSelects.get(node), defaultOptions)) {
 			node.setAttribute("morphlex-dirty", "")
 			flagged.push(node)
 		}
@@ -289,7 +291,9 @@ function flagDirtyInputs(node: Element): Array<Element> {
 	}
 
 	for (const element of node.querySelectorAll("option")) {
-		if (element.namespaceURI === HTML_NAMESPACE && isDirtyOption(element, defaultOptions)) {
+		if (element.namespaceURI !== HTML_NAMESPACE) continue
+		optionSelects ??= optionSelectsOf(node)
+		if (isDirtyOption(element, optionSelects.get(element), defaultOptions)) {
 			element.setAttribute("morphlex-dirty", "")
 			flagged.push(element)
 		}
@@ -317,8 +321,11 @@ function isDirtyInput(input: HTMLInputElement): boolean {
 
 // A single select shows one option as selected even when no option has a `selected`
 // attribute, so compare each option with what the browser selects from the markup alone.
-function isDirtyOption(option: HTMLOptionElement, defaultOptions: DefaultOptionMap): boolean {
-	const select = selectOf(option)
+function isDirtyOption(
+	option: HTMLOptionElement,
+	select: HTMLSelectElement | undefined,
+	defaultOptions: DefaultOptionMap,
+): boolean {
 	if (!select || select.multiple) return option.selected !== option.defaultSelected
 
 	let defaultOption = defaultOptions.get(select)
@@ -355,7 +362,9 @@ function isDisabledOption(option: HTMLOptionElement): boolean {
 	if (option.disabled) return true
 
 	for (let parent = option.parentElement!; !isSelectElement(parent); parent = parent.parentElement!) {
-		if (parent.localName === "optgroup") return (parent as HTMLOptGroupElement).disabled
+		if (parent.localName === "optgroup" && parent.namespaceURI === HTML_NAMESPACE) {
+			return (parent as HTMLOptGroupElement).disabled
+		}
 	}
 
 	return false
@@ -370,11 +379,31 @@ function selectOf(node: Node): HTMLSelectElement | null {
 	return null
 }
 
+// The select each option belongs to, taken from the browser's own option lists. These leave
+// out options the select doesn't own, such as those inside a datalist or a nested optgroup.
+function optionSelectsOf(node: Element): Map<Element, HTMLSelectElement> {
+	const optionSelects = new Map<Element, HTMLSelectElement>()
+	const enclosing = selectOf(node)
+	if (enclosing) addOptionSelects(optionSelects, enclosing)
+	if (isSelectElement(node)) addOptionSelects(optionSelects, node)
+
+	for (const select of node.querySelectorAll("select")) {
+		if (isSelectElement(select)) addOptionSelects(optionSelects, select)
+	}
+
+	return optionSelects
+}
+
+function addOptionSelects(optionSelects: Map<Element, HTMLSelectElement>, select: HTMLSelectElement): void {
+	const options = select.options
+	for (let i = 0; i < options.length; i++) optionSelects.set(options[i]!, select)
+}
+
 function isDirtySelect(select: HTMLSelectElement): boolean {
 	const defaultOptions: DefaultOptionMap = new Map()
 	const options = select.options
 	for (let i = 0; i < options.length; i++) {
-		if (isDirtyOption(options[i]!, defaultOptions)) return true
+		if (isDirtyOption(options[i]!, select, defaultOptions)) return true
 	}
 	return false
 }
