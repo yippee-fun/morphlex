@@ -23,3 +23,7 @@ In the second pass of `#visitAttributes` (removing attributes not present in the
 ### Resetting user changes when not preserving
 
 The attribute passes only touch `.value`, `.checked` and `.selected` when the matching attribute is added, changed or removed. So when `preserveChanges` is false, `#resetFormProperties` runs after them and sets each property to what the target markup says, which covers edits where neither side has the attribute. It skips a property when its attribute still differs from the target, because that means `beforeAttributeUpdated` vetoed the update. It never assigns `.value` on checkbox, radio or file inputs.
+
+### `open` on `details` and `dialog`
+
+For these elements the `open` attribute is the live state the user toggles, and there's no default to compare it against. So with `preserveChanges`, `#visitAttributes` never adds or removes `open` on them. Without it, removing `open` from a dialog calls `close()` instead of `removeAttribute`, because removing the attribute leaves a modal dialog stuck in the top layer.
