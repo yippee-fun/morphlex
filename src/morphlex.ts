@@ -170,7 +170,7 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 	const clobbered = takeClobbered(to)
 	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
 	try {
-		new Morph(options, clobbered).morph(from, to)
+		new Morph(options, clobbered, flagged && dirtySelectsOf(flagged)).morph(from, to)
 	} finally {
 		if (flagged) clearDirtyFlags(flagged)
 	}
@@ -215,7 +215,7 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const clobbered = takeClobbered(toElement)
 		if (clobbered?.has(toElement)) options = { ...options, preserveChanges: false }
 		const flagged = flagDirtyInputs(fromElement)
-		new Morph(options, clobbered).visitChildNodes(fromElement, toElement)
+		new Morph(options, clobbered, dirtySelectsOf(flagged)).visitChildNodes(fromElement, toElement)
 		clearDirtyFlags(flagged)
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
@@ -342,6 +342,17 @@ function isDisabledOption(option: HTMLOptionElement): boolean {
 	return parent.localName === "optgroup" && (parent as HTMLOptGroupElement).disabled
 }
 
+// The selects the user changed, found before morphing moves their options around.
+function dirtySelectsOf(flagged: Array<Element>): Set<Element> {
+	const selects = new Set<Element>()
+	for (let i = 0; i < flagged.length; i++) {
+		const element = flagged[i]!
+		const select = isOptionElement(element) ? element.closest("select") : null
+		if (select) selects.add(select)
+	}
+	return selects
+}
+
 function clearDirtyFlags(elements: Array<Element>): void {
 	for (let i = 0; i < elements.length; i++) {
 		const element = elements[i]!
@@ -383,11 +394,13 @@ class Morph {
 	readonly #idSetMap: IdSetMap = new WeakMap()
 	readonly #options: Options
 	readonly #clobbered: Set<Element> | null
+	readonly #dirtySelects: Set<Element> | null
 	#preserveChanges: boolean
 
-	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
+	constructor(options: Options = {}, clobbered: Set<Element> | null = null, dirtySelects: Set<Element> | null = null) {
 		this.#options = options
 		this.#clobbered = clobbered
+		this.#dirtySelects = dirtySelects
 		this.#preserveChanges = options.preserveChanges ?? false
 	}
 
@@ -969,7 +982,19 @@ class Morph {
 			}
 		}
 
+		if (isSelectElement(from)) this.#syncDefaultSelection(from)
+
 		this.#options.afterChildrenVisited?.(from)
+	}
+
+	// Adding options doesn't move the browser's selection, so an untouched drop-down can end up
+	// showing a different option from the markup. Select the option the markup would select.
+	#syncDefaultSelection(select: HTMLSelectElement): void {
+		if (select.multiple) return
+		if (this.#preserveChanges && this.#dirtySelects?.has(select)) return
+
+		const option = defaultOptionOf(select)
+		if (option && !option.selected && !option.hasAttribute("selected")) option.selected = true
 	}
 
 	// Template content is replaced wholesale rather than morphed, so no node callbacks fire inside it.
@@ -1231,6 +1256,10 @@ function isDialogElement(element: Element): element is HTMLDialogElement {
 // The `open` attribute on these elements is the live state the user toggles, not a default.
 function hasOpenState(element: Element): boolean {
 	return isDialogElement(element) || (element.localName === "details" && element.namespaceURI === HTML_NAMESPACE)
+}
+
+function isSelectElement(element: Element): element is HTMLSelectElement {
+	return element.localName === "select" && element.namespaceURI === HTML_NAMESPACE
 }
 
 function isOptionElement(element: Element): element is HTMLOptionElement {
