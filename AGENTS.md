@@ -14,15 +14,11 @@ The `flagDirtyInputs` function sets a `morphlex-dirty` attribute on form element
 
 ### Content attributes vs DOM properties for form elements
 
-In `#visitAttributes`, there's a deliberate separation between content attribute updates (`setAttribute`/`removeAttribute`) and DOM property updates (`.value`, `.checked`, `.selected`). The `preserveChanges` option only guards the _property_ assignments, not the attribute calls. This is correct because in all modern browsers, `setAttribute("checked", "")` only changes `defaultChecked`, not `.checked`, and `setAttribute("selected", "")` only changes `defaultSelected`, not `.selected`. Once a user interacts with the element, the property decouples from the attribute per the HTML spec.
-
-### Asymmetry in attribute removal for `value` vs `checked`/`selected`
-
-In the second pass of `#visitAttributes` (removing attributes not present in the target), there's special `preserveChanges` handling for `checked` and `selected` (which explicitly sets the property to `false`) but not for `value`. This is intentional — removing the `value` attribute only resets `defaultValue` to `""`, never `.value`. There's no equivalent need to guard `value` removal because `.value` is always a string and can't be meaningfully "unset" the way `.checked` and `.selected` can be set to `false`.
+`#visitAttributes` only updates content attributes (`setAttribute`/`removeAttribute`). It never assigns `.value`, `.checked` or `.selected` itself, so a `beforeAttributeUpdated` veto leaves both the attribute and the property alone. Attribute updates are safe under `preserveChanges`: once the user has changed a control, `setAttribute("checked", "")` only changes `defaultChecked`, not `.checked`, and the same goes for `selected` and `value`, because the property decouples from the attribute per the HTML spec.
 
 ### Resetting user changes when not preserving
 
-The attribute passes only touch `.value`, `.checked` and `.selected` when the matching attribute is added, changed or removed. So when `preserveChanges` is false, `#resetFormProperties` runs after them and sets each property to what the target markup says, which covers edits where neither side has the attribute. It skips a property when its attribute still differs from the target, because that means `beforeAttributeUpdated` vetoed the update. It never assigns `.value` on checkbox, radio or file inputs.
+When `preserveChanges` is false, `#resetFormProperties` runs after the attribute passes and sets each property to what the target markup says, including edits where neither side has the attribute. It skips a property when its attribute still differs from the target, because that means `beforeAttributeUpdated` vetoed the update. It never assigns `.value` on checkbox, radio or file inputs.
 
 ### `open` on `details` and `dialog`
 
