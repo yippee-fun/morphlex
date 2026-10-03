@@ -232,6 +232,7 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 
 // Remove `morphlex-clobber` from the target so it never reaches the live DOM,
 // and return the elements that had it so the morph can discard user changes inside them.
+// Also remove `morphlex-dirty` from the target, so a dirty element can never look equal to it.
 function takeClobbered(to: ChildNode | NodeListOf<ChildNode>): Set<Element> | null {
 	let clobbered: Set<Element> | null = null
 	const nodes = isNodeList(to) ? to : [to]
@@ -241,20 +242,22 @@ function takeClobbered(to: ChildNode | NodeListOf<ChildNode>): Set<Element> | nu
 		if (node.nodeType !== ELEMENT_NODE_TYPE) continue
 
 		const element = node as Element
-		if (element.hasAttribute(CLOBBER_ATTRIBUTE)) {
-			;(clobbered ??= new Set()).add(element)
-		}
+		if (stripMarkerAttributes(element)) (clobbered ??= new Set()).add(element)
 
-		for (const descendant of element.querySelectorAll(`[${CLOBBER_ATTRIBUTE}]`)) {
-			;(clobbered ??= new Set()).add(descendant)
+		for (const descendant of element.querySelectorAll(`[${CLOBBER_ATTRIBUTE}], [morphlex-dirty]`)) {
+			if (stripMarkerAttributes(descendant)) (clobbered ??= new Set()).add(descendant)
 		}
-	}
-
-	if (clobbered) {
-		for (const element of clobbered) element.removeAttribute(CLOBBER_ATTRIBUTE)
 	}
 
 	return clobbered
+}
+
+// Returns whether the element had `morphlex-clobber`.
+function stripMarkerAttributes(element: Element): boolean {
+	if (element.hasAttribute("morphlex-dirty")) element.removeAttribute("morphlex-dirty")
+	if (!element.hasAttribute(CLOBBER_ATTRIBUTE)) return false
+	element.removeAttribute(CLOBBER_ATTRIBUTE)
+	return true
 }
 
 function flagDirtyInputs(node: Element): Array<Element> {
@@ -600,7 +603,6 @@ class Morph {
 		const toAttributes = to.attributes
 		for (let i = 0; i < toAttributes.length; i++) {
 			const { name, localName, value, namespaceURI } = toAttributes[i]!
-			if (name === "morphlex-dirty") continue
 			// Adding `open` would open it, but changing the value of an existing one is fine.
 			if (name === "open" && namespaceURI === null && this.#preserveChanges && hasOpenState(from) && !from.hasAttribute("open")) {
 				continue
@@ -1057,8 +1059,8 @@ class Morph {
 
 				if (operation === Operation.EqualNode) {
 				} else if (operation === Operation.SameElement) {
-					// this.#morphMatchingElements(match as Element, node as Element)
-					this.#morphMatchingElements(match as Element, node as Element)
+					// Elements matched by id skip the isEqualNode pass, so check here before visiting them.
+					if (!isEqualNode(match, node)) this.#morphMatchingElements(match as Element, node as Element)
 				} else {
 					this.#morphOneToOne(match, node)
 				}
