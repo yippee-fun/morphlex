@@ -47,10 +47,10 @@ describe("SVG morphing", () => {
 		const mutations = observeMutations(from, () => morph(from, to))
 
 		expect(from.children.length).toBe(2)
-		expect(from.children[0].tagName).toBe("circle")
-		expect(from.children[1].tagName).toBe("rect")
-		expect(from.children[1].getAttribute("x")).toBe("10")
-		expect(from.children[1].getAttribute("y")).toBe("10")
+		expect(from.children[0]!.tagName).toBe("circle")
+		expect(from.children[1]!.tagName).toBe("rect")
+		expect(from.children[1]!.getAttribute("x")).toBe("10")
+		expect(from.children[1]!.getAttribute("y")).toBe("10")
 		expect(mutations.elementsAdded).toBe(1)
 	})
 
@@ -68,7 +68,7 @@ describe("SVG morphing", () => {
 		const mutations = observeMutations(from, () => morph(from, to))
 
 		expect(from.children.length).toBe(1)
-		expect(from.children[0].getAttribute("cx")).toBe("25")
+		expect(from.children[0]!.getAttribute("cx")).toBe("25")
 		expect(mutations.elementsRemoved).toBe(1)
 	})
 
@@ -111,7 +111,7 @@ describe("SVG morphing", () => {
 		const morphedG = from.querySelector("g")
 		expect(morphedG?.getAttribute("transform")).toBe("translate(20, 20) rotate(45)")
 		expect(morphedG?.children.length).toBe(2)
-		expect(morphedG?.children[1].getAttribute("r")).toBe("10")
+		expect(morphedG?.children[1]!.getAttribute("r")).toBe("10")
 		expect(mutations.elementsAdded).toBe(1)
 	})
 
@@ -150,9 +150,9 @@ describe("SVG morphing", () => {
 
 		morph(from, to)
 
-		expect(from.children[0].id).toBe("circle-3")
-		expect(from.children[1].id).toBe("circle-1")
-		expect(from.children[2].id).toBe("circle-2")
+		expect(from.children[0]!.id).toBe("circle-3")
+		expect(from.children[1]!.id).toBe("circle-1")
+		expect(from.children[2]!.id).toBe("circle-2")
 	})
 
 	test("should morph SVG polygons and polylines", () => {
@@ -163,9 +163,9 @@ describe("SVG morphing", () => {
 
 		morph(from, to)
 
-		expect(from.children[0].tagName).toBe("polyline")
-		expect(from.children[0].getAttribute("points")).toBe("10,10 20,20 30,10 40,20")
-		expect(from.children[0].getAttribute("stroke")).toBe("blue")
+		expect(from.children[0]!.tagName).toBe("polyline")
+		expect(from.children[0]!.getAttribute("points")).toBe("10,10 20,20 30,10 40,20")
+		expect(from.children[0]!.getAttribute("stroke")).toBe("blue")
 	})
 
 	test("should morph SVG with multiple shape types", () => {
@@ -188,9 +188,9 @@ describe("SVG morphing", () => {
 		morph(from, to)
 
 		expect(from.children.length).toBe(3)
-		expect(from.children[0].tagName).toBe("circle")
-		expect(from.children[1].tagName).toBe("line")
-		expect(from.children[2].tagName).toBe("rect")
+		expect(from.children[0]!.tagName).toBe("circle")
+		expect(from.children[1]!.tagName).toBe("line")
+		expect(from.children[2]!.tagName).toBe("rect")
 	})
 
 	test("should preserve SVG namespace when creating new elements", () => {
@@ -202,8 +202,8 @@ describe("SVG morphing", () => {
 		morph(from, to)
 
 		const morphedCircle = from.children[0]
-		expect(morphedCircle.namespaceURI).toBe("http://www.w3.org/2000/svg")
-		expect(morphedCircle.tagName).toBe("circle")
+		expect(morphedCircle!.namespaceURI).toBe("http://www.w3.org/2000/svg")
+		expect(morphedCircle!.tagName).toBe("circle")
 	})
 
 	test("should replace same-localName elements when namespaces differ", () => {
@@ -262,10 +262,10 @@ describe("SVG morphing", () => {
 		const mutations = observeMutations(from, () => morph(from, to))
 
 		expect(from.children.length).toBe(2)
-		expect(from.children[0].tagName).toBe("defs")
-		expect(from.children[1].tagName).toBe("use")
-		const defsCircle = from.children[0].children[0]
-		expect(defsCircle.getAttribute("r")).toBe("20")
+		expect(from.children[0]!.tagName).toBe("defs")
+		expect(from.children[1]!.tagName).toBe("use")
+		const defsCircle = from.children[0]!.children[0]
+		expect(defsCircle!.getAttribute("r")).toBe("20")
 		expect(mutations.elementsAdded).toBe(1)
 	})
 
@@ -290,7 +290,7 @@ describe("SVG morphing", () => {
 		morphInner(from, to)
 
 		expect(from.children.length).toBe(1)
-		expect(from.children[0].tagName).toBe("rect")
-		expect(from.children[0].getAttribute("width")).toBe("20")
+		expect(from.children[0]!.tagName).toBe("rect")
+		expect(from.children[0]!.getAttribute("width")).toBe("20")
 	})
 })

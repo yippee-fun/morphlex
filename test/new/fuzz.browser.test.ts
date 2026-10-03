@@ -284,10 +284,10 @@ function canRequireReuse(from: ElementSpec, to: ElementSpec): boolean {
 }
 
 function getStableKey(spec: ElementSpec): string | null {
-	if (typeof spec.attrs.id === "string") return `id:${spec.attrs.id}`
-	if (typeof spec.attrs.name === "string") return `name:${spec.tag}:${spec.attrs.name}`
-	if (typeof spec.attrs.href === "string") return `href:${spec.attrs.href}`
-	if (typeof spec.attrs.src === "string") return `src:${spec.attrs.src}`
+	if (typeof spec.attrs["id"] === "string") return `id:${spec.attrs["id"]}`
+	if (typeof spec.attrs["name"] === "string") return `name:${spec.tag}:${spec.attrs["name"]}`
+	if (typeof spec.attrs["href"] === "string") return `href:${spec.attrs["href"]}`
+	if (typeof spec.attrs["src"] === "string") return `src:${spec.attrs["src"]}`
 	return null
 }
 
@@ -295,7 +295,7 @@ function getSelector(key: string): string {
 	if (key.startsWith("id:")) return `#${cssEscape(key.slice(3))}`
 	if (key.startsWith("name:")) {
 		const [, tag, name] = key.split(":")
-		return `${tag}[name="${cssEscape(name)}"]`
+		return `${tag}[name="${cssEscape(name!)}"]`
 	}
 	if (key.startsWith("href:")) return `[href="${cssEscape(key.slice(5))}"]`
 	return `[src="${cssEscape(key.slice(4))}"]`
@@ -373,12 +373,12 @@ function createLooseElementSpec(random: Random, prefix: string): ElementSpec {
 function mutateFromSpec(spec: ElementSpec, random: Random): ElementSpec {
 	const next = cloneSpec(spec) as ElementSpec
 	if (next.tag === "input") {
-		next.attrs.value = `${next.attrs.value}-from`
+		next.attrs["value"] = `${next.attrs["value"]}-from`
 		return next
 	}
 
 	if (next.tag === "img") {
-		next.attrs.alt = `${next.attrs.alt}-from`
+		next.attrs["alt"] = `${next.attrs["alt"]}-from`
 		return next
 	}
 
@@ -402,14 +402,14 @@ function mutateToSpec(spec: ElementSpec, random: Random): ElementSpec {
 		if (random() > 0.65) {
 			const type = pick(random, CONTROL_TYPES)
 			next.type = type
-			next.attrs.type = type
+			next.attrs["type"] = type
 		}
-		next.attrs.value = `${next.attrs.value}-to`
+		next.attrs["value"] = `${next.attrs["value"]}-to`
 		return next
 	}
 
 	if (next.tag === "img") {
-		next.attrs.alt = `${next.attrs.alt}-to`
+		next.attrs["alt"] = `${next.attrs["alt"]}-to`
 		return next
 	}
 

@@ -32,6 +32,7 @@ type Operation = (typeof Operation)[keyof typeof Operation]
 type IdSetMap = WeakMap<Node, Set<string>>
 type IdArrayMap = WeakMap<Node, Array<string>>
 type CandidateIdBucket = number | Array<number>
+type DefaultOptionMap = Map<HTMLSelectElement, HTMLOptionElement | null>
 
 /**
  * Configuration options for morphing operations.
@@ -167,9 +168,14 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 	if (typeof to === "string") to = parseFragment(to).childNodes
 
 	const clobbered = takeClobbered(to)
+	const select = selectOf(from)
+	const dirtySelect = select !== null && isDirtySelect(select)
+	const selection = select && markupSelectionOf(select)
 	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
 	try {
-		new Morph(options, clobbered).morph(from, to)
+		const morpher = new Morph(options, clobbered, flagged && dirtySelectsOf(from as Element, flagged))
+		morpher.morph(from, to)
+		if (select) morpher.syncEnclosingSelect(select, selection!, dirtySelect)
 	} finally {
 		if (flagged) clearDirtyFlags(flagged)
 	}
@@ -213,8 +219,13 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const toElement = to as Element
 		const clobbered = takeClobbered(toElement)
 		if (clobbered?.has(toElement)) options = { ...options, preserveChanges: false }
+		const select = selectOf(fromElement)
+		const dirtySelect = select !== null && isDirtySelect(select)
+		const selection = select && markupSelectionOf(select)
 		const flagged = flagDirtyInputs(fromElement)
-		new Morph(options, clobbered).visitChildNodes(fromElement, toElement)
+		const morpher = new Morph(options, clobbered, dirtySelectsOf(fromElement, flagged))
+		morpher.visitChildNodes(fromElement, toElement)
+		if (select) morpher.syncEnclosingSelect(select, selection!, dirtySelect)
 		clearDirtyFlags(flagged)
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
@@ -250,6 +261,8 @@ function takeClobbered(to: ChildNode | NodeListOf<ChildNode>): Set<Element> | nu
 
 function flagDirtyInputs(node: Element): Array<Element> {
 	const flagged: Array<Element> = []
+	const defaultOptions: DefaultOptionMap = new Map()
+	let optionSelects: Map<Element, HTMLSelectElement> | null = null
 
 	if (isInputElement(node)) {
 		if (isDirtyInput(node)) {
@@ -257,7 +270,8 @@ function flagDirtyInputs(node: Element): Array<Element> {
 			flagged.push(node)
 		}
 	} else if (isOptionElement(node)) {
-		if (node.selected !== node.defaultSelected) {
+		optionSelects = optionSelectsOf(node)
+		if (isDirtyOption(node, optionSelects.get(node), defaultOptions)) {
 			node.setAttribute("morphlex-dirty", "")
 			flagged.push(node)
 		}
@@ -277,7 +291,9 @@ function flagDirtyInputs(node: Element): Array<Element> {
 	}
 
 	for (const element of node.querySelectorAll("option")) {
-		if (isOptionElement(element) && element.selected !== element.defaultSelected) {
+		if (!isOptionElement(element)) continue
+		optionSelects ??= optionSelectsOf(node)
+		if (isDirtyOption(element, optionSelects.get(element), defaultOptions)) {
 			element.setAttribute("morphlex-dirty", "")
 			flagged.push(element)
 		}
@@ -301,6 +317,124 @@ function isDirtyInput(input: HTMLInputElement): boolean {
 	}
 
 	return input.value !== input.defaultValue
+}
+
+// A single select shows one option as selected even when no option has a `selected`
+// attribute, so compare each option with what the browser selects from the markup alone.
+function isDirtyOption(
+	option: HTMLOptionElement,
+	select: HTMLSelectElement | undefined,
+	defaultOptions: DefaultOptionMap,
+): boolean {
+	if (!select || select.multiple) return option.selected !== option.defaultSelected
+
+	let defaultOption = defaultOptions.get(select)
+	if (defaultOption === undefined) {
+		defaultOption = defaultOptionOf(select)
+		defaultOptions.set(select, defaultOption)
+	}
+
+	return option.selected !== (option === defaultOption)
+}
+
+// The last option with a `selected` attribute wins. Without one, a drop-down
+// (display size 1) selects its first enabled option and a list box selects nothing.
+function defaultOptionOf(select: HTMLSelectElement): HTMLOptionElement | null {
+	const options = select.options
+	let firstEnabled: HTMLOptionElement | null = null
+
+	for (let i = options.length - 1; i >= 0; i--) {
+		const option = options[i]!
+		if (option.hasAttribute("selected")) return option
+		if (!isDisabledOption(option)) firstEnabled = option
+	}
+
+	return displaySizeOf(select) > 1 ? null : firstEnabled
+}
+
+// HTML integer parsing skips only ASCII whitespace, where `parseInt` skips any whitespace.
+function displaySizeOf(select: HTMLSelectElement): number {
+	const match = /^[\t\n\f\r ]*\+?(\d+)/.exec(select.getAttribute("size") ?? "")
+	return match ? Number(match[1]) : 1
+}
+
+function isDisabledOption(option: HTMLOptionElement): boolean {
+	if (option.disabled) return true
+
+	for (let parent = option.parentElement!; !isSelectElement(parent); parent = parent.parentElement!) {
+		if (parent.localName === "optgroup" && parent.namespaceURI === HTML_NAMESPACE) {
+			return (parent as HTMLOptGroupElement).disabled
+		}
+	}
+
+	return false
+}
+
+// Customizable selects allow options nested inside other elements, so look past the parent.
+function selectOf(node: Node): HTMLSelectElement | null {
+	for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+		if (isSelectElement(parent)) return parent
+	}
+
+	return null
+}
+
+// The select each option belongs to, taken from the browser's own option lists. These leave
+// out options the select doesn't own, such as those inside a datalist or a nested optgroup.
+function optionSelectsOf(node: Element): Map<Element, HTMLSelectElement> {
+	const optionSelects = new Map<Element, HTMLSelectElement>()
+	const enclosing = selectOf(node)
+	if (enclosing) addOptionSelects(optionSelects, enclosing)
+	if (isSelectElement(node)) addOptionSelects(optionSelects, node)
+
+	for (const select of node.querySelectorAll("select")) {
+		if (isSelectElement(select)) addOptionSelects(optionSelects, select)
+	}
+
+	return optionSelects
+}
+
+function addOptionSelects(optionSelects: Map<Element, HTMLSelectElement>, select: HTMLSelectElement): void {
+	const options = select.options
+	for (let i = 0; i < options.length; i++) optionSelects.set(options[i]!, select)
+}
+
+function isDirtySelect(select: HTMLSelectElement): boolean {
+	const defaultOptions: DefaultOptionMap = new Map()
+	const options = select.options
+	for (let i = 0; i < options.length; i++) {
+		if (isDirtyOption(options[i]!, select, defaultOptions)) return true
+	}
+	return false
+}
+
+// The options the markup selects, to tell whether a morph inside the select changed them.
+function markupSelectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null> {
+	if (!select.multiple) return [defaultOptionOf(select)]
+	return Array.from(select.options).filter((option) => option.hasAttribute("selected"))
+}
+
+// The selects the user changed, found before morphing moves their options around. Find them from
+// the top down, because in happy-dom an option's parent isn't the same object as its select.
+function dirtySelectsOf(node: Element, flagged: Array<Element>): Set<Element> | null {
+	if (!flagged.some(isOptionElement)) return null
+
+	const selects = new Set<Element>()
+	if (isSelectElement(node) && hasDirtyOption(node)) selects.add(node)
+
+	for (const select of node.querySelectorAll("select")) {
+		if (isSelectElement(select) && hasDirtyOption(select)) selects.add(select)
+	}
+
+	return selects
+}
+
+function hasDirtyOption(select: HTMLSelectElement): boolean {
+	const options = select.options
+	for (let i = 0; i < options.length; i++) {
+		if (options[i]!.hasAttribute("morphlex-dirty")) return true
+	}
+	return false
 }
 
 function clearDirtyFlags(elements: Array<Element>): void {
@@ -344,11 +478,14 @@ class Morph {
 	readonly #idSetMap: IdSetMap = new WeakMap()
 	readonly #options: Options
 	readonly #clobbered: Set<Element> | null
+	readonly #dirtySelects: Set<Element> | null
+	#vetoedOptions: Set<Element> | null = null
 	#preserveChanges: boolean
 
-	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
+	constructor(options: Options = {}, clobbered: Set<Element> | null = null, dirtySelects: Set<Element> | null = null) {
 		this.#options = options
 		this.#clobbered = clobbered
+		this.#dirtySelects = dirtySelects
 		this.#preserveChanges = options.preserveChanges ?? false
 	}
 
@@ -469,13 +606,16 @@ class Morph {
 			}
 			const oldValue = from.getAttributeNS(namespaceURI, localName)
 
-			if (oldValue !== value && (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
+			if (oldValue === value) continue
+			if (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true) {
 				if (namespaceURI) {
 					from.setAttributeNS(namespaceURI, name, value)
 				} else {
 					from.setAttribute(name, value)
 				}
 				this.#options.afterAttributeUpdated?.(from, name, oldValue)
+			} else {
+				this.#noteVetoedAttribute(from, name)
 			}
 		}
 
@@ -493,6 +633,8 @@ class Morph {
 							from.removeAttributeNS(namespaceURI, localName)
 						}
 						this.#options.afterAttributeUpdated?.(from, name, value)
+					} else {
+						this.#noteVetoedAttribute(from, name)
 					}
 				}
 			}
@@ -930,7 +1072,48 @@ class Morph {
 			}
 		}
 
+		if (isSelectElement(from)) this.#syncDefaultSelection(from)
+
 		this.#options.afterChildrenVisited?.(from)
+	}
+
+	// A morph inside a select never visits the select, so sync it afterwards if the morph
+	// changed what the markup selects. A vetoed morph changes nothing, so it leaves it alone.
+	syncEnclosingSelect(select: HTMLSelectElement, selection: Array<HTMLOptionElement | null>, dirty: boolean): void {
+		if (this.#preserveChanges && dirty) return
+
+		const newSelection = markupSelectionOf(select)
+		if (newSelection.length === selection.length && newSelection.every((option, i) => option === selection[i])) return
+
+		this.#syncDefaultSelection(select)
+	}
+
+	// The browser keeps its selection when options are added or moved, or when the select changes
+	// between a drop-down and a list box, so an untouched select can end up showing something
+	// other than its markup. Select what the markup selects.
+	#syncDefaultSelection(select: HTMLSelectElement): void {
+		if (this.#preserveChanges && this.#dirtySelects?.has(select)) return
+
+		const options = select.options
+		const vetoed = this.#vetoedOptions
+		if (vetoed) {
+			for (let i = 0; i < options.length; i++) {
+				if (vetoed.has(options[i]!)) return
+			}
+		}
+
+		const defaultOption = select.multiple ? null : defaultOptionOf(select)
+
+		for (let i = 0; i < options.length; i++) {
+			const option = options[i]!
+			const selected = select.multiple ? option.hasAttribute("selected") : option === defaultOption
+			if (option.selected !== selected) option.selected = selected
+		}
+	}
+
+	// A vetoed `selected` update leaves the selection alone, like other vetoed form attributes.
+	#noteVetoedAttribute(element: Element, name: string): void {
+		if (name === "selected" && isOptionElement(element)) (this.#vetoedOptions ??= new Set()).add(element)
 	}
 
 	// Template content is replaced wholesale rather than morphed, so no node callbacks fire inside it.
@@ -1192,6 +1375,10 @@ function isDialogElement(element: Element): element is HTMLDialogElement {
 // The `open` attribute on these elements is the live state the user toggles, not a default.
 function hasOpenState(element: Element): boolean {
 	return isDialogElement(element) || (element.localName === "details" && element.namespaceURI === HTML_NAMESPACE)
+}
+
+function isSelectElement(element: Element): element is HTMLSelectElement {
+	return element.localName === "select" && element.namespaceURI === HTML_NAMESPACE
 }
 
 function isOptionElement(element: Element): element is HTMLOptionElement {

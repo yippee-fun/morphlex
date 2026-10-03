@@ -91,8 +91,8 @@ describe("Morphlex - Infinite Loop Bug Detection", () => {
 			const endTime = Date.now()
 
 			expect(endTime - startTime).toBeLessThan(1000)
-			expect(parent.children[0].id).toBe("outer2")
-			expect(parent.children[1].id).toBe("outer1")
+			expect(parent.children[0]!.id).toBe("outer2")
+			expect(parent.children[1]!.id).toBe("outer1")
 		})
 
 		it("should not infinite loop when currentNode becomes child during matching", () => {
@@ -246,9 +246,9 @@ describe("Morphlex - Infinite Loop Bug Detection", () => {
 			const endTime = Date.now()
 
 			expect(endTime - startTime).toBeLessThan(1000)
-			expect(parent.children[0].id).toBe("b")
-			expect(parent.children[1].id).toBe("c")
-			expect(parent.children[2].id).toBe("a")
+			expect(parent.children[0]!.id).toBe("b")
+			expect(parent.children[1]!.id).toBe("c")
+			expect(parent.children[2]!.id).toBe("a")
 		})
 	})
 
@@ -341,7 +341,7 @@ describe("Morphlex - Infinite Loop Bug Detection", () => {
 
 			// child2 should still be there (inside custom element, can't be removed)
 			expect(customElement.children.length).toBe(2)
-			expect(customElement.children[1].textContent).toBe("child2")
+			expect(customElement.children[1]!.textContent).toBe("child2")
 
 			// child3 should be removed (outside custom element)
 			expect(parent.children.length).toBe(1)
