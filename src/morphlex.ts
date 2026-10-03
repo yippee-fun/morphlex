@@ -1225,6 +1225,8 @@ class Morph {
 				if (!shouldNotMove[matchInd]) {
 					moveBefore(parent, match, insertionPoint)
 				}
+				// Read this before the morph, which can replace the match.
+				insertionPoint = match.nextSibling
 
 				if (operation === Operation.EqualNode) {
 				} else if (operation === Operation.SameElement) {
@@ -1238,9 +1240,6 @@ class Morph {
 				} else {
 					this.#morphOneToOne(match, node)
 				}
-
-				// A replaced match has left, so carry on after its replacement.
-				insertionPoint = (match.parentNode === parent ? match : node).nextSibling
 			} else {
 				if (this.#addNode(parent, node, insertionPoint)) insertionPoint = node.nextSibling
 			}
