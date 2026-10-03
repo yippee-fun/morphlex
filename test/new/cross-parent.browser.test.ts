@@ -528,3 +528,126 @@ test("the root's callbacks see the finished DOM when the root's replacement is v
 		host.remove()
 	}
 })
+
+test("an input inside the root moves out to replace it", () => {
+	const host = mount(`<div><input id="d"></div>`)
+	const input = host.querySelector("input")!
+	input.value = "typed"
+
+	morph(host.firstElementChild!, `<input id="d">`, { preserveChanges: true })
+
+	expect(host.innerHTML).toBe(`<input id="d">`)
+	expect(host.firstElementChild).toBe(input)
+	expect(input.value).toBe("typed")
+	host.remove()
+})
+
+test("a parent of a moving input doesn't take the input's id", () => {
+	const host = mount(`<div><span><span id="d"><input></span></span><b id="e"></b></div>`)
+	const span = host.querySelector("#d")!
+	const outer = host.querySelector("span")!
+
+	morphInner(host.firstElementChild!, `<div><b id="e"></b><span id="d"><input></span></div>`)
+
+	expect(host.innerHTML).toBe(`<div><b id="e"></b><span id="d"><input></span></div>`)
+	expect(host.querySelector("#d")).toBe(span)
+	expect(outer.isConnected).toBe(false)
+	host.remove()
+})
+
+test("morphInner ignores the id on the target's own element", () => {
+	const host = mount(`<div><span><input id="d"></span></div>`)
+	const input = host.querySelector("input")!
+	input.value = "typed"
+
+	morphInner(host.firstElementChild!, `<div id="d"><b><input id="d"></b></div>`, { preserveChanges: true })
+
+	expect(host.innerHTML).toBe(`<div><b><input id="d"></b></div>`)
+	expect(host.querySelector("input")).toBe(input)
+	expect(input.value).toBe("typed")
+	host.remove()
+})
+
+test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))(
+	"a new select keeps the selection of its own markup when wrappers of its options had ids",
+	() => {
+		function select(): HTMLSelectElement {
+			const select = document.createElement("select")
+			for (const id of ["a", "b"]) {
+				const div = document.createElement("div")
+				div.id = id
+				const option = document.createElement("option")
+				option.textContent = id
+				div.append(option)
+				select.append(div)
+			}
+			return select
+		}
+
+		const host = mount(`<div></div>`)
+		host.firstElementChild!.append(select())
+		const target = document.createElement("div")
+		const section = document.createElement("section")
+		section.append(select())
+		target.append(section)
+
+		morph(host.firstElementChild!, target)
+
+		expect(host.querySelector("select")!.selectedIndex).toBe(0)
+		host.remove()
+	},
+)
+
+test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))(
+	"a select shows its markup's default after an option wrapper moves within it",
+	() => {
+		function el(tag: string, id: string, ...children: Array<Node | string>): Element {
+			const element = document.createElement(tag)
+			if (id) element.id = id
+			element.append(...children)
+			return element
+		}
+
+		const host = mount(`<div></div>`)
+		host.firstElementChild!.append(
+			el("select", "s", el("div", "a", el("div", "w", el("option", "x", "x"))), el("option", "y", "y")),
+		)
+		const target = el(
+			"div",
+			"",
+			el("select", "s", el("div", "a"), el("option", "y", "y"), el("div", "w", el("option", "x", "x"))),
+		)
+
+		morph(host.firstElementChild!, target)
+
+		expect(host.querySelector<HTMLSelectElement>("select")!.value).toBe("y")
+		host.remove()
+	},
+)
+
+test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))(
+	"a select shows its markup's default after an unplaced option wrapper is removed",
+	() => {
+		function el(tag: string, id: string, ...children: Array<Node | string>): Element {
+			const element = document.createElement(tag)
+			if (id) element.id = id
+			element.append(...children)
+			return element
+		}
+
+		function options(): Array<Element> {
+			const selected = el("option", "", "y")
+			selected.setAttribute("selected", "")
+			return [el("option", "", "x"), selected]
+		}
+
+		const host = mount(`<div></div>`)
+		host.firstElementChild!.append(el("select", "", el("div", "w", ...options())))
+		const target = el("div", "", el("select", "", el("div", "n", el("div", "w", ...options()))))
+
+		morph(host.firstElementChild!, target)
+
+		expect(host.querySelector<HTMLSelectElement>("select")!.value).toBe("y")
+		host.remove()
+	},
+)

@@ -393,9 +393,9 @@ function clearImplicitOptionSelection(option: HTMLOptionElement): void {
 
 // Options belong to their select, so an element holding options only moves within its select.
 // Customizable selects allow options inside other elements.
-function movesOptionsBetweenSelects(live: Element, placeholder: Comment): boolean {
+function movesOptionsBetweenSelects(live: Element, parent: ParentNode): boolean {
 	if (isSelectElement(live) || !live.querySelector("option")) return false
-	return selectOf(live) !== selectOf(placeholder)
+	return selectOf(live) !== (isElement(parent) && isSelectElement(parent) ? parent : selectOf(parent))
 }
 
 // Customizable selects allow options nested inside other elements, so look past the parent.
@@ -496,6 +496,8 @@ class Morph {
 	readonly #options: Options
 	readonly #clobbered: Set<Element> | null
 	#vetoedOptions: Set<Element> | null = null
+	// Selects synced to their markup, synced again when the morph settles, after options have moved or gone.
+	#syncedSelects: Set<HTMLSelectElement> | null = null
 	// Live elements by id, and how often each id appears in the target. An element whose id appears
 	// once in each tree is moved to wherever the target puts that id, even under another parent.
 	readonly #liveElementsById: Map<string, Element | null> = new Map()
@@ -540,7 +542,7 @@ class Morph {
 	morphChildren(from: Element, to: Element): void {
 		this.#root = from
 		this.#mapIdSets(from)
-		this.#mapIdArrays(to)
+		this.#mapIdArrays(to, false)
 		this.visitChildNodes(from, to)
 		this.#finish()
 	}
@@ -578,6 +580,16 @@ class Morph {
 				this.#options.afterNodeRemoved?.(node)
 			}
 			this.#deferredRemovals = null
+		}
+
+		const selects = this.#syncedSelects
+		if (selects) {
+			this.#syncedSelects = null
+			const preserveChanges = this.#preserveChanges
+			this.#preserveChanges = false
+			for (const select of selects) this.#syncDefaultSelection(select)
+			this.#preserveChanges = preserveChanges
+			this.#syncedSelects = null
 		}
 	}
 
@@ -949,6 +961,14 @@ class Morph {
 			}
 		}
 
+		// A target whose live element is elsewhere is left for #addNode to claim, so no other candidate takes its id.
+		for (let i = 0; i < unmatchedElementIndices.length; i++) {
+			const unmatchedIndex = unmatchedElementIndices[i]!
+			if (unmatchedElementActive[unmatchedIndex] && this.#canClaim(toChildNodes[unmatchedIndex] as Element, parent)) {
+				unmatchedElementActive[unmatchedIndex] = 0
+			}
+		}
+
 		// Match by idArray (to) against idSet (from)
 		// Elements with idSets may not have IDs themselves, so we check candidateElements
 		for (let i = 0; i < unmatchedElementIndices.length; i++) {
@@ -1194,6 +1214,8 @@ class Morph {
 			const selected = select.multiple ? option.hasAttribute("selected") : option === defaultOption
 			if (option.selected !== selected) option.selected = selected
 		}
+
+		;(this.#syncedSelects ??= new Set()).add(select)
 	}
 
 	// A vetoed `selected` update leaves the selection alone, like other vetoed form attributes.
@@ -1240,11 +1262,7 @@ class Morph {
 		const saved = this.#preserveChanges
 		this.#preserveChanges = preserveChanges
 
-		if (
-			this.#liveElementsById.get(target.id) === live &&
-			!live.contains(parent) &&
-			!movesOptionsBetweenSelects(live, placeholder)
-		) {
+		if (this.#liveElementsById.get(target.id) === live && !live.contains(parent)) {
 			this.#liveElementsById.delete(target.id)
 			moveInto(parent, live, placeholder)
 			placeholder.remove()
@@ -1263,10 +1281,17 @@ class Morph {
 
 		const insertionPoint = node
 		// Check if both removal and addition are allowed before starting the replacement
-		if (
-			(this.#options.beforeNodeRemoved?.(node) ?? true) &&
-			(this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true)
-		) {
+		if (!(this.#options.beforeNodeRemoved?.(node) ?? true)) {
+			this.#settleIfRoot(node)
+			return
+		}
+
+		// The replacement can be a live element from elsewhere, even one inside the node it replaces.
+		const placeholder = isElement(newNode) ? this.#claimMovableElement(newNode, parent) : null
+		if (placeholder) {
+			parent.insertBefore(placeholder, insertionPoint)
+			this.#removeApprovedNode(node)
+		} else if (this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true) {
 			clearImplicitSelection(newNode)
 			this.#placeMovableDescendants(newNode)
 			parent.insertBefore(newNode, insertionPoint)
@@ -1343,9 +1368,17 @@ class Morph {
 	// Claim the live element with the target's id, if it can be morphed into the target where the
 	// target goes. Returns a placeholder for the target's place, where the move completes when the
 	// morph settles.
-	#claimMovableElement(target: Element, parent: ParentNode): Comment | null {
+	#canClaim(target: Element, parent: ParentNode): boolean {
 		const live = this.#movableElement(target.id)
-		if (!live || !canMorphElementInPlace(live, target) || live.contains(parent)) return null
+		// Claiming takes the target out of its parent, so an element holding options is only claimed where it can move.
+		return (
+			live !== null && canMorphElementInPlace(live, target) && !live.contains(parent) && !movesOptionsBetweenSelects(live, parent)
+		)
+	}
+
+	#claimMovableElement(target: Element, parent: ParentNode): Comment | null {
+		if (!this.#canClaim(target, parent)) return null
+		const live = this.#liveElementsById.get(target.id)!
 
 		const placeholder = live.ownerDocument.createComment("")
 		;(this.#pendingMoves ??= []).push({ live, target, placeholder, preserveChanges: this.#preserveChanges })
@@ -1399,11 +1432,12 @@ class Morph {
 	}
 
 	// For each node with an ID, push that ID into the IdArray on the IdArrayMap, for each of its parent elements.
-	#mapIdArrays(node: ParentNode): void {
+	#mapIdArrays(node: ParentNode, countRoot = true): void {
 		const idArrayMap = this.#idArrayMap
 
+		// An inner morph leaves the target's own element out of the result, so its id doesn't count.
 		const targetIdCounts = this.#targetIdCounts
-		if (isElement(node) && node.id !== "") targetIdCounts.set(node.id, (targetIdCounts.get(node.id) ?? 0) + 1)
+		if (countRoot && isElement(node) && node.id !== "") targetIdCounts.set(node.id, (targetIdCounts.get(node.id) ?? 0) + 1)
 
 		forEachDescendantElementWithId(node, (element) => {
 			const id = element.id
