@@ -122,6 +122,18 @@ The `open` attribute on `<details>` and `<dialog>` is also live state, toggled b
 
 One limitation follows from this. Once a control’s value has been set by script, including by Morphlex during a morph without `preserveChanges`, the browser treats it as changed, so it won’t follow new markup in later morphs that use `preserveChanges`.
 
+### Discarding changes with `morphlex-clobber`
+
+Sometimes the server does want to overwrite what the user typed, for example to clear a form after it has been submitted. Add a `morphlex-clobber` attribute to an element in the new markup, and that element and everything inside it are morphed as if `preserveChanges` were `false`, including the `open` state of any `<details>` or `<dialog>` inside it.
+
+```html
+<form morphlex-clobber>
+  <textarea name="comment"></textarea>
+</form>
+```
+
+The attribute only applies to the morph it arrives in. Morphlex removes it from the new markup before morphing, so it never appears in the live DOM.
+
 ### With `preserveChanges: false`
 
 The target markup wins. Values, checked states, selected options and `<textarea>` contents are reset to match it, even where the user has edited them and the markup itself hasn’t changed. Removing `open` from a `<dialog>` calls `close()`, so a modal dialog leaves the top layer properly.
