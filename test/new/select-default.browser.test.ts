@@ -387,3 +387,53 @@ test("preserveChanges keeps the user's choice when morphing an option inside the
 	expect(select.options[0]!.textContent).toBe("a2")
 	host.remove()
 })
+
+test("a vetoed morph of an option leaves the user's choice alone", () => {
+	const host = mount(`<div><select id="s"><option>a</option><option>b</option></select></div>`)
+	const select = host.querySelector("select")!
+	select.value = "b"
+
+	morph(select.options[0]!, parse(`<option>a2</option>`), { beforeNodeVisited: () => false })
+
+	expect(select.value).toBe("b")
+	host.remove()
+})
+
+test("a vetoed inner morph of an optgroup leaves the user's choice alone", () => {
+	const host = mount(`<div><select id="s"><optgroup id="g"><option>a</option><option>b</option></optgroup></select></div>`)
+	const select = host.querySelector("select")!
+	select.value = "b"
+
+	morphInner(host.querySelector("optgroup")!, `<optgroup id="g"><option>x</option></optgroup>`, {
+		beforeChildrenVisited: () => false,
+	})
+
+	expect(select.value).toBe("b")
+	host.remove()
+})
+
+// happy-dom doesn't implement `defaultSelected`.
+test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))(
+	"preserveChanges applies a new selected attribute to a multiple select option the morph reset earlier",
+	() => {
+		const host = mount(`<div><select id="m" multiple><option selected>a</option><option>b</option></select></div>`)
+		const select = host.querySelector("select")!
+		morph(host.firstElementChild!, parse(`<div><select id="m" multiple><option>a</option><option>b</option></select></div>`))
+		expect(select.options[0]!.selected).toBe(false)
+
+		morph(select.options[0]!, parse(`<option selected>a</option>`), { preserveChanges: true })
+
+		expect(select.options[0]!.selected).toBe(true)
+		host.remove()
+	},
+)
+
+test("morphing an option in a multiple select applies its selected attribute", () => {
+	const host = mount(`<div><select id="m" multiple><option>a</option><option selected>b</option></select></div>`)
+	const select = host.querySelector("select")!
+
+	morph(select.options[0]!, parse(`<option selected>a</option>`))
+
+	expect([...select.selectedOptions].map((option) => option.value)).toEqual(["a", "b"])
+	host.remove()
+})
