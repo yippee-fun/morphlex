@@ -27,8 +27,8 @@ test("morphing inputs with type mismatch skips candidate", () => {
 	morph(a, b)
 
 	const inputs = Array.from(a.children) as HTMLInputElement[]
-	expect(inputs[0].type).toBe("number")
-	expect(inputs[1].type).toBe("text")
+	expect(inputs[0]!.type).toBe("number")
+	expect(inputs[1]!.type).toBe("text")
 })
 
 test("morphing textarea with modified value preserves change when matched by name", () => {
@@ -58,8 +58,8 @@ test("morphing buttons by localName", () => {
 
 	expect(a.children[0]).toBe(first)
 	expect(a.children[1]).toBe(second)
-	expect(first.textContent).toBe("X")
-	expect(second.textContent).toBe("Y")
+	expect(first!.textContent).toBe("X")
+	expect(second!.textContent).toBe("Y")
 })
 
 test("morphing spans by localName forces lines 566-568", () => {
@@ -110,9 +110,9 @@ test("morphing elements with same tag but different attributes by localName", ()
 	expect(a.children[0]).toBe(first)
 	expect(a.children[1]).toBe(second)
 	expect(a.children[2]).toBe(third)
-	expect(first.textContent).toBe("X")
-	expect(second.textContent).toBe("Y")
-	expect(third.textContent).toBe("Z")
+	expect(first!.textContent).toBe("X")
+	expect(second!.textContent).toBe("Y")
+	expect(third!.textContent).toBe("Z")
 })
 
 test("morphing p elements by localName", () => {
@@ -127,6 +127,6 @@ test("morphing p elements by localName", () => {
 
 	expect(a.children[0]).toBe(first)
 	expect(a.children[1]).toBe(second)
-	expect(first.textContent).toBe("Changed1")
-	expect(second.textContent).toBe("Changed2")
+	expect(first!.textContent).toBe("Changed1")
+	expect(second!.textContent).toBe("Changed2")
 })

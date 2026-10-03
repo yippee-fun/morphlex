@@ -123,8 +123,8 @@ describe("Morphlex Browser Tests", () => {
 
 			const newItems = Array.from(original.querySelectorAll("li"))
 			expect(newItems.length).toBe(4)
-			expect(newItems[0].textContent).toBe("Item 1 - Modified")
-			expect(newItems[3].textContent).toBe("Item 4")
+			expect(newItems[0]!.textContent).toBe("Item 1 - Modified")
+			expect(newItems[3]!.textContent).toBe("Item 4")
 		})
 
 		it("should handle SVG elements in real browser", () => {
@@ -475,9 +475,9 @@ describe("Morphlex Browser Tests", () => {
 			expect(div.getAttribute("data-user-id")).toBe("456")
 			expect(div.getAttribute("data-role")).toBe("user")
 			expect(div.getAttribute("data-active")).toBe("true")
-			expect(div.dataset.userId).toBe("456")
-			expect(div.dataset.role).toBe("user")
-			expect(div.dataset.active).toBe("true")
+			expect(div.dataset["userId"]).toBe("456")
+			expect(div.dataset["role"]).toBe("user")
+			expect(div.dataset["active"]).toBe("true")
 		})
 
 		it("should handle aria attributes", () => {
@@ -603,8 +603,8 @@ describe("Morphlex Browser Tests", () => {
 
 			// Selected attributes are updated by default when not modified
 			expect(select.selectedOptions.length).toBe(2)
-			expect(select.selectedOptions[0].value).toBe("2")
-			expect(select.selectedOptions[1].value).toBe("3")
+			expect(select.selectedOptions[0]!.value).toBe("2")
+			expect(select.selectedOptions[1]!.value).toBe("3")
 		})
 
 		it("should handle script tags safely", () => {

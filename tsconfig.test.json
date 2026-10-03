@@ -3,7 +3,7 @@
 	"compilerOptions": {
 		"rootDir": ".",
 		"noEmit": true,
-		"types": ["vitest/globals"]
+		"types": ["vitest/globals", "vite/client"]
 	},
 	"include": ["test/**/*", "vitest.config.ts", "src/**/*"],
 	"exclude": ["node_modules", "dist", "coverage"]

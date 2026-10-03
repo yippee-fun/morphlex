@@ -123,7 +123,7 @@ test("non-input elements skip the type check entirely", () => {
 	// Buttons match by localName without any type checking
 	expect(a.children.length).toBe(1)
 	expect(a.children[0]).toBe(firstButton)
-	expect(a.children[0].getAttribute("data-test")).toBe("new")
+	expect(a.children[0]!.getAttribute("data-test")).toBe("new")
 })
 
 test("mixed inputs and non-inputs in localName matching", () => {
@@ -148,5 +148,5 @@ test("mixed inputs and non-inputs in localName matching", () => {
 	// Email input and button should both be matched
 	expect(a.children.length).toBe(2)
 	expect((a.children[0] as HTMLInputElement).type).toBe("email")
-	expect(a.children[1].tagName).toBe("BUTTON")
+	expect(a.children[1]!.tagName).toBe("BUTTON")
 })

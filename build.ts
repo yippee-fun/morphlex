@@ -6,17 +6,19 @@ import { build } from "esbuild"
 
 const execFileAsync = promisify(execFile)
 
-await build({
+const shared = {
 	entryPoints: ["./src/morphlex.ts"],
 	outdir: "./dist",
 	bundle: true,
 	format: "esm",
-	minify: true,
 	sourcemap: true,
-	outExtension: { ".js": ".min.js" },
 	platform: "browser",
 	target: "es2022",
-})
+} as const
+
+// `package.json` points `main` at the unminified build.
+await build(shared)
+await build({ ...shared, minify: true, outExtension: { ".js": ".min.js" } })
 
 // Generate TypeScript declarations (skip lib check to avoid node type errors)
 await execFileAsync("tsgo", ["--emitDeclarationOnly", "--declaration", "--outDir", "dist", "--skipLibCheck"])

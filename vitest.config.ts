@@ -10,6 +10,7 @@ export default defineConfig({
 		hookTimeout: 10000,
 		coverage: {
 			include: ["src/morphlex.ts"],
+			thresholds: { 100: true },
 		},
 	},
 })
