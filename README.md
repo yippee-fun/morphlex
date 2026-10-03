@@ -134,6 +134,8 @@ Sometimes the server does want to overwrite what the user typed, for example to 
 
 The attribute only applies to the morph it arrives in. Morphlex removes it from the new markup before morphing, so it never appears in the live DOM.
 
+With `morphInner`, putting the attribute on the target element itself applies it to all of its children.
+
 ### With `preserveChanges: false`
 
 The target markup wins. Values, checked states, selected options and `<textarea>` contents are reset to match it, even where the user has edited them and the markup itself hasn’t changed. Removing `open` from a `<dialog>` calls `close()`, so a modal dialog leaves the top layer properly.
