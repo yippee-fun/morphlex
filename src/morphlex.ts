@@ -476,6 +476,13 @@ function moveInto(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode
 }
 /* v8 ignore stop */
 
+interface PendingMove {
+	live: Element
+	target: Element
+	placeholder: Comment
+	preserveChanges: boolean
+}
+
 class Morph {
 	readonly #idArrayMap: IdArrayMap = new WeakMap()
 	readonly #idSetMap: IdSetMap = new WeakMap()
@@ -490,6 +497,8 @@ class Morph {
 	#unplacedElements: Array<Element> | null = null
 	// Approved removals put off until the end, because the node holds an element that may move out.
 	#deferredRemovals: Array<ChildNode> | null = null
+	// Moves wait for the morph to settle, because a later veto can still pin the element where it is.
+	#pendingMoves: Array<PendingMove> | null = null
 	// Pending moves and removals are settled when the root's children have been visited, or when
 	// the root is replaced, so the root's own callbacks see the finished DOM.
 	#root: Node | null = null
@@ -533,6 +542,12 @@ class Morph {
 	}
 
 	#finish(): void {
+		// Completing a move morphs the element, which can claim more elements, so keep going until none are left.
+		for (let moves = this.#pendingMoves; moves; moves = this.#pendingMoves) {
+			this.#pendingMoves = null
+			for (let i = 0; i < moves.length; i++) this.#completeMove(moves[i]!)
+		}
+
 		const unplaced = this.#unplacedElements
 		if (unplaced) {
 			for (let i = 0; i < unplaced.length; i++) {
@@ -1177,20 +1192,45 @@ class Morph {
 		from.content.replaceChildren(to.content)
 	}
 
-	// Add a new node, or move in the live element with its id. Returns whether the new node was inserted.
+	// Add a new node, or claim the live element with its id. Returns whether the new node was inserted.
 	#addNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): boolean {
-		const live = isElement(node) ? this.#takeMovableElement(node, parent) : null
-		if (live) {
-			moveInto(parent, live, insertionPoint)
-			this.#morphOneToOne(live, node)
-		} else if (this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true) {
-			clearImplicitSelection(node)
-			parent.insertBefore(node, insertionPoint)
-			this.#placeMovableDescendants(node)
-			this.#options.afterNodeAdded?.(node)
-			return true
+		const placeholder = isElement(node) ? this.#claimMovableElement(node, parent) : null
+		if (placeholder) {
+			parent.insertBefore(placeholder, insertionPoint)
+			return false
 		}
-		return false
+
+		return this.#insertNewNode(parent, node, insertionPoint)
+	}
+
+	#insertNewNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): boolean {
+		if (!(this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true)) return false
+
+		clearImplicitSelection(node)
+		parent.insertBefore(node, insertionPoint)
+		this.#placeMovableDescendants(node)
+		this.#options.afterNodeAdded?.(node)
+		return true
+	}
+
+	// Put the live element where its placeholder is and morph it into the target, unless a veto
+	// pinned it in the meantime. Then the target is added as a new node instead.
+	#completeMove({ live, target, placeholder, preserveChanges }: PendingMove): void {
+		const parent = placeholder.parentNode!
+		const saved = this.#preserveChanges
+		this.#preserveChanges = preserveChanges
+
+		if (this.#liveElementsById.get(target.id) === live && !live.contains(parent)) {
+			this.#liveElementsById.delete(target.id)
+			moveInto(parent, live, placeholder)
+			placeholder.remove()
+			this.#morphOneToOne(live, target)
+		} else {
+			this.#insertNewNode(parent, target, placeholder)
+			placeholder.remove()
+		}
+
+		this.#preserveChanges = saved
 	}
 
 	#replaceNode(node: ChildNode, newNode: ChildNode): void {
@@ -1268,13 +1308,16 @@ class Morph {
 		return false
 	}
 
-	// Take the live element with the target's id, if it can be morphed into the target where the target goes.
-	#takeMovableElement(target: Element, parent: ParentNode): Element | null {
+	// Claim the live element with the target's id, if it can be morphed into the target where the
+	// target goes. Returns a placeholder for the target's place, where the move completes when the
+	// morph settles.
+	#claimMovableElement(target: Element, parent: ParentNode): Comment | null {
 		const live = this.#movableElement(target.id)
 		if (!live || !canMorphElementInPlace(live, target) || live.contains(parent)) return null
 
-		this.#liveElementsById.delete(target.id)
-		return live
+		const placeholder = live.ownerDocument.createComment("")
+		;(this.#pendingMoves ??= []).push({ live, target, placeholder, preserveChanges: this.#preserveChanges })
+		return placeholder
 	}
 
 	// A new node can hold targets for live elements elsewhere. Put each live element in its target's place.
@@ -1298,11 +1341,9 @@ class Morph {
 			const next = target.nextElementSibling
 
 			if (this.#idArrayMap.has(target)) {
-				const live = this.#takeMovableElement(target, parent)
-				if (live) {
-					moveInto(parent, live, target)
-					target.remove()
-					this.#morphOneToOne(live, target)
+				const placeholder = this.#claimMovableElement(target, parent)
+				if (placeholder) {
+					parent.replaceChild(placeholder, target)
 				} else {
 					this.#placeMovableChildren(target)
 				}

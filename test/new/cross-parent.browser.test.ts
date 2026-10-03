@@ -333,3 +333,32 @@ test("an element can be recreated while another moves in the same morph", () => 
 	expect(host.querySelector("#e")).toBe(e)
 	host.remove()
 })
+
+test("an element doesn't move into an earlier sibling out of a subtree whose visit is vetoed later", () => {
+	for (const options of [
+		{ beforeChildrenVisited: (node: ParentNode) => (node as Element).id !== "s" },
+		{ beforeNodeVisited: (node: Node) => (node as Element).id !== "s" },
+	]) {
+		const host = mount(`<div><aside id="a"></aside><section id="s"><input id="x"></section></div>`)
+		const input = host.querySelector("input")!
+
+		morph(host.firstElementChild!, parse(`<div><aside id="a"><input id="x"></aside><section id="s"></section></div>`), options)
+
+		expect(input.parentElement).toBe(host.querySelector("section"))
+		expect(host.querySelector("aside")!.innerHTML).toBe(`<input id="x">`)
+		host.remove()
+	}
+})
+
+test("a pinned element's target nested in a new node is still added", () => {
+	const host = mount(`<div><section id="s"><input id="x"></section></div>`)
+	const input = host.querySelector("input")!
+
+	morph(host.firstElementChild!, parse(`<div><aside><p><input id="x"></p></aside><section id="s"></section></div>`), {
+		beforeChildrenVisited: (node) => (node as Element).id !== "s",
+	})
+
+	expect(input.parentElement).toBe(host.querySelector("section"))
+	expect(host.querySelector("aside")!.innerHTML).toBe(`<p><input id="x"></p>`)
+	host.remove()
+})
