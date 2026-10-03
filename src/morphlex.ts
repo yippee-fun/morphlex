@@ -275,23 +275,23 @@ function flagDirtyInputs(node: Element): Array<Element> {
 			node.setAttribute("morphlex-dirty", "")
 			flagged.push(node)
 		}
-	} else if (node.localName === "textarea") {
-		const textarea = node as HTMLTextAreaElement
-		if (textarea.value !== textarea.defaultValue) {
-			textarea.setAttribute("morphlex-dirty", "")
-			flagged.push(textarea)
+	} else if (isTextAreaElement(node)) {
+		if (node.value !== node.defaultValue) {
+			node.setAttribute("morphlex-dirty", "")
+			flagged.push(node)
 		}
 	}
 
+	// The selectors also match elements with these names in other namespaces, like SVG.
 	for (const input of node.querySelectorAll("input")) {
-		if (isDirtyInput(input)) {
+		if (isInputElement(input) && isDirtyInput(input)) {
 			input.setAttribute("morphlex-dirty", "")
 			flagged.push(input)
 		}
 	}
 
 	for (const element of node.querySelectorAll("option")) {
-		if (element.namespaceURI !== HTML_NAMESPACE) continue
+		if (!isOptionElement(element)) continue
 		optionSelects ??= optionSelectsOf(node)
 		if (isDirtyOption(element, optionSelects.get(element), defaultOptions)) {
 			element.setAttribute("morphlex-dirty", "")
@@ -300,7 +300,7 @@ function flagDirtyInputs(node: Element): Array<Element> {
 	}
 
 	for (const element of node.querySelectorAll("textarea")) {
-		if (element.value !== element.defaultValue) {
+		if (isTextAreaElement(element) && element.value !== element.defaultValue) {
 			element.setAttribute("morphlex-dirty", "")
 			flagged.push(element)
 		}
@@ -557,8 +557,8 @@ class Morph {
 			this.#visitAttributes(from, to)
 		}
 
-		if ("textarea" === from.localName && "textarea" === to.localName) {
-			this.#visitTextArea(from as HTMLTextAreaElement, to as HTMLTextAreaElement)
+		if (isTextAreaElement(from) && isTextAreaElement(to)) {
+			this.#visitTextArea(from, to)
 		} else if (from.hasChildNodes() || to.hasChildNodes() || isTemplateElement(from)) {
 			this.visitChildNodes(from, to)
 		}
@@ -1318,7 +1318,11 @@ function isTemplateElement(element: Element): element is HTMLTemplateElement {
 }
 
 function isInputElement(element: Element): element is HTMLInputElement {
-	return element.localName === "input"
+	return element.localName === "input" && element.namespaceURI === HTML_NAMESPACE
+}
+
+function isTextAreaElement(element: Element): element is HTMLTextAreaElement {
+	return element.localName === "textarea" && element.namespaceURI === HTML_NAMESPACE
 }
 
 function canMorphElementInPlace(from: Element, to: Element): boolean {
@@ -1353,6 +1357,8 @@ function hasMatchKeyAttribute(element: Element): boolean {
 }
 
 function isFormControl(element: Element): boolean {
+	if (element.namespaceURI !== HTML_NAMESPACE) return false
+
 	const localName = element.localName
 	return (
 		localName === "input" ||
@@ -1376,7 +1382,7 @@ function isSelectElement(element: Element): element is HTMLSelectElement {
 }
 
 function isOptionElement(element: Element): element is HTMLOptionElement {
-	return element.localName === "option"
+	return element.localName === "option" && element.namespaceURI === HTML_NAMESPACE
 }
 
 function isParentNode(node: Node): node is ParentNode {
