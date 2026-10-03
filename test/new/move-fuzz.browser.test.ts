@@ -24,11 +24,13 @@ const LEAVES = ["input", "textarea", "button", "img", "select"] as const
 const VOID_TAGS = ["input", "img"]
 const INPUT_TYPES = ["text", "checkbox", "radio", "hidden"]
 const TEXTS = ["hello", "x y", "123", " "]
+const IS_VALUES = ["x-a", "x-b"]
 
 test("the result matches the target, and every element that can move keeps its node", () => {
 	check((scenario, fail) => {
 		const host = mount(scenario.fromHtml)
 		const expected = movableElements(host, scenario)
+		const redefined = redefinedElements(host, scenario)
 
 		run(host, scenario)
 
@@ -38,6 +40,9 @@ test("the result matches the target, and every element that can move keeps its n
 		}
 		for (const [id, element] of expected) {
 			if (host.querySelector(`[id="${id}"]`) !== element) fail(host, `#${id} was recreated`)
+		}
+		for (const element of redefined) {
+			if (host.contains(element)) fail(host, `#${element.id} kept its node although its \`is\` changed`)
 		}
 	})
 })
@@ -93,6 +98,40 @@ test("preserveChanges keeps what the user typed into every control that moves, u
 	})
 })
 
+// Option wrappers with ids nest differently in each tree, inside an element that moves to another parent.
+// The moving element's callbacks see what each select finally shows.
+test("a moving element's callbacks see the final selection of a select inside it", () => {
+	let failures = 0
+	let smallest: string | null = null
+
+	for (const seed of SEEDS) {
+		const random = createRandom(seed)
+		const fromHtml = `<div><section><div id="m">${createNestedSelect(random)}</div></section><aside></aside></div>`
+		const toHtml = `<div><section></section><aside><div id="m">${createNestedSelect(random)}</div></aside></div>`
+		const host = mount(fromHtml)
+		const views: Array<string> = []
+
+		morph(host.firstChild as ChildNode, toHtml, {
+			afterNodeVisited: (node) => {
+				if (isElement(node) && node.id === "m") views.push(selectionOf(node.querySelector("select")!))
+			},
+			afterChildrenVisited: (node) => {
+				if (isElement(node) && node.id === "m") views.push(selectionOf(node.querySelector("select")!))
+			},
+		})
+
+		const final = selectionOf(host.querySelector("select")!)
+		host.remove()
+		if (views.some((view) => view !== final)) {
+			failures++
+			const report = `seed ${seed}: callbacks saw ${views.join(", ")}, but the select shows ${final}\nfrom: ${fromHtml}\nto:   ${toHtml}`
+			if (smallest === null || report.length < smallest.length) smallest = report
+		}
+	}
+
+	if (smallest !== null) throw new Error(`${failures} of ${SEEDS.length} seeds failed. Smallest failure:\n${smallest}`)
+})
+
 test("callbacks see a consistent DOM, and vetoes are respected", () => {
 	check((scenario, fail) => {
 		const host = mount(scenario.fromHtml)
@@ -117,7 +156,7 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 		const checkMoved = (node: Node) => {
 			if (!isElement(node) || parents.get(node) === node.parentNode) return
 			if (node.innerHTML.includes("<!---->")) fail(host, `a moved element's callbacks saw a placeholder: ${describe(node)}`)
-			movedViews.set(node, node.innerHTML)
+			movedViews.set(node, viewOf(node))
 		}
 
 		const visited = new Set<Node>()
@@ -165,7 +204,7 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 			if (host.contains(node)) fail(host, "a removed node came back")
 		}
 		for (const [element, view] of movedViews) {
-			if (host.contains(element) && view.replaceAll(' morphlex-dirty=""', "") !== element.innerHTML) {
+			if (host.contains(element) && view.replaceAll(' morphlex-dirty=""', "") !== viewOf(element)) {
 				fail(host, `a moved element's callbacks saw an unfinished subtree: ${describe(element)}`)
 			}
 		}
@@ -233,6 +272,7 @@ function movableElements(host: HTMLElement, scenario: Case): Map<string, Element
 		const to = matches[0]!
 		if (to.localName !== element.localName) return false
 		if (element instanceof HTMLInputElement && element.type !== (to as HTMLInputElement).type) return false
+		if (element.getAttribute("is") !== to.getAttribute("is")) return false
 		// An element in a select only stays when it stays in the same select, and that select stays too.
 		const select = element.parentElement!.closest("select")
 		const toSelect = to.parentElement?.closest("select")
@@ -274,6 +314,16 @@ function outsideCheckedness(expected: Document, formId: string): string {
 	const form = expected.getElementById(formId) as HTMLFormElement
 	const group = [...form.elements].filter((element) => element instanceof HTMLInputElement && element.type === "radio")
 	return group.some((radio) => (radio as HTMLInputElement).name === "r" && radio.hasAttribute("checked")) ? "-" : "x"
+}
+
+// Live elements whose \`is\` differs from that of the target element with their id. A customized
+// built-in's definition is fixed when it's created, so these must be recreated.
+function redefinedElements(host: HTMLElement, scenario: Case): Array<Element> {
+	const target = parse(scenario.toHtml)
+	return [...host.querySelectorAll("[id]")].filter((element) => {
+		const to = target.id === element.id ? target : target.querySelector(`[id="${element.id}"]`)
+		return to !== null && to.localName === element.localName && to.getAttribute("is") !== element.getAttribute("is")
+	})
 }
 
 // Whether the target puts the element inside something that is currently inside it.
@@ -340,6 +390,17 @@ function createCase(seed: number): Case {
 			mutate(random, to, ids)
 	}
 
+	// Sometimes change the `is` of a button with an id, which can't be changed in place.
+	const buttons = elementsOf({ kind: "element", tag: "root", attributes: [], children: to }).filter(
+		(element) => element.tag === "button" && element.attributes.some(([name]) => name === "id"),
+	)
+	if (buttons.length > 0 && random() < 0.3) {
+		const button = pick(random, buttons)
+		const is = button.attributes.find(([name]) => name === "is")?.[1]
+		button.attributes = button.attributes.filter(([name]) => name !== "is")
+		button.attributes.push(["is", is === IS_VALUES[0] ? IS_VALUES[1]! : IS_VALUES[0]!])
+	}
+
 	const shape: Shape = pick(random, ["one", "one", "list", "inner"])
 	const fromRoot: Root = { tag: "div", id: "root" }
 	// The target's root sometimes changes tag, or takes the id of an element inside it. An inner morph needs the same tag.
@@ -366,6 +427,7 @@ function createNode(random: Random, depth: number, ids: { next: number }): TreeN
 		if ((type === "radio" || type === "checkbox") && random() < 0.4) attributes.push(["checked", ""])
 	}
 	if (random() < 0.3) attributes.push(["class", pick(random, ["a", "b"])])
+	if (tag === "button" && random() < 0.4) attributes.push(["is", pick(random, IS_VALUES)])
 
 	const children: Array<TreeNode> = []
 	if (tag === "select") {
@@ -393,6 +455,20 @@ function createForm(random: Random, ids: { next: number }): ElementNode {
 function createSelect(random: Random, ids: { next: number }): ElementNode {
 	const attributes: Array<[string, string]> = random() < 0.5 ? [["id", `i${ids.next++}`]] : []
 	return { kind: "element", tag: "select", attributes, children: createOptionChildren(random, ids, 2) }
+}
+
+// A select whose options sit in wrappers with fixed ids, each nested in the select or in an earlier wrapper.
+function createNestedSelect(random: Random): string {
+	const options: Record<string, string> = { p: "a", q: "b", r: "", t: "c" }
+	const children: Record<string, Array<string>> = { select: [], p: [], q: [], r: [], t: [] }
+	const order = Object.keys(options).sort(() => random() - 0.5)
+	for (let i = 0; i < order.length; i++) {
+		const parent = i === 0 || random() < 0.5 ? "select" : order[randomInt(random, 0, i - 1)]!
+		children[parent]!.push(order[i]!)
+	}
+	const render = (id: string): string =>
+		`<div id="${id}">${options[id] ? `<option>${options[id]}</option>` : ""}${children[id]!.map(render).join("")}</div>`
+	return `<select>${children["select"]!.map(render).join("")}</select>`
 }
 
 // Options, and wrappers holding options, as a customizable select allows.
@@ -448,6 +524,9 @@ function mutate(random: Random, nodes: Array<TreeNode>, ids: { next: number }): 
 		else parent.children.splice(index, 0, createNode(random, 2, ids))
 	} else if (node.kind === "element" && isCheckable(node) && random() < 0.5) {
 		toggleAttribute(node, "checked")
+	} else if (node.kind === "element" && node.tag === "button" && random() < 0.5) {
+		node.attributes = node.attributes.filter(([name]) => name !== "is")
+		if (random() < 0.7) node.attributes.push(["is", pick(random, IS_VALUES)])
 	} else if (node.kind === "element") {
 		node.attributes = node.attributes.filter(([name]) => name !== "class")
 		node.attributes.push(["class", pick(random, ["a", "b", "c"])])
@@ -616,6 +695,12 @@ function checkednessOf(input: HTMLInputElement): string {
 
 function selectionOf(select: HTMLSelectElement): string {
 	return [...select.options].map((option) => (option.selected ? "1" : "0")).join("")
+}
+
+// An element's subtree, with what each select inside it shows.
+function viewOf(element: Element): string {
+	const selections = [...element.querySelectorAll("select")].map(selectionOf)
+	return `${element.innerHTML} ${selections.join(" ")}`
 }
 
 function descendants(element: Element): Array<Node> {

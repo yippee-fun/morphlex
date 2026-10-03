@@ -850,3 +850,62 @@ test.skipIf(!supportsOptionWrappers())("an element moves into a new select", () 
 	expect(host.innerHTML).toBe(`<div><select><div id="w"></div></select></div>`)
 	host.remove()
 })
+
+test("an element whose `is` changes is recreated where it is, before the nodes that follow it", () => {
+	const host = mount(`<div><button id="b" is="x-a"></button><p>1</p></div>`)
+	const button = host.querySelector("#b")!
+
+	morph(host.firstElementChild!, `<div><button id="b" is="x-b"></button><span>2</span><p>1</p></div>`)
+
+	expect(host.innerHTML).toBe(`<div><button id="b" is="x-b"></button><span>2</span><p>1</p></div>`)
+	expect(host.querySelector("#b")).not.toBe(button)
+	host.remove()
+})
+
+test("an element whose `is` changes isn't moved across parents", () => {
+	const host = mount(`<div><section><button id="b" is="x-a"></button></section><aside></aside></div>`)
+	const button = host.querySelector("#b")!
+
+	morph(host.firstElementChild!, `<div><section></section><aside><button id="b" is="x-b"></button></aside></div>`)
+
+	expect(host.innerHTML).toBe(`<div><section></section><aside><button id="b" is="x-b"></button></aside></div>`)
+	expect(host.querySelector("#b")).not.toBe(button)
+	host.remove()
+})
+
+test.skipIf(!supportsOptionWrappers())("a moved element's callbacks see the selection of a select inside it settled", () => {
+	const host = mount(
+		`<div><section><div id="m"><select><div id="x"><div id="w"><option>a</option></div></div><option>b</option></select></div></section><aside></aside></div>`,
+	)
+	const moved = host.querySelector("#m")!
+	const seen: Array<string> = []
+
+	morph(
+		host.firstElementChild!,
+		`<div><section></section><aside><div id="m"><select><div id="x"></div><option>b</option><div id="y"><div id="w"><option>a</option></div></div></select></div></aside></div>`,
+		{
+			afterChildrenVisited: (node) => node === moved && seen.push(moved.querySelector("select")!.value),
+			afterNodeVisited: (node) => node === moved && seen.push(moved.querySelector("select")!.value),
+		},
+	)
+
+	expect(seen).toEqual(["b", "b"])
+	host.remove()
+})
+
+test("a select outside a moved element keeps the selection its markup gives it", () => {
+	const host = mount(
+		`<div><select id="s"><option>a</option><option>b</option></select><section><p id="m">1</p></section><aside></aside></div>`,
+	)
+	const select = host.querySelector("select")!
+	select.value = "b"
+
+	morph(
+		host.firstElementChild!,
+		`<div><select id="s"><option>a</option><option>b</option></select><section></section><aside><p id="m">2</p></aside></div>`,
+	)
+
+	expect(select.value).toBe("a")
+	expect(host.querySelector("#m")!.textContent).toBe("2")
+	host.remove()
+})

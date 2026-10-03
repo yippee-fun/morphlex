@@ -616,15 +616,8 @@ class Morph {
 			this.#deferredRemovals = null
 		}
 
-		const selects = this.#syncedSelects
-		if (selects) {
-			this.#syncedSelects = null
-			const preserveChanges = this.#preserveChanges
-			this.#preserveChanges = false
-			for (const select of selects) this.#syncDefaultSelection(select)
-			this.#preserveChanges = preserveChanges
-			this.#syncedSelects = null
-		}
+		this.#resyncSelects()
+		this.#syncedSelects = null
 
 		const unchecked = this.#radiosUncheckedForMove
 		if (unchecked) {
@@ -672,6 +665,21 @@ class Morph {
 				return false
 			})
 		}
+
+		this.#resyncSelects(element)
+	}
+
+	// Option wrappers can move or go after a select was synced, which keeps the old selection, so sync it again.
+	#resyncSelects(within: Node | null = null): void {
+		const selects = this.#syncedSelects
+		if (!selects) return
+
+		const preserveChanges = this.#preserveChanges
+		this.#preserveChanges = false
+		for (const select of selects) {
+			if (!within || within.contains(select)) this.#syncDefaultSelection(select)
+		}
+		this.#preserveChanges = preserveChanges
 	}
 
 	// Complete a move into or out of the element, or a move whose target holds the target of an element
@@ -1283,12 +1291,18 @@ class Morph {
 				if (operation === Operation.EqualNode) {
 				} else if (operation === Operation.SameElement) {
 					// Elements matched by id skip the isEqualNode pass, so check here before visiting them.
-					if (!isEqualNode(match, node)) this.#morphMatchingElements(match as Element, node as Element)
+					if (isEqualNode(match, node)) {
+					} else if (hasSameIs(match as Element, node as Element)) {
+						this.#morphMatchingElements(match as Element, node as Element)
+					} else {
+						this.#morphNonMatchingElements(match as Element, node as Element)
+					}
 				} else {
 					this.#morphOneToOne(match, node)
 				}
 
-				insertionPoint = match.nextSibling
+				// A replaced match has left, so carry on after its replacement.
+				insertionPoint = (match.parentNode === parent ? match : node).nextSibling
 			} else {
 				if (this.#addNode(parent, node, insertionPoint)) insertionPoint = node.nextSibling
 			}
@@ -1880,9 +1894,15 @@ function isTextAreaElement(element: Element): element is HTMLTextAreaElement {
 	return element.localName === "textarea" && element.namespaceURI === HTML_NAMESPACE
 }
 
+// A customized built-in's definition is fixed when it's created, so changing `is` needs a new element.
+function hasSameIs(from: Element, to: Element): boolean {
+	return from.getAttribute("is") === to.getAttribute("is")
+}
+
 function canMorphElementInPlace(from: Element, to: Element): boolean {
 	if (from.localName !== to.localName) return false
 	if (from.namespaceURI !== to.namespaceURI) return false
+	if (!hasSameIs(from, to)) return false
 	if (isFormControl(from) && isFormControl(to)) {
 		const fromId = from.id
 		const toId = to.id
