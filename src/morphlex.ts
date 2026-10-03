@@ -169,13 +169,12 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 
 	const clobbered = takeClobbered(to)
 	const select = selectOf(from)
-	const dirtySelect = select !== null && isDirtySelect(select)
 	const selection = select && markupSelectionOf(select)
 	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
 	try {
-		const morpher = new Morph(options, clobbered, flagged && dirtySelectsOf(from as Element, flagged))
+		const morpher = new Morph(options, clobbered)
 		morpher.morph(from, to)
-		if (select) morpher.syncEnclosingSelect(select, selection!, dirtySelect)
+		if (select) morpher.syncEnclosingSelect(select, selection!)
 	} finally {
 		if (flagged) clearDirtyFlags(flagged)
 	}
@@ -220,12 +219,11 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const clobbered = takeClobbered(toElement)
 		if (clobbered?.has(toElement)) options = { ...options, preserveChanges: false }
 		const select = selectOf(fromElement)
-		const dirtySelect = select !== null && isDirtySelect(select)
 		const selection = select && markupSelectionOf(select)
 		const flagged = flagDirtyInputs(fromElement)
-		const morpher = new Morph(options, clobbered, dirtySelectsOf(fromElement, flagged))
+		const morpher = new Morph(options, clobbered)
 		morpher.visitChildNodes(fromElement, toElement)
-		if (select) morpher.syncEnclosingSelect(select, selection!, dirtySelect)
+		if (select) morpher.syncEnclosingSelect(select, selection!)
 		clearDirtyFlags(flagged)
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
@@ -370,6 +368,26 @@ function isDisabledOption(option: HTMLOptionElement): boolean {
 	return false
 }
 
+// The parser selects the first option of a drop-down that has no `selected` option, so a new
+// option can arrive selected and take the selection from the option the user chose. Clear that
+// once the option has left the parsed select, where clearing it would just select it again.
+function clearImplicitSelection(node: ChildNode): void {
+	if (node.nodeType !== ELEMENT_NODE_TYPE) return
+
+	const element = node as Element
+	if (isOptionElement(element)) {
+		element.remove()
+		clearImplicitOptionSelection(element)
+	} else if (element.localName === "optgroup" && element.namespaceURI === HTML_NAMESPACE) {
+		element.remove()
+		for (const option of element.querySelectorAll("option")) clearImplicitOptionSelection(option)
+	}
+}
+
+function clearImplicitOptionSelection(option: HTMLOptionElement): void {
+	if (option.selected && !option.hasAttribute("selected")) option.selected = false
+}
+
 // Customizable selects allow options nested inside other elements, so look past the parent.
 function selectOf(node: Node): HTMLSelectElement | null {
 	for (let parent = node.parentElement; parent; parent = parent.parentElement) {
@@ -399,42 +417,10 @@ function addOptionSelects(optionSelects: Map<Element, HTMLSelectElement>, select
 	for (let i = 0; i < options.length; i++) optionSelects.set(options[i]!, select)
 }
 
-function isDirtySelect(select: HTMLSelectElement): boolean {
-	const defaultOptions: DefaultOptionMap = new Map()
-	const options = select.options
-	for (let i = 0; i < options.length; i++) {
-		if (isDirtyOption(options[i]!, select, defaultOptions)) return true
-	}
-	return false
-}
-
 // The options the markup selects, to tell whether a morph inside the select changed them.
 function markupSelectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null> {
 	if (!select.multiple) return [defaultOptionOf(select)]
 	return Array.from(select.options).filter((option) => option.hasAttribute("selected"))
-}
-
-// The selects the user changed, found before morphing moves their options around. Find them from
-// the top down, because in happy-dom an option's parent isn't the same object as its select.
-function dirtySelectsOf(node: Element, flagged: Array<Element>): Set<Element> | null {
-	if (!flagged.some(isOptionElement)) return null
-
-	const selects = new Set<Element>()
-	if (isSelectElement(node) && hasDirtyOption(node)) selects.add(node)
-
-	for (const select of node.querySelectorAll("select")) {
-		if (isSelectElement(select) && hasDirtyOption(select)) selects.add(select)
-	}
-
-	return selects
-}
-
-function hasDirtyOption(select: HTMLSelectElement): boolean {
-	const options = select.options
-	for (let i = 0; i < options.length; i++) {
-		if (options[i]!.hasAttribute("morphlex-dirty")) return true
-	}
-	return false
 }
 
 function clearDirtyFlags(elements: Array<Element>): void {
@@ -478,14 +464,12 @@ class Morph {
 	readonly #idSetMap: IdSetMap = new WeakMap()
 	readonly #options: Options
 	readonly #clobbered: Set<Element> | null
-	readonly #dirtySelects: Set<Element> | null
 	#vetoedOptions: Set<Element> | null = null
 	#preserveChanges: boolean
 
-	constructor(options: Options = {}, clobbered: Set<Element> | null = null, dirtySelects: Set<Element> | null = null) {
+	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
 		this.#options = options
 		this.#clobbered = clobbered
-		this.#dirtySelects = dirtySelects
 		this.#preserveChanges = options.preserveChanges ?? false
 	}
 
@@ -1065,6 +1049,7 @@ class Morph {
 				insertionPoint = match.nextSibling
 			} else {
 				if (this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true) {
+					clearImplicitSelection(node)
 					parent.insertBefore(node, insertionPoint)
 					this.#options.afterNodeAdded?.(node)
 					insertionPoint = node.nextSibling
@@ -1079,8 +1064,8 @@ class Morph {
 
 	// A morph inside a select never visits the select, so sync it afterwards if the morph
 	// changed what the markup selects. A vetoed morph changes nothing, so it leaves it alone.
-	syncEnclosingSelect(select: HTMLSelectElement, selection: Array<HTMLOptionElement | null>, dirty: boolean): void {
-		if (this.#preserveChanges && dirty) return
+	syncEnclosingSelect(select: HTMLSelectElement, selection: Array<HTMLOptionElement | null>): void {
+		if (this.#preserveChanges) return
 
 		const newSelection = markupSelectionOf(select)
 		if (newSelection.length === selection.length && newSelection.every((option, i) => option === selection[i])) return
@@ -1090,9 +1075,10 @@ class Morph {
 
 	// The browser keeps its selection when options are added or moved, or when the select changes
 	// between a drop-down and a list box, so an untouched select can end up showing something
-	// other than its markup. Select what the markup selects.
+	// other than its markup. Select what the markup selects. Under `preserveChanges` the browser's
+	// selection stands, because a user who picked the default option again looks untouched.
 	#syncDefaultSelection(select: HTMLSelectElement): void {
-		if (this.#preserveChanges && this.#dirtySelects?.has(select)) return
+		if (this.#preserveChanges) return
 
 		const options = select.options
 		const vetoed = this.#vetoedOptions
@@ -1132,6 +1118,7 @@ class Morph {
 			(this.#options.beforeNodeRemoved?.(node) ?? true) &&
 			(this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true)
 		) {
+			clearImplicitSelection(newNode)
 			parent.insertBefore(newNode, insertionPoint)
 			this.#options.afterNodeAdded?.(newNode)
 			node.remove()
