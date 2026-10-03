@@ -170,11 +170,12 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 	const clobbered = takeClobbered(to)
 	const select = selectOf(from)
 	const dirtySelect = select !== null && isDirtySelect(select)
+	const selection = select && markupSelectionOf(select)
 	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
 	try {
 		const morpher = new Morph(options, clobbered, flagged && dirtySelectsOf(from as Element, flagged))
 		morpher.morph(from, to)
-		if (select) morpher.syncEnclosingSelect(select, dirtySelect)
+		if (select) morpher.syncEnclosingSelect(select, selection!, dirtySelect)
 	} finally {
 		if (flagged) clearDirtyFlags(flagged)
 	}
@@ -220,10 +221,11 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		if (clobbered?.has(toElement)) options = { ...options, preserveChanges: false }
 		const select = selectOf(fromElement)
 		const dirtySelect = select !== null && isDirtySelect(select)
+		const selection = select && markupSelectionOf(select)
 		const flagged = flagDirtyInputs(fromElement)
 		const morpher = new Morph(options, clobbered, dirtySelectsOf(fromElement, flagged))
 		morpher.visitChildNodes(fromElement, toElement)
-		if (select) morpher.syncEnclosingSelect(select, dirtySelect)
+		if (select) morpher.syncEnclosingSelect(select, selection!, dirtySelect)
 		clearDirtyFlags(flagged)
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
@@ -375,6 +377,12 @@ function isDirtySelect(select: HTMLSelectElement): boolean {
 		if (isDirtyOption(options[i]!, defaultOptions)) return true
 	}
 	return false
+}
+
+// The options the markup selects, to tell whether a morph inside the select changed them.
+function markupSelectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null> {
+	if (!select.multiple) return [defaultOptionOf(select)]
+	return Array.from(select.options).filter((option) => option.hasAttribute("selected"))
 }
 
 // The selects the user changed, found before morphing moves their options around. Find them from
@@ -1040,9 +1048,15 @@ class Morph {
 		this.#options.afterChildrenVisited?.(from)
 	}
 
-	// A morph inside a select never visits the select, so sync it afterwards.
-	syncEnclosingSelect(select: HTMLSelectElement, dirty: boolean): void {
-		if (!(this.#preserveChanges && dirty)) this.#syncDefaultSelection(select)
+	// A morph inside a select never visits the select, so sync it afterwards if the morph
+	// changed what the markup selects. A vetoed morph changes nothing, so it leaves it alone.
+	syncEnclosingSelect(select: HTMLSelectElement, selection: Array<HTMLOptionElement | null>, dirty: boolean): void {
+		if (this.#preserveChanges && dirty) return
+
+		const newSelection = markupSelectionOf(select)
+		if (newSelection.length === selection.length && newSelection.every((option, i) => option === selection[i])) return
+
+		this.#syncDefaultSelection(select)
 	}
 
 	// The browser keeps its selection when options are added or moved, or when the select changes
