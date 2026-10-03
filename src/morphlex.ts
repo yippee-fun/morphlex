@@ -1,7 +1,6 @@
 const SUPPORTS_MOVE_BEFORE = typeof Element !== "undefined" && "moveBefore" in Element.prototype
 const ELEMENT_NODE_TYPE = 1
 const TEXT_NODE_TYPE = 3
-const TREE_WALKER_SHOW_ELEMENT = 1
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
 const CLOBBER_ATTRIBUTE = "morphlex-clobber"
 const DETACHED_NODE_ERROR = "[Morphlex] Cannot replace a detached node. It needs a parent."
@@ -460,7 +459,9 @@ class Morph {
 		}
 
 		// First pass: update/add attributes from reference (iterate forwards)
-		for (const { name, localName, value, namespaceURI } of to.attributes) {
+		const toAttributes = to.attributes
+		for (let i = 0; i < toAttributes.length; i++) {
+			const { name, localName, value, namespaceURI } = toAttributes[i]!
 			if (name === "morphlex-dirty") continue
 			// Adding `open` would open it, but changing the value of an existing one is fine.
 			if (name === "open" && namespaceURI === null && this.#preserveChanges && hasOpenState(from) && !from.hasAttribute("open")) {
@@ -478,19 +479,21 @@ class Morph {
 			}
 		}
 
-		// Second pass: remove excess attributes
-		for (const { name, localName, value, namespaceURI } of Array.from(from.attributes)) {
-			if (!to.hasAttributeNS(namespaceURI, localName)) {
-				if (name === "open" && namespaceURI === null && this.#preserveChanges && hasOpenState(from)) continue
+		// Second pass: remove excess attributes. Check for any first, to avoid copying the attribute list.
+		if (hasExcessAttributes(from, to)) {
+			for (const { name, localName, value, namespaceURI } of Array.from(from.attributes)) {
+				if (!to.hasAttributeNS(namespaceURI, localName)) {
+					if (name === "open" && namespaceURI === null && this.#preserveChanges && hasOpenState(from)) continue
 
-				if (this.#options.beforeAttributeUpdated?.(from, name, null) ?? true) {
-					// Removing `open` from a modal dialog leaves it stuck in the top layer, so close it properly.
-					if (name === "open" && namespaceURI === null && isDialogElement(from)) {
-						from.close()
-					} else {
-						from.removeAttributeNS(namespaceURI, localName)
+					if (this.#options.beforeAttributeUpdated?.(from, name, null) ?? true) {
+						// Removing `open` from a modal dialog leaves it stuck in the top layer, so close it properly.
+						if (name === "open" && namespaceURI === null && isDialogElement(from)) {
+							from.close()
+						} else {
+							from.removeAttributeNS(namespaceURI, localName)
+						}
+						this.#options.afterAttributeUpdated?.(from, name, value)
 					}
-					this.#options.afterAttributeUpdated?.(from, name, value)
 				}
 			}
 		}
@@ -636,15 +639,27 @@ class Morph {
 			}
 		}
 
-		// Match elements by isEqualNode
+		// Match elements by isEqualNode. Equal nodes have equal text content, so with many siblings,
+		// bucket the candidates by it rather than comparing every pair.
+		const candidatesByText =
+			candidateElementIndices.length * unmatchedElementIndices.length > 1024
+				? bucketByTextContent(fromChildNodes, candidateElementIndices)
+				: null
+
 		for (let i = 0; i < unmatchedElementIndices.length; i++) {
 			const unmatchedIndex = unmatchedElementIndices[i]!
 
 			const localName = localNameMap[unmatchedIndex]
 			const element = toChildNodes[unmatchedIndex] as Element
+			let candidates = candidateElementIndices
+			if (candidatesByText) {
+				const bucket = candidatesByText.get(element.textContent!)
+				if (bucket === undefined) continue
+				candidates = bucket
+			}
 
-			for (let c = 0; c < candidateElementIndices.length; c++) {
-				const candidateIndex = candidateElementIndices[c]!
+			for (let c = 0; c < candidates.length; c++) {
+				const candidateIndex = candidates[c]!
 				if (!candidateElementActive[candidateIndex]) continue
 				if (localName !== candidateLocalNameMap[candidateIndex]) continue
 				if (namespaceURIMap[unmatchedIndex] !== candidateNamespaceURIMap[candidateIndex]) continue
@@ -753,6 +768,7 @@ class Morph {
 			const name = element.getAttribute("name")
 			const href = element.getAttribute("href")
 			const src = element.getAttribute("src")
+			if (!name && !href && !src) continue
 
 			for (let c = 0; c < candidateElementIndices.length; c++) {
 				const candidateIndex = candidateElementIndices[c]!
@@ -776,6 +792,7 @@ class Morph {
 		}
 
 		// Match by tagName (only for elements without distinguishing attributes)
+		let firstActiveCandidate = 0
 		for (let i = 0; i < unmatchedElementIndices.length; i++) {
 			const unmatchedIndex = unmatchedElementIndices[i]!
 			if (!unmatchedElementActive[unmatchedIndex]) continue
@@ -786,7 +803,14 @@ class Morph {
 
 			const localName = localNameMap[unmatchedIndex]
 
-			for (let c = 0; c < candidateElementIndices.length; c++) {
+			while (
+				firstActiveCandidate < candidateElementIndices.length &&
+				!candidateElementActive[candidateElementIndices[firstActiveCandidate]!]
+			) {
+				firstActiveCandidate++
+			}
+
+			for (let c = firstActiveCandidate; c < candidateElementIndices.length; c++) {
 				const candidateIndex = candidateElementIndices[c]!
 				if (!candidateElementActive[candidateIndex]) continue
 
@@ -993,17 +1017,30 @@ class Morph {
 }
 
 function forEachDescendantElementWithId(node: ParentNode, callback: (element: Element) => void): void {
-	const root = node as Node
-	const ownerDocument = root.ownerDocument!
-
-	const walker = ownerDocument.createTreeWalker(root, TREE_WALKER_SHOW_ELEMENT)
-	let current = walker.nextNode()
-
-	while (current) {
-		const element = current as Element
+	for (const element of node.querySelectorAll("[id]")) {
 		if (element.id !== "") callback(element)
-		current = walker.nextNode()
 	}
+}
+
+function hasExcessAttributes(from: Element, to: Element): boolean {
+	const attributes = from.attributes
+	for (let i = 0; i < attributes.length; i++) {
+		const { localName, namespaceURI } = attributes[i]!
+		if (!to.hasAttributeNS(namespaceURI, localName)) return true
+	}
+	return false
+}
+
+function bucketByTextContent(nodes: Array<ChildNode>, indices: Array<number>): Map<string, Array<number>> {
+	const buckets: Map<string, Array<number>> = new Map()
+	for (let i = 0; i < indices.length; i++) {
+		const index = indices[i]!
+		const text = nodes[index]!.textContent!
+		const bucket = buckets.get(text)
+		if (bucket) bucket.push(index)
+		else buckets.set(text, [index])
+	}
+	return buckets
 }
 
 function nodeListToArray(nodeList: NodeListOf<ChildNode>): Array<ChildNode>
