@@ -391,11 +391,11 @@ function clearImplicitOptionSelection(option: HTMLOptionElement): void {
 	if (option.selected && !option.hasAttribute("selected")) option.selected = false
 }
 
-// Options belong to their select, so an element holding options doesn't move into or out of a
-// select. Customizable selects allow options inside other elements.
+// Options belong to their select, so an element holding options only moves within its select.
+// Customizable selects allow options inside other elements.
 function movesOptionsBetweenSelects(live: Element, placeholder: Comment): boolean {
 	if (isSelectElement(live) || !live.querySelector("option")) return false
-	return selectOf(live) !== null || selectOf(placeholder) !== null
+	return selectOf(live) !== selectOf(placeholder)
 }
 
 // Customizable selects allow options nested inside other elements, so look past the parent.
@@ -506,6 +506,7 @@ class Morph {
 	#deferredRemovals: Array<ChildNode> | null = null
 	// Moves wait for the morph to settle, because a later veto can still pin the element where it is.
 	#pendingMoves: Array<PendingMove> | null = null
+	readonly #claimedElements: Set<Element> = new Set()
 	// Pending moves and removals are settled when the root's children have been visited, or when
 	// the root is replaced, so the root's own callbacks see the finished DOM.
 	#root: Node | null = null
@@ -550,9 +551,14 @@ class Morph {
 
 	#finish(): void {
 		// Completing a move morphs the element, which can claim more elements, so keep going until none are left.
+		// An element inside another claimed element waits for that one, whose morph can still pin it.
 		for (let moves = this.#pendingMoves; moves; moves = this.#pendingMoves) {
 			this.#pendingMoves = null
-			for (let i = 0; i < moves.length; i++) this.#completeMove(moves[i]!)
+			for (let i = 0; i < moves.length; i++) {
+				const move = moves[i]!
+				if (this.#isInsideClaimedElement(move.live)) (this.#pendingMoves ??= []).push(move)
+				else this.#completeMove(move)
+			}
 		}
 
 		const unplaced = this.#unplacedElements
@@ -1225,7 +1231,12 @@ class Morph {
 	// Put the live element where its placeholder is and morph it into the target, unless a veto
 	// pinned it in the meantime. Then the target is added as a new node instead.
 	#completeMove({ live, target, placeholder, preserveChanges }: PendingMove): void {
-		const parent = placeholder.parentNode!
+		this.#claimedElements.delete(live)
+
+		// A custom element's `connectedCallback` can replace its children, placeholder included.
+		const parent = placeholder.parentNode
+		if (!parent) return
+
 		const saved = this.#preserveChanges
 		this.#preserveChanges = preserveChanges
 
@@ -1261,8 +1272,9 @@ class Morph {
 			parent.insertBefore(newNode, insertionPoint)
 			this.#options.afterNodeAdded?.(newNode)
 			this.#removeApprovedNode(node)
-			this.#settleIfRoot(node)
 		}
+
+		this.#settleIfRoot(node)
 	}
 
 	#removeNode(node: ChildNode): void {
@@ -1321,6 +1333,13 @@ class Morph {
 		return false
 	}
 
+	#isInsideClaimedElement(element: Element): boolean {
+		for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+			if (this.#claimedElements.has(parent)) return true
+		}
+		return false
+	}
+
 	// Claim the live element with the target's id, if it can be morphed into the target where the
 	// target goes. Returns a placeholder for the target's place, where the move completes when the
 	// morph settles.
@@ -1330,6 +1349,7 @@ class Morph {
 
 		const placeholder = live.ownerDocument.createComment("")
 		;(this.#pendingMoves ??= []).push({ live, target, placeholder, preserveChanges: this.#preserveChanges })
+		this.#claimedElements.add(live)
 		return placeholder
 	}
 

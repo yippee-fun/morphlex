@@ -439,3 +439,92 @@ test("a discarded target in a new node never connects", () => {
 	expect(connected.every((element) => element === live)).toBe(true)
 	host.remove()
 })
+
+test("a move survives a custom element that replaces its children when it connects", () => {
+	const name = `x-wipe-${Math.random().toString(36).slice(2)}`
+	customElements.define(
+		name,
+		class extends HTMLElement {
+			connectedCallback(): void {
+				this.replaceChildren()
+			}
+		},
+	)
+
+	const host = mount(`<div><p><input id="d"></p></div>`)
+
+	morph(host.firstElementChild!, parse(`<div><${name}><input id="d"></${name}></div>`))
+
+	expect(host.innerHTML).toBe(`<div><${name}></${name}></div>`)
+	host.remove()
+})
+
+test("an element holding options moves within its select", () => {
+	function select(...children: Array<Node>): HTMLSelectElement {
+		const select = document.createElement("select")
+		select.id = "s"
+		select.append(...children)
+		return select
+	}
+
+	function div(id: string, ...children: Array<Node>): HTMLDivElement {
+		const div = document.createElement("div")
+		div.id = id
+		div.append(...children)
+		return div
+	}
+
+	function wrapper(): HTMLDivElement {
+		const option = document.createElement("option")
+		option.textContent = "x"
+		return div("w", option)
+	}
+
+	const host = mount(`<div></div>`)
+	host.firstElementChild!.append(select(div("a", wrapper()), div("b")))
+	const live = host.querySelector("#w")!
+	const target = document.createElement("div")
+	target.append(select(div("a"), div("b", wrapper())))
+
+	morph(host.firstElementChild!, target)
+
+	expect(host.querySelector("#b #w")).toBe(live)
+	host.remove()
+})
+
+test("an element waits for a claimed ancestor whose visit can still be vetoed", () => {
+	const host = mount(`<div><main><section id="s"><input id="x"></section></main></div>`)
+	const section = host.querySelector("section")!
+	const input = host.querySelector("input")!
+
+	morph(host.firstElementChild!, parse(`<div><aside><input id="x"></aside><footer><section id="s"></section></footer></div>`), {
+		beforeNodeVisited: (node) => (node as Element).id !== "s",
+	})
+
+	expect(host.querySelector("footer section")).toBe(section)
+	expect(input.parentElement).toBe(section)
+	expect(host.querySelector("aside")!.innerHTML).toBe(`<input id="x">`)
+	host.remove()
+})
+
+test("the root's callbacks see the finished DOM when the root's replacement is vetoed", () => {
+	for (const options of [
+		{ beforeNodeRemoved: () => false },
+		{ beforeNodeAdded: (_parent: ParentNode, node: Node) => node.nodeName !== "DIV" },
+	]) {
+		const host = mount(`<section><input id="x"></section>`)
+		const root = host.firstElementChild!
+		const seen: Array<string> = []
+
+		const template = document.createElement("template")
+		template.innerHTML = `<div></div><aside><input id="x"></aside>`
+		morph(root, template.content.childNodes, {
+			...options,
+			afterNodeVisited: (node) => node === root && seen.push(host.innerHTML),
+		})
+
+		expect(seen).toEqual([host.innerHTML])
+		expect(host.innerHTML).not.toContain("<!---->")
+		host.remove()
+	}
+})
