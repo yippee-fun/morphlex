@@ -372,23 +372,42 @@ function isDisabledOption(option: HTMLOptionElement): boolean {
 }
 
 // The parser selects the first option of a drop-down that has no `selected` option, so a new
-// option can arrive selected and take the selection from the option the user chose. Clear that
-// once the option has left the parsed select, where clearing it would just select it again.
-function clearImplicitSelection(node: ChildNode): void {
-	if (node.nodeType !== ELEMENT_NODE_TYPE) return
+// option can arrive selected and take the selection from the option the user chose. New options
+// going into a select lose that implicit selection. The node leaves its parsed select
+// first, where clearing an option would just select it again. Live nodes passed as the target
+// keep their state, and so does a new select, whose options are its own.
+function clearImplicitSelection(node: ChildNode, parent: ParentNode): void {
+	if (node.nodeType !== ELEMENT_NODE_TYPE || parent.nodeType !== ELEMENT_NODE_TYPE) return
+	if (node.isConnected && node.ownerDocument === parent.ownerDocument) return
+	if (!isSelectElement(parent as Element) && !selectOf(parent)) return
 
 	const element = node as Element
+	if (isSelectElement(element)) return
+
+	let selected: Array<HTMLOptionElement> | null = null
 	if (isOptionElement(element)) {
-		element.remove()
-		clearImplicitOptionSelection(element)
-	} else if (element.localName === "optgroup" && element.namespaceURI === HTML_NAMESPACE) {
-		element.remove()
-		for (const option of element.querySelectorAll("option")) clearImplicitOptionSelection(option)
+		if (isImplicitlySelected(element)) selected = [element]
+	} else {
+		forEachNewOption(element, (option) => {
+			if (isImplicitlySelected(option)) (selected ??= []).push(option)
+		})
 	}
+	if (!selected) return
+
+	element.remove()
+	for (const option of selected as Array<HTMLOptionElement>) option.selected = false
 }
 
-function clearImplicitOptionSelection(option: HTMLOptionElement): void {
-	if (option.selected && !option.hasAttribute("selected")) option.selected = false
+function isImplicitlySelected(option: HTMLOptionElement): boolean {
+	return option.selected && !option.hasAttribute("selected")
+}
+
+// Options inside an element, other than those of a select inside it, which keep their selection.
+function forEachNewOption(element: Element, callback: (option: HTMLOptionElement) => void): void {
+	for (let child = element.firstElementChild; child; child = child.nextElementSibling) {
+		if (isOptionElement(child)) callback(child)
+		else if (!isSelectElement(child)) forEachNewOption(child, callback)
+	}
 }
 
 // Options belong to their select, so an element holding options only moves within its select.
@@ -1435,7 +1454,7 @@ class Morph {
 	#insertNewNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): boolean {
 		if (!(this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true)) return false
 
-		clearImplicitSelection(node)
+		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, selectAt(parent))
 		parent.insertBefore(node, insertionPoint)
 		this.#options.afterNodeAdded?.(node)
@@ -1502,7 +1521,7 @@ class Morph {
 			parent.insertBefore(placeholder, insertionPoint)
 			this.#removeApprovedNode(node)
 		} else if (this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true) {
-			clearImplicitSelection(newNode)
+			clearImplicitSelection(newNode, parent)
 			this.#placeMovableDescendants(newNode, selectAt(parent))
 			parent.insertBefore(newNode, insertionPoint)
 			this.#options.afterNodeAdded?.(newNode)
