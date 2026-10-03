@@ -429,30 +429,6 @@ class Morph {
 			) {
 				continue
 			}
-			if (name === "value") {
-				if (isInputElement(from) && from.type !== "file" && from.value !== value) {
-					if (!this.#options.preserveChanges) {
-						from.value = value
-					}
-				}
-			}
-
-			if (name === "selected") {
-				if (isOptionElement(from) && !from.selected) {
-					if (!this.#options.preserveChanges) {
-						from.selected = true
-					}
-				}
-			}
-
-			if (name === "checked") {
-				if (isInputElement(from) && !from.checked) {
-					if (!this.#options.preserveChanges) {
-						from.checked = true
-					}
-				}
-			}
-
 			const oldValue = from.getAttributeNS(namespaceURI, localName)
 
 			if (oldValue !== value && (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
@@ -469,22 +445,6 @@ class Morph {
 		for (const { name, localName, value, namespaceURI } of Array.from(from.attributes)) {
 			if (!to.hasAttributeNS(namespaceURI, localName)) {
 				if (name === "open" && namespaceURI === null && this.#options.preserveChanges && hasOpenState(from)) continue
-
-				if (name === "selected") {
-					if (isOptionElement(from) && from.selected) {
-						if (!this.#options.preserveChanges) {
-							from.selected = false
-						}
-					}
-				}
-
-				if (name === "checked") {
-					if (isInputElement(from) && from.checked) {
-						if (!this.#options.preserveChanges) {
-							from.checked = false
-						}
-					}
-				}
 
 				if (this.#options.beforeAttributeUpdated?.(from, name, null) ?? true) {
 					// Removing `open` from a modal dialog leaves it stuck in the top layer, so close it properly.
