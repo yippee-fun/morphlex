@@ -391,6 +391,13 @@ function clearImplicitOptionSelection(option: HTMLOptionElement): void {
 	if (option.selected && !option.hasAttribute("selected")) option.selected = false
 }
 
+// Options belong to their select, so an element holding options doesn't move into or out of a
+// select. Customizable selects allow options inside other elements.
+function movesOptionsBetweenSelects(live: Element, placeholder: Comment): boolean {
+	if (isSelectElement(live) || !live.querySelector("option")) return false
+	return selectOf(live) !== null || selectOf(placeholder) !== null
+}
+
 // Customizable selects allow options nested inside other elements, so look past the parent.
 function selectOf(node: Node): HTMLSelectElement | null {
 	for (let parent = node.parentElement; parent; parent = parent.parentElement) {
@@ -763,11 +770,13 @@ class Morph {
 	visitChildNodes(from: Element, to: Element): void {
 		if (!(this.#options.beforeChildrenVisited?.(from) ?? true)) {
 			this.#pinSubtree(from)
+			this.#settleIfRoot(from)
 			return
 		}
 
 		if (isTemplateElement(from) && isTemplateElement(to)) {
 			this.#visitTemplateContent(from, to)
+			this.#settleIfRoot(from)
 			this.#options.afterChildrenVisited?.(from)
 			return
 		}
@@ -1207,8 +1216,8 @@ class Morph {
 		if (!(this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true)) return false
 
 		clearImplicitSelection(node)
-		parent.insertBefore(node, insertionPoint)
 		this.#placeMovableDescendants(node)
+		parent.insertBefore(node, insertionPoint)
 		this.#options.afterNodeAdded?.(node)
 		return true
 	}
@@ -1220,7 +1229,11 @@ class Morph {
 		const saved = this.#preserveChanges
 		this.#preserveChanges = preserveChanges
 
-		if (this.#liveElementsById.get(target.id) === live && !live.contains(parent)) {
+		if (
+			this.#liveElementsById.get(target.id) === live &&
+			!live.contains(parent) &&
+			!movesOptionsBetweenSelects(live, placeholder)
+		) {
 			this.#liveElementsById.delete(target.id)
 			moveInto(parent, live, placeholder)
 			placeholder.remove()
@@ -1244,8 +1257,8 @@ class Morph {
 			(this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true)
 		) {
 			clearImplicitSelection(newNode)
-			parent.insertBefore(newNode, insertionPoint)
 			this.#placeMovableDescendants(newNode)
+			parent.insertBefore(newNode, insertionPoint)
 			this.#options.afterNodeAdded?.(newNode)
 			this.#removeApprovedNode(node)
 			this.#settleIfRoot(node)
@@ -1320,7 +1333,9 @@ class Morph {
 		return placeholder
 	}
 
-	// A new node can hold targets for live elements elsewhere. Put each live element in its target's place.
+	// A new node can hold targets for live elements elsewhere. Claim each live element, leaving a
+	// placeholder for its target. This runs before the new node is attached, so discarded targets
+	// never connect.
 	#placeMovableDescendants(node: ChildNode): void {
 		if (!isElement(node)) return
 
@@ -1330,8 +1345,8 @@ class Morph {
 		this.#placeMovableChildren(node)
 	}
 
-	// Put live elements in place of their targets under `parent`. Inside a `morphlex-clobber`
-	// element, discard user changes as if `preserveChanges` were off.
+	// Swap the targets under `parent` that claim a live element for placeholders. Inside a
+	// `morphlex-clobber` element, the moves discard user changes as if `preserveChanges` were off.
 	#placeMovableChildren(parent: Element): void {
 		const preserveChanges = this.#preserveChanges
 		if (preserveChanges && this.#clobbered?.has(parent)) this.#preserveChanges = false

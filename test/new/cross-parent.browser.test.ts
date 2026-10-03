@@ -362,3 +362,80 @@ test("a pinned element's target nested in a new node is still added", () => {
 	expect(host.querySelector("aside")!.innerHTML).toBe(`<p><input id="x"></p>`)
 	host.remove()
 })
+
+test("an element holding options doesn't move into or out of a select", () => {
+	function wrapper(): HTMLElement {
+		const div = document.createElement("div")
+		div.id = "w"
+		for (const text of ["x", "y"]) div.appendChild(document.createElement("option")).textContent = text
+		return div
+	}
+
+	function select(id: string, ...children: Array<Node>): HTMLSelectElement {
+		const select = document.createElement("select")
+		select.id = id
+		select.append(...children)
+		return select
+	}
+
+	for (const [from, to] of [
+		[
+			[select("a", wrapper()), select("b")],
+			[select("a"), select("b", wrapper())],
+		],
+		[[wrapper(), select("b")], [select("b", wrapper())]],
+	]) {
+		const host = mount(`<div></div>`)
+		host.firstElementChild!.append(...from!)
+		const live = host.querySelector("#w")!
+		const target = document.createElement("div")
+		target.append(...to!)
+
+		morph(host.firstElementChild!, target)
+
+		expect(host.querySelector("#w")).not.toBe(live)
+		expect(host.querySelector("#b #w")).not.toBe(null)
+		host.remove()
+	}
+})
+
+test("the root's callbacks see the finished DOM when the root's children are vetoed", () => {
+	const host = mount(`<div><input id="x"></div>`)
+	const root = host.firstElementChild!
+	const input = host.querySelector("input")!
+	const seen: Array<string> = []
+
+	const template = document.createElement("template")
+	template.innerHTML = `<div></div><aside><input id="x"></aside>`
+	morph(root, template.content.childNodes, {
+		beforeChildrenVisited: (node) => node !== root,
+		afterNodeVisited: (node) => node === root && seen.push(host.innerHTML),
+	})
+
+	expect(seen).toEqual([`<div><input id="x"></div><aside><input id="x"></aside>`])
+	expect(input.parentElement).toBe(root)
+	host.remove()
+})
+
+test("a discarded target in a new node never connects", () => {
+	const connected: Array<Element> = []
+	const name = `x-probe-${Math.random().toString(36).slice(2)}`
+	customElements.define(
+		name,
+		class extends HTMLElement {
+			connectedCallback(): void {
+				connected.push(this)
+			}
+		},
+	)
+
+	const host = mount(`<div><${name} id="p"></${name}></div>`)
+	const live = host.querySelector(name)!
+	connected.length = 0
+
+	morph(host.firstElementChild!, parse(`<div><section><${name} id="p"></${name}></section></div>`))
+
+	expect(host.querySelector(name)).toBe(live)
+	expect(connected.every((element) => element === live)).toBe(true)
+	host.remove()
+})
