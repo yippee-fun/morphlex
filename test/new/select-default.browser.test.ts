@@ -318,3 +318,24 @@ test("resetting a drop-down shows the markup's first option", () => {
 	expect(select.value).toBe("a")
 	host.remove()
 })
+
+// happy-dom doesn't implement list boxes and parses `size` differently.
+test.skipIf(!("size" in HTMLSelectElement.prototype))(
+	"a drop-down whose size starts with a non-breaking space is untouched",
+	() => {
+		const html = `<div><select id="s" size="\u00a02"><option>a</option><option>b</option></select></div>`
+		const host = mount(html)
+		expect(host.querySelector("select")!.value).toBe("a")
+
+		expect(countMutations(host, html)).toBe(0)
+		host.remove()
+	},
+)
+
+test("a list box whose size has leading whitespace and a plus sign is untouched", () => {
+	const html = `<div><select id="s" size=" +3"><option>a</option><option>b</option></select></div>`
+	const host = mount(html)
+
+	expect(countMutations(host, html)).toBe(0)
+	host.remove()
+})

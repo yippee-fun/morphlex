@@ -332,7 +332,13 @@ function defaultOptionOf(select: HTMLSelectElement): HTMLOptionElement | null {
 		if (!isDisabledOption(option)) firstEnabled = option
 	}
 
-	return Number.parseInt(select.getAttribute("size") ?? "", 10) > 1 ? null : firstEnabled
+	return displaySizeOf(select) > 1 ? null : firstEnabled
+}
+
+// HTML integer parsing skips only ASCII whitespace, where `parseInt` skips any whitespace.
+function displaySizeOf(select: HTMLSelectElement): number {
+	const match = /^[\t\n\f\r ]*\+?(\d+)/.exec(select.getAttribute("size") ?? "")
+	return match ? Number(match[1]) : 1
 }
 
 function isDisabledOption(option: HTMLOptionElement): boolean {
