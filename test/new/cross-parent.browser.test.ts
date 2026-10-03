@@ -8,6 +8,15 @@ function mount(html: string): HTMLElement {
 	return host
 }
 
+// Customizable selects count options inside other elements. Other browsers, and happy-dom, don't.
+function supportsOptionWrappers(): boolean {
+	const select = document.createElement("select")
+	const div = document.createElement("div")
+	div.append(document.createElement("option"))
+	select.append(div)
+	return "defaultSelected" in HTMLOptionElement.prototype && select.options.length === 1
+}
+
 function parse(html: string): Element {
 	const template = document.createElement("template")
 	template.innerHTML = html
@@ -568,7 +577,7 @@ test("morphInner ignores the id on the target's own element", () => {
 	host.remove()
 })
 
-test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))(
+test.skipIf(!supportsOptionWrappers())(
 	"a new select keeps the selection of its own markup when wrappers of its options had ids",
 	() => {
 		function select(): HTMLSelectElement {
@@ -598,56 +607,46 @@ test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))(
 	},
 )
 
-test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))(
-	"a select shows its markup's default after an option wrapper moves within it",
-	() => {
-		function el(tag: string, id: string, ...children: Array<Node | string>): Element {
-			const element = document.createElement(tag)
-			if (id) element.id = id
-			element.append(...children)
-			return element
-		}
+test.skipIf(!supportsOptionWrappers())("a select shows its markup's default after an option wrapper moves within it", () => {
+	function el(tag: string, id: string, ...children: Array<Node | string>): Element {
+		const element = document.createElement(tag)
+		if (id) element.id = id
+		element.append(...children)
+		return element
+	}
 
-		const host = mount(`<div></div>`)
-		host.firstElementChild!.append(
-			el("select", "s", el("div", "a", el("div", "w", el("option", "x", "x"))), el("option", "y", "y")),
-		)
-		const target = el(
-			"div",
-			"",
-			el("select", "s", el("div", "a"), el("option", "y", "y"), el("div", "w", el("option", "x", "x"))),
-		)
+	const host = mount(`<div></div>`)
+	host.firstElementChild!.append(
+		el("select", "s", el("div", "a", el("div", "w", el("option", "x", "x"))), el("option", "y", "y")),
+	)
+	const target = el("div", "", el("select", "s", el("div", "a"), el("option", "y", "y"), el("div", "w", el("option", "x", "x"))))
 
-		morph(host.firstElementChild!, target)
+	morph(host.firstElementChild!, target)
 
-		expect(host.querySelector<HTMLSelectElement>("select")!.value).toBe("y")
-		host.remove()
-	},
-)
+	expect(host.querySelector<HTMLSelectElement>("select")!.value).toBe("y")
+	host.remove()
+})
 
-test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))(
-	"a select shows its markup's default after an unplaced option wrapper is removed",
-	() => {
-		function el(tag: string, id: string, ...children: Array<Node | string>): Element {
-			const element = document.createElement(tag)
-			if (id) element.id = id
-			element.append(...children)
-			return element
-		}
+test.skipIf(!supportsOptionWrappers())("a select shows its markup's default after an unplaced option wrapper is removed", () => {
+	function el(tag: string, id: string, ...children: Array<Node | string>): Element {
+		const element = document.createElement(tag)
+		if (id) element.id = id
+		element.append(...children)
+		return element
+	}
 
-		function options(): Array<Element> {
-			const selected = el("option", "", "y")
-			selected.setAttribute("selected", "")
-			return [el("option", "", "x"), selected]
-		}
+	function options(): Array<Element> {
+		const selected = el("option", "", "y")
+		selected.setAttribute("selected", "")
+		return [el("option", "", "x"), selected]
+	}
 
-		const host = mount(`<div></div>`)
-		host.firstElementChild!.append(el("select", "", el("div", "w", ...options())))
-		const target = el("div", "", el("select", "", el("div", "n", el("div", "w", ...options()))))
+	const host = mount(`<div></div>`)
+	host.firstElementChild!.append(el("select", "", el("div", "w", ...options())))
+	const target = el("div", "", el("select", "", el("div", "n", el("div", "w", ...options()))))
 
-		morph(host.firstElementChild!, target)
+	morph(host.firstElementChild!, target)
 
-		expect(host.querySelector<HTMLSelectElement>("select")!.value).toBe("y")
-		host.remove()
-	},
-)
+	expect(host.querySelector<HTMLSelectElement>("select")!.value).toBe("y")
+	host.remove()
+})
