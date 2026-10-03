@@ -2,7 +2,7 @@
   <img src="https://github.com/phlex-ruby/morphlex/assets/246692/128ebe6a-bdf3-4b88-8a40-f29df64b3ac8" alt="Morphlex" width="481">
 </p>
 
-Morphlex is a ~3KB (gzipped) DOM morphing library that transforms one DOM tree to match another while preserving element state and making minimal changes.
+Morphlex is a tiny (under 4KB gzipped) DOM morphing library that transforms one DOM tree to match another while preserving element state and making minimal changes.
 
 ## What makes Morphlex different?
 
@@ -11,7 +11,7 @@ Morphlex is a ~3KB (gzipped) DOM morphing library that transforms one DOM tree t
 3. No cascading mutations from partial sorts. Morphlex finds the longest increasing subsequence for near perfect partial sorts.
 4. It uses [`moveBefore`](https://developer.mozilla.org/en-US/docs/Web/API/Element/moveBefore) when available, preserving state.
 5. It uses [`isEqualNode`](https://developer.mozilla.org/en-US/docs/Web/API/Node/isEqualNode), but in a way that is sensitive to the value of form inputs.
-6. It uses id sets, inspired by Idiomorph, so ids can help to identify their parent nodes.
+6. It uses id sets, inspired by Idiomorph, so ids nested deep inside an element can help to identify it.
 
 ## Installation
 
@@ -25,24 +25,43 @@ Or use it directly from a CDN:
 </script>
 ```
 
+Morphlex only touches the DOM when you call it, so it’s safe to import in environments without a DOM, such as during server-side rendering.
+
 ## Usage
 
 ```javascript
-import { morph, morphInner } from "morphlex"
+import { morph, morphInner, morphDocument } from "morphlex"
 
-// Morph the entire element
+// Morph the element itself, including its attributes
 morph(currentNode, newNode)
 
-// Morph only the children of the current node
+// Morph only the children of the element
 morphInner(currentNode, newNode)
 
 // Morph the entire document
 morphDocument(document, newDocument)
 ```
 
+Each function also accepts a string of HTML as the target:
+
+```javascript
+morph(currentNode, `<div id="profile" class="active">…</div>`)
+morphInner(currentNode, `<ul><li>One</li><li>Two</li></ul>`)
+morphDocument(document, await response.text())
+```
+
+- **`morph(from, to, options?)`** morphs `from` into `to`. The target can be a node, a `NodeList` or a string. If it has several nodes, the first is morphed into `from` and the rest are inserted after it. If it has none, `from` is removed.
+- **`morphInner(from, to, options?)`** morphs the children of `from` into the children of `to`, leaving the attributes of `from` alone. Both must be elements with the same tag name. A string target must contain exactly one element.
+- **`morphDocument(from, to, options?)`** morphs the `<html>` element of one document into another. A string target is parsed with `DOMParser`.
+
+Morphlex throws if it needs to replace or insert next to a node that has no parent, for example when morphing a detached `<div>` into a `<span>`.
+
+> [!WARNING]
+> When you pass a string, it is parsed as HTML and its nodes are inserted into the live document, where inline event handlers (such as `onclick`) and resource-loading attributes (such as `src`) take effect. Don’t pass untrusted HTML without sanitizing it first.
+
 ## Options
 
-Both `morph` and `morphInner` accept an optional third parameter for configuration:
+All three functions accept an optional third argument for configuration:
 
 ```javascript
 morph(currentNode, newNode, {
@@ -54,23 +73,21 @@ morph(currentNode, newNode, {
 })
 ```
 
-### Available Options
+- **`preserveChanges`**: When `true`, form controls the user has changed keep their values, and the `open` state of `<details>` and `<dialog>` elements is left alone. See [Preserving changes](#preserving-changes). Default: `false`
 
-- **`preserveChanges`**: When `true`, preserves modified form inputs during morphing. This prevents user-entered data from being overwritten. Default: `false`
+- **`beforeNodeVisited(fromNode, toNode)`**: Called before a node is visited during morphing. Return `false` to skip morphing this node.
 
-- **`beforeNodeVisited`**: Called before a node is visited during morphing. Return `false` to skip morphing this node.
+- **`afterNodeVisited(fromNode, toNode)`**: Called after a node has been visited and morphed.
 
-- **`afterNodeVisited`**: Called after a node has been visited and morphed.
+- **`beforeNodeAdded(parent, node, insertionPoint)`**: Called before a new node is added to the DOM. `insertionPoint` is the node it will be inserted before, or `null` if it will be appended. Return `false` to prevent adding the node.
 
-- **`beforeNodeAdded`**: Called before a new node is added to the DOM. Return `false` to prevent adding the node.
+- **`afterNodeAdded(node)`**: Called after a node has been added to the DOM.
 
-- **`afterNodeAdded`**: Called after a node has been added to the DOM.
+- **`beforeNodeRemoved(node)`**: Called before a node is removed from the DOM. Return `false` to prevent removal.
 
-- **`beforeNodeRemoved`**: Called before a node is removed from the DOM. Return `false` to prevent removal.
+- **`afterNodeRemoved(node)`**: Called after a node has been removed from the DOM.
 
-- **`afterNodeRemoved`**: Called after a node has been removed from the DOM.
-
-- **`beforeAttributeUpdated`**: Called before an attribute is updated on an element. Return `false` to prevent the update.
+- **`beforeAttributeUpdated(element, name, newValue)`**: Called before an attribute is added, changed or removed. `newValue` is `null` when the attribute is being removed. Return `false` to prevent the update.
 
 ```javascript
 morph(currentNode, newNode, {
@@ -81,10 +98,58 @@ morph(currentNode, newNode, {
 })
 ```
 
-This can be useful for preserving UI state that your backend does not track, such as whether a `<details>` element is open.
+This can be useful for preserving UI state that your backend does not track. `preserveChanges` already does this for `open` on `<details>` and `<dialog>`, so a hook like this is for when you want the same behaviour without preserving form changes, or for other attributes.
 
-- **`afterAttributeUpdated`**: Called after an attribute has been updated on an element.
+- **`afterAttributeUpdated(element, name, previousValue)`**: Called after an attribute has been updated on an element. `previousValue` is `null` if the attribute didn’t exist before.
 
-- **`beforeChildrenVisited`**: Called before an element's children are visited during morphing. Return `false` to skip visiting children.
+- **`beforeChildrenVisited(parent)`**: Called before an element’s children are visited during morphing. Return `false` to skip visiting children.
 
-- **`afterChildrenVisited`**: Called after an element's children have been visited and morphed.
+- **`afterChildrenVisited(parent)`**: Called after an element’s children have been visited and morphed.
+
+When a node can’t be morphed in place and has to be replaced, both `beforeNodeRemoved` and `beforeNodeAdded` are called, and returning `false` from either one leaves the original node where it is.
+
+## Preserving changes
+
+Form controls have two sides: the content attribute in the markup (`value`, `checked`, `selected`, or the text inside a `<textarea>`), and the live property the user edits. Morphlex always updates the attributes to match the new markup. What happens to the live properties depends on `preserveChanges`.
+
+### With `preserveChanges: true`
+
+User intent always wins. If the user typed into a field, checked a box or picked an option, a morph will never undo it, even if the new markup happens to match what was there before.
+
+Morphlex doesn’t guess whether a control has changed. It updates the attributes and lets the browser decide, using its own record of whether the user has interacted with the control. Controls the user hasn’t touched follow the new markup, and controls they have touched keep their values.
+
+The `open` attribute on `<details>` and `<dialog>` is also live state, toggled by the user and with no default to compare against. So Morphlex never adds or removes it, and an open element stays open while a closed one stays closed. If the attribute is present on both sides, its value is still updated.
+
+One limitation follows from this. Once a control’s value has been set by script, including by Morphlex during a morph without `preserveChanges`, the browser treats it as changed, so it won’t follow new markup in later morphs that use `preserveChanges`.
+
+### With `preserveChanges: false`
+
+The target markup wins. Values, checked states, selected options and `<textarea>` contents are reset to match it, even where the user has edited them and the markup itself hasn’t changed. Removing `open` from a `<dialog>` calls `close()`, so a modal dialog leaves the top layer properly.
+
+If `beforeAttributeUpdated` returns `false` for one of these attributes, Morphlex leaves the matching property alone too.
+
+## How matching works
+
+When morphing the children of an element, Morphlex pairs each new child with an existing one, trying these in order:
+
+1. An existing node that is already identical.
+2. An element with the same `id`.
+3. An element that contains one of the same `id`s somewhere inside it.
+4. An element with the same `name`, `href` or `src` attribute.
+5. Any element with the same tag name, as long as neither element has an `id`, one of the attributes above, or ids inside it, and neither is a form control.
+
+Elements are only paired with elements of the same tag name and namespace. Text and comment nodes are paired with nodes of the same type.
+
+Paired nodes are morphed in place, existing nodes that weren’t paired are removed, and new nodes that weren’t paired are inserted. Morphlex then moves the fewest nodes it can to get them in the right order, using `moveBefore` where the browser supports it so moved elements keep their state.
+
+Form controls are never paired by tag name alone, so give them an `id` or `name`. Otherwise a control the user has changed can be replaced with a fresh one, and its value is lost even with `preserveChanges`. In general, stable `id`s are the best way to help Morphlex match elements, especially in lists that get reordered.
+
+The element you pass to `morph` is replaced rather than morphed in place if its tag name differs from the target, if it’s a form control whose `id` differs, or if it’s an `<input>` whose `type` differs.
+
+### Templates
+
+The contents of a `<template>` element are compared and, if they differ, replaced in one go rather than morphed, so no callbacks are called for nodes inside a template.
+
+### Whitespace in strings
+
+When a string target contains elements, whitespace at its start and end is trimmed so it doesn’t turn into extra text nodes. Only ASCII whitespace is trimmed, so `&nbsp;` is kept.
