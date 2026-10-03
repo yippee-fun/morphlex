@@ -140,6 +140,8 @@ With `morphInner`, putting the attribute on the target element itself applies it
 
 The target markup wins. Values, checked states, selected options and `<textarea>` contents are reset to match it, even where the user has edited them and the markup itself hasn’t changed. The one exception is `<input type="file">`, whose selected file Morphlex never clears. Removing `open` from a `<dialog>` calls `close()`, so a modal dialog leaves the top layer properly.
 
+If `beforeAttributeUpdated` returns `false` for one of these attributes, Morphlex leaves the matching property alone too.
+
 ## How matching works
 
 When morphing the children of an element, Morphlex pairs each new child with an existing one, trying these in order:
