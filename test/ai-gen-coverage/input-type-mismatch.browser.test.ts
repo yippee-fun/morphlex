@@ -78,12 +78,12 @@ describe("input type mismatch", () => {
 
 		// First and third should reuse text inputs, middle should be replaced
 		const inputs = Array.from(a.children) as HTMLInputElement[]
-		expect(inputs[0].type).toBe("text")
-		expect(inputs[0].id).toBe("a")
-		expect(inputs[1].type).toBe("radio")
-		expect(inputs[1].id).toBe("b")
-		expect(inputs[2].type).toBe("text")
-		expect(inputs[2].id).toBe("c")
+		expect(inputs[0]!.type).toBe("text")
+		expect(inputs[0]!.id).toBe("a")
+		expect(inputs[1]!.type).toBe("radio")
+		expect(inputs[1]!.id).toBe("b")
+		expect(inputs[2]!.type).toBe("text")
+		expect(inputs[2]!.id).toBe("c")
 	})
 
 	test("morphing inputs without IDs are replaced, not matched by localName", () => {

@@ -36,12 +36,12 @@ test("morphing inputs with different types by localName skips mismatched types",
 	// So different elements should be created/replaced
 	const inputs = Array.from(a.children) as HTMLInputElement[]
 
-	expect(inputs[0].type).toBe("checkbox")
-	expect(inputs[0].className).toBe("x")
-	expect(inputs[1].type).toBe("text")
-	expect(inputs[1].className).toBe("y")
-	expect(inputs[2].type).toBe("text")
-	expect(inputs[2].className).toBe("z")
+	expect(inputs[0]!.type).toBe("checkbox")
+	expect(inputs[0]!.className).toBe("x")
+	expect(inputs[1]!.type).toBe("text")
+	expect(inputs[1]!.className).toBe("y")
+	expect(inputs[2]!.type).toBe("text")
+	expect(inputs[2]!.className).toBe("z")
 })
 
 test("morphing option with selected attribute removed when matches default", () => {
@@ -55,13 +55,13 @@ test("morphing option with selected attribute removed when matches default", () 
 
 	// First option has selected attribute, so selected === defaultSelected (both true)
 	const firstOption = a.options[0]
-	expect(firstOption.selected).toBe(true)
+	expect(firstOption!.selected).toBe(true)
 
 	morph(a, b, { preserveChanges: true })
 
 	// Line 418: since selected === defaultSelected, we set selected = false
-	expect(a.options[0].selected).toBe(false)
-	expect(a.options[0].hasAttribute("selected")).toBe(false)
+	expect(a.options[0]!.selected).toBe(false)
+	expect(a.options[0]!.hasAttribute("selected")).toBe(false)
 })
 
 test("morphing option with selected attribute removed with preserveChanges false", () => {
@@ -70,10 +70,10 @@ test("morphing option with selected attribute removed with preserveChanges false
 	const b = dom(`<select><option value="a">A</option><option value="b">B</option></select>`) as HTMLSelectElement
 
 	// First option has selected attribute
-	expect(a.options[0].selected).toBe(true)
+	expect(a.options[0]!.selected).toBe(true)
 
 	morph(a, b, { preserveChanges: false })
 
 	// Line 418: with preserveChanges false, we set selected = false
-	expect(a.options[0].hasAttribute("selected")).toBe(false)
+	expect(a.options[0]!.hasAttribute("selected")).toBe(false)
 })

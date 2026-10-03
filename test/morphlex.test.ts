@@ -131,7 +131,7 @@ describe("Morphlex Vitest Suite", () => {
 			morph(original, reference)
 
 			expect(original.children.length).toBe(2)
-			expect(original.children[0].textContent).toBe("Item 1")
+			expect(original.children[0]!.textContent).toBe("Item 1")
 		})
 
 		it("should remove excess child elements", () => {
@@ -159,7 +159,7 @@ describe("Morphlex Vitest Suite", () => {
 
 			morph(original, reference)
 
-			expect(original.children[0].textContent).toBe("new")
+			expect(original.children[0]!.textContent).toBe("new")
 		})
 
 		it("should handle text nodes", () => {
@@ -328,7 +328,7 @@ describe("Morphlex Vitest Suite", () => {
 			let callbackCalled = false
 
 			morph(original, reference, {
-				afterAttributeUpdated: (element, attrName) => {
+				afterAttributeUpdated: (_element, attrName) => {
 					if (attrName === "data-test") {
 						callbackCalled = true
 					}
@@ -407,8 +407,8 @@ describe("Morphlex Vitest Suite", () => {
 			morphInner(original, reference)
 
 			expect(original.children.length).toBe(3)
-			expect(original.children[0].textContent).toBe("Item A")
-			expect(original.children[2].textContent).toBe("Item C")
+			expect(original.children[0]!.textContent).toBe("Item A")
+			expect(original.children[2]!.textContent).toBe("Item C")
 		})
 
 		it("should empty contents with morphInner when reference has no children", () => {
@@ -484,8 +484,8 @@ describe("Morphlex Vitest Suite", () => {
 
 			morph(original, reference)
 
-			expect(original.children[0].nodeName).toBe("P")
-			expect(original.children[0].textContent).toBe("Paragraph")
+			expect(original.children[0]!.nodeName).toBe("P")
+			expect(original.children[0]!.textContent).toBe("Paragraph")
 		})
 
 		it("should handle list updates with ID preservation", () => {

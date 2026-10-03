@@ -160,8 +160,8 @@ describe("Morphdom-style fixture tests", () => {
 			// Selected attribute is removed but not added - select defaults to first option
 			const select = from as HTMLSelectElement
 			expect(select.value).toBe("1")
-			expect(select.options[0].selected).toBe(true)
-			expect(select.options[1].selected).toBe(false)
+			expect(select.options[0]!.selected).toBe(true)
+			expect(select.options[1]!.selected).toBe(false)
 		})
 
 		it("should handle select element with default selection", () => {
@@ -185,7 +185,7 @@ describe("Morphdom-style fixture tests", () => {
 			// Selected options are updated by default when not modified
 			const select = from as HTMLSelectElement
 			expect(select.value).toBe("2")
-			expect(select.options[1].selected).toBe(true)
+			expect(select.options[1]!.selected).toBe(true)
 		})
 	})
 
@@ -266,7 +266,7 @@ describe("Morphdom-style fixture tests", () => {
 			expect(from.querySelector("#a")).toBe(aEl)
 			expect(from.querySelector("#b")).toBe(bEl)
 			expect(from.children.length).toBe(3)
-			expect(from.children[0].id).toBe("c")
+			expect(from.children[0]!.id).toBe("c")
 		})
 
 		it("should handle changing tag name with ID preservation", () => {
@@ -335,8 +335,8 @@ describe("Morphdom-style fixture tests", () => {
 			morph(from, to)
 
 			expect(from.children.length).toBe(2)
-			expect(from.children[0].tagName.toLowerCase()).toBe("circle")
-			expect(from.children[1].tagName.toLowerCase()).toBe("rect")
+			expect(from.children[0]!.tagName.toLowerCase()).toBe("circle")
+			expect(from.children[1]!.tagName.toLowerCase()).toBe("rect")
 		})
 
 		it("should append new SVG elements", () => {
@@ -377,9 +377,9 @@ describe("Morphdom-style fixture tests", () => {
 
 			const rows = from.querySelectorAll("tr")
 			expect(rows.length).toBe(2)
-			expect(rows[0].children.length).toBe(3)
-			expect(rows[0].children[2].textContent).toBe("E")
-			expect(rows[1].children[2].textContent).toBe("F")
+			expect(rows[0]!.children.length).toBe(3)
+			expect(rows[0]!.children[2]!.textContent).toBe("E")
+			expect(rows[1]!.children[2]!.textContent).toBe("F")
 		})
 
 		it("should handle data table with row modifications", () => {
@@ -407,8 +407,8 @@ describe("Morphdom-style fixture tests", () => {
 
 			const rows = from.querySelectorAll("tr")
 			expect(rows.length).toBe(4)
-			expect(rows[1].textContent).toBe("2 Updated")
-			expect(rows[3].textContent).toBe("4")
+			expect(rows[1]!.textContent).toBe("2 Updated")
+			expect(rows[3]!.textContent).toBe("4")
 		})
 	})
 
@@ -594,7 +594,7 @@ describe("Morphdom-style fixture tests", () => {
 			expect(from.children.length).toBe(100)
 			for (let i = 0; i < 100; i++) {
 				expect(from.children[i]).toBe(originalElements[i])
-				expect(from.children[i].textContent).toBe(`Item ${i} Updated`)
+				expect(from.children[i]!.textContent).toBe(`Item ${i} Updated`)
 			}
 		})
 	})

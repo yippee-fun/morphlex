@@ -206,9 +206,9 @@ describe("select", () => {
 		a.value = "b"
 		morph(a, b, { preserveChanges: true })
 
-		expect(a.options[1].hasAttribute("selected")).toBe(true)
+		expect(a.options[1]!.hasAttribute("selected")).toBe(true)
 		expect(a.value).toBe("b")
-		expect(a.options[1].selected).toBe(true)
+		expect(a.options[1]!.selected).toBe(true)
 	})
 
 	test("morphing a modified select option with preserveChanges disabled", () => {
@@ -218,9 +218,9 @@ describe("select", () => {
 		a.value = "b"
 		morph(a, b, { preserveChanges: false })
 
-		expect(a.options[1].hasAttribute("selected")).toBe(true)
+		expect(a.options[1]!.hasAttribute("selected")).toBe(true)
 		expect(a.value).toBe("b")
-		expect(a.options[1].selected).toBe(true)
+		expect(a.options[1]!.selected).toBe(true)
 	})
 
 	test("morphing an unmodified select option with preserveChanges enabled", () => {
@@ -229,9 +229,9 @@ describe("select", () => {
 
 		morph(a, b, { preserveChanges: true })
 
-		expect(a.options[1].hasAttribute("selected")).toBe(true)
+		expect(a.options[1]!.hasAttribute("selected")).toBe(true)
 		expect(a.value).toBe("b")
-		expect(a.options[1].selected).toBe(true)
+		expect(a.options[1]!.selected).toBe(true)
 	})
 
 	test("morphing a modified select option back to default with preserveChanges enabled", () => {
@@ -241,9 +241,9 @@ describe("select", () => {
 		a.value = "a"
 		morph(a, b, { preserveChanges: true })
 
-		expect(a.options[1].hasAttribute("selected")).toBe(false)
+		expect(a.options[1]!.hasAttribute("selected")).toBe(false)
 		expect(a.value).toBe("a")
-		expect(a.options[0].selected).toBe(true)
+		expect(a.options[0]!.selected).toBe(true)
 	})
 
 	test("morphing a modified select option back to default with preserveChanges disabled", () => {
@@ -253,9 +253,9 @@ describe("select", () => {
 		a.value = "a"
 		morph(a, b, { preserveChanges: false })
 
-		expect(a.options[1].hasAttribute("selected")).toBe(false)
+		expect(a.options[1]!.hasAttribute("selected")).toBe(false)
 		expect(a.value).toBe("a")
-		expect(a.options[0].selected).toBe(true)
+		expect(a.options[0]!.selected).toBe(true)
 	})
 
 	test("morphing a select option with no value", () => {

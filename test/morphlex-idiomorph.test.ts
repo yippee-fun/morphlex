@@ -149,9 +149,9 @@ describe("Idiomorph-style tests", () => {
 
 			morph(initial, final)
 
-			expect(initial.children[0].textContent).toBe("X")
-			expect(initial.children[1].textContent).toBe("B")
-			expect(initial.children[2].textContent).toBe("C")
+			expect(initial.children[0]!.textContent).toBe("X")
+			expect(initial.children[1]!.textContent).toBe("B")
+			expect(initial.children[2]!.textContent).toBe("C")
 		})
 	})
 
@@ -352,7 +352,7 @@ describe("Idiomorph-style tests", () => {
 			expect(from.children.length).toBe(50)
 			for (let i = 0; i < 50; i++) {
 				expect(from.children[i]).toBe(originalElements[i])
-				expect(from.children[i].textContent).toBe(`Item ${i} Updated`)
+				expect(from.children[i]!.textContent).toBe(`Item ${i} Updated`)
 			}
 		})
 

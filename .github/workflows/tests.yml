@@ -31,6 +31,15 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: aube exec playwright install-deps chromium firefox webkit
 
+      - name: Check Formatting
+        run: aube run format:check
+
+      - name: Lint
+        run: aube run lint
+
+      - name: Typecheck
+        run: aube run typecheck
+
       - name: Build
         run: aube run build
 
