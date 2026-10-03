@@ -4,6 +4,7 @@ const TEXT_NODE_TYPE = 3
 const TREE_WALKER_SHOW_ELEMENT = 1
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
 const CLOBBER_ATTRIBUTE = "morphlex-clobber"
+const CLOBBER_OR_TEMPLATE_SELECTOR = `[${CLOBBER_ATTRIBUTE}], template`
 const DETACHED_NODE_ERROR = "[Morphlex] Cannot replace a detached node. It needs a parent."
 
 const IS_PARENT_NODE_TYPE = [
@@ -225,28 +226,34 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 // Remove `morphlex-clobber` from the target so it never reaches the live DOM,
 // and return the elements that had it so the morph can discard user changes inside them.
 function takeClobbered(to: ChildNode | NodeListOf<ChildNode>): Set<Element> | null {
-	let clobbered: Set<Element> | null = null
+	const clobbered: Set<Element> = new Set()
 	const nodes = isNodeList(to) ? to : [to]
 
 	for (let i = 0; i < nodes.length; i++) {
 		const node = nodes[i]!
 		if (node.nodeType !== ELEMENT_NODE_TYPE) continue
 
-		const element = node as Element
-		if (element.hasAttribute(CLOBBER_ATTRIBUTE)) {
-			;(clobbered ??= new Set()).add(element)
-		}
-
-		for (const descendant of element.querySelectorAll(`[${CLOBBER_ATTRIBUTE}]`)) {
-			;(clobbered ??= new Set()).add(descendant)
+		collectClobbered(node as Element, clobbered)
+		for (const element of (node as Element).querySelectorAll(CLOBBER_OR_TEMPLATE_SELECTOR)) {
+			collectClobbered(element, clobbered)
 		}
 	}
 
-	if (clobbered) {
-		for (const element of clobbered) element.removeAttribute(CLOBBER_ATTRIBUTE)
-	}
+	if (clobbered.size === 0) return null
 
+	for (const element of clobbered) element.removeAttribute(CLOBBER_ATTRIBUTE)
 	return clobbered
+}
+
+// Template contents live in a separate fragment that `querySelectorAll` doesn't reach.
+function collectClobbered(element: Element, clobbered: Set<Element>): void {
+	if (element.hasAttribute(CLOBBER_ATTRIBUTE)) clobbered.add(element)
+
+	if (isTemplateElement(element)) {
+		for (const descendant of element.content.querySelectorAll(CLOBBER_OR_TEMPLATE_SELECTOR)) {
+			collectClobbered(descendant, clobbered)
+		}
+	}
 }
 
 function flagDirtyInputs(node: Element): Array<Element> {

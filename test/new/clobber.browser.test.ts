@@ -169,3 +169,29 @@ test("clobber works with morphDocument", () => {
 	expect(input.value).toBe("")
 	expect(from.querySelector("[morphlex-clobber]")).toBeNull()
 })
+
+test("clobber is removed from template contents", () => {
+	const from = dom(`<div><template><p>a</p></template></div>`)
+
+	morph(
+		from,
+		dom(`<div><template><form morphlex-clobber><template><input morphlex-clobber></template></form></template></div>`),
+		{ preserveChanges: true },
+	)
+
+	const content = from.querySelector("template")!.content
+	expect(content.querySelector("form")).not.toBeNull()
+	expect(content.querySelector("[morphlex-clobber]")).toBeNull()
+	expect(content.querySelector("template")!.content.querySelector("input")!.hasAttribute("morphlex-clobber")).toBe(false)
+})
+
+test("clobber is removed from a template target", () => {
+	const parent = dom(`<div><template><p>a</p></template></div>`)
+	const from = parent.firstElementChild!
+
+	morph(from, `<template morphlex-clobber><input morphlex-clobber></template>`, { preserveChanges: true })
+
+	const template = parent.querySelector("template")!
+	expect(template.hasAttribute("morphlex-clobber")).toBe(false)
+	expect(template.content.querySelector("[morphlex-clobber]")).toBeNull()
+})
