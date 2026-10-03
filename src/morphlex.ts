@@ -1476,22 +1476,22 @@ class Morph {
 		if (!parent) throw new Error(DETACHED_NODE_ERROR)
 
 		const insertionPoint = node
-		// Check if both removal and addition are allowed before starting the replacement
-		if (!(this.#options.beforeNodeRemoved?.(node) ?? true)) {
-			this.#settleIfRoot(node)
-			return
-		}
-
-		// The replacement can be a live element from elsewhere, even one inside the node it replaces.
-		const placeholder = isElement(newNode) ? this.#claimMovableElement(newNode, parent) : null
-		if (placeholder) {
-			parent.insertBefore(placeholder, insertionPoint)
-			this.#removeApprovedNode(node)
-		} else if (this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true) {
-			clearImplicitSelection(newNode, parent)
-			this.#placeMovableDescendants(newNode, parent)
-			parent.insertBefore(newNode, insertionPoint)
-			this.#options.afterNodeAdded?.(newNode)
+		// Check if both removal and addition are allowed before starting the replacement. A replacement
+		// that moves a live element here asks too, so either veto keeps the node.
+		if (
+			(this.#options.beforeNodeRemoved?.(node) ?? true) &&
+			(this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true)
+		) {
+			// The replacement can be a live element from elsewhere, even one inside the node it replaces.
+			const placeholder = isElement(newNode) ? this.#claimMovableElement(newNode, parent) : null
+			if (placeholder) {
+				parent.insertBefore(placeholder, insertionPoint)
+			} else {
+				clearImplicitSelection(newNode, parent)
+				this.#placeMovableDescendants(newNode, parent)
+				parent.insertBefore(newNode, insertionPoint)
+				this.#options.afterNodeAdded?.(newNode)
+			}
 			this.#removeApprovedNode(node)
 		}
 

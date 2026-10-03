@@ -563,6 +563,25 @@ test("an input inside the root moves out to replace it", () => {
 	host.remove()
 })
 
+test("vetoing the addition keeps a root that an input inside it would replace", () => {
+	const host = mount(`<div><input id="d"></div>`)
+	const root = host.firstElementChild!
+	const input = host.querySelector("input")!
+	const added: Array<string> = []
+
+	morph(root, `<input id="d">`, {
+		beforeNodeAdded: (_parent, node) => {
+			added.push(node.nodeName)
+			return false
+		},
+	})
+
+	expect(added).toEqual(["INPUT"])
+	expect(host.firstElementChild).toBe(root)
+	expect(root.firstElementChild).toBe(input)
+	host.remove()
+})
+
 test("a parent of a moving input doesn't take the input's id", () => {
 	const host = mount(`<div><span><span id="d"><input></span></span><b id="e"></b></div>`)
 	const span = host.querySelector("#d")!

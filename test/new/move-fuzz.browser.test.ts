@@ -142,6 +142,8 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 		const vetoChildren = new Set(live.filter(() => random() < 0.1))
 		const vetoRemoval = new Set(live.filter(() => random() < 0.1))
 		const vetoAdded = random() < 0.3
+		// With every addition vetoed, nothing can replace the root.
+		const vetoAllAdded = vetoAdded && random() < 0.3
 
 		// A vetoed node keeps its own subtree exactly.
 		const snapshots = new Map<Element, { html: string; nodes: Array<Node> }>()
@@ -174,7 +176,7 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 			afterChildrenVisited: (parent) => {
 				if (parent === root) rootViews.push(view())
 			},
-			beforeNodeAdded: (_parent, node) => !(vetoAdded && isElement(node) && node.id !== "" && random() < 0.3),
+			beforeNodeAdded: (_parent, node) => !(vetoAllAdded || (vetoAdded && isElement(node) && node.id !== "" && random() < 0.3)),
 			afterNodeAdded: (node) => {
 				if (!host.contains(node)) fail(host, "afterNodeAdded for a detached node")
 			},
@@ -190,6 +192,8 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 		const final = view()
 		if (rootViews.some((rootView) => rootView !== final)) fail(host, "the root's callbacks saw an unsettled DOM")
 		if (host.innerHTML.includes("<!---->")) fail(host, "a placeholder was left behind")
+		if (vetoAllAdded && scenario.shape === "one" && !host.contains(root))
+			fail(host, "the root was replaced although every addition was vetoed")
 		for (const node of removed) {
 			if (host.contains(node)) fail(host, "a removed node came back")
 		}
@@ -393,7 +397,14 @@ function createCase(seed: number): Case {
 	const roll = random()
 	if (roll < 0.1) toRoot.id = null
 	else if (roll < 0.25) toRoot.id = pick(random, ["root", ...idsOf(to)])
-	return { seed, shape, fromHtml: parse(toHtml(fromRoot, from)).outerHTML, toHtml: parse(toHtml(toRoot, to)).outerHTML }
+	const fromHtml = parse(toHtml(fromRoot, from)).outerHTML
+	const target = parse(toHtml(toRoot, to))
+
+	// Sometimes the target is an element from inside the root, which then replaces it.
+	const inner = shape === "one" && random() < 0.1 ? [...target.querySelectorAll("[id]")] : []
+	if (inner.length > 0) return { seed, shape, fromHtml, toHtml: pick(random, inner).outerHTML }
+
+	return { seed, shape, fromHtml, toHtml: target.outerHTML }
 }
 
 function createNode(random: Random, depth: number, ids: { next: number }): TreeNode {
