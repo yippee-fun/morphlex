@@ -142,18 +142,47 @@ test("an untouched option is clean when it is the root of the morph", () => {
 })
 
 test("an untouched drop-down shows the markup's default after options are added before its selection", () => {
-	for (const preserveChanges of [false, true]) {
-		const host = mount(`<div><select><option id="c">c</option></select></div>`)
+	const host = mount(`<div><select><option id="c">c</option></select></div>`)
 
-		morph(
-			host.firstElementChild!,
-			parse(`<div><select><option>a</option><option>b</option><option id="c">c</option></select></div>`),
-			{ preserveChanges },
-		)
+	morph(
+		host.firstElementChild!,
+		parse(`<div><select><option>a</option><option>b</option><option id="c">c</option></select></div>`),
+	)
 
-		expect(host.querySelector("select")!.value).toBe("a")
-		host.remove()
-	}
+	expect(host.querySelector("select")!.value).toBe("a")
+	host.remove()
+})
+
+test("preserveChanges leaves the browser's selection when options are added before it", () => {
+	const host = mount(`<div><select id="s"><option id="c">c</option></select></div>`)
+	const select = host.querySelector("select")!
+
+	morph(
+		host.firstElementChild!,
+		parse(`<div><select id="s"><option>a</option><option>b</option><option id="c">c</option></select></div>`),
+		{ preserveChanges: true },
+	)
+
+	expect(host.querySelector("select")).toBe(select)
+	expect(select.value).toBe("c")
+	host.remove()
+})
+
+test("preserveChanges keeps the user's choice of the default option when options are added before it", () => {
+	const host = mount(`<div><select id="s"><option id="a">a</option><option id="b">b</option></select></div>`)
+	const select = host.querySelector("select")!
+	select.value = "b"
+	select.value = "a"
+
+	morph(
+		host.firstElementChild!,
+		parse(`<div><select id="s"><option>x</option><option id="a">a</option><option id="b">b</option></select></div>`),
+		{ preserveChanges: true },
+	)
+
+	expect(host.querySelector("select")).toBe(select)
+	expect(select.value).toBe("a")
+	host.remove()
 })
 
 test("preserveChanges keeps the user's choice when options are added before it", () => {
@@ -339,18 +368,6 @@ test("a list box whose size has leading whitespace and a plus sign is untouched"
 	expect(countMutations(host, html)).toBe(0)
 	host.remove()
 })
-
-test("preserveChanges applies a new selected attribute to an option the morph reset earlier", () => {
-	const host = mount(`<div><select id="s"><option>a</option><option>b</option></select></div>`)
-	const select = host.querySelector("select")!
-	morph(host.firstElementChild!, parse(`<div><select id="s" size="3"><option>a</option><option>b</option></select></div>`))
-
-	morph(select.options[0]!, parse(`<option selected>a</option>`), { preserveChanges: true })
-
-	expect(select.options[0]!.selected).toBe(true)
-	host.remove()
-})
-
 test("an SVG element named option inside a select is untouched", () => {
 	const host = mount(`<div><select id="s"><option>a</option></select></div>`)
 	host.querySelector("select")!.append(document.createElementNS("http://www.w3.org/2000/svg", "option"))
@@ -411,23 +428,6 @@ test("a vetoed inner morph of an optgroup leaves the user's choice alone", () =>
 	expect(select.value).toBe("b")
 	host.remove()
 })
-
-// happy-dom doesn't implement `defaultSelected`.
-test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))(
-	"preserveChanges applies a new selected attribute to a multiple select option the morph reset earlier",
-	() => {
-		const host = mount(`<div><select id="m" multiple><option selected>a</option><option>b</option></select></div>`)
-		const select = host.querySelector("select")!
-		morph(host.firstElementChild!, parse(`<div><select id="m" multiple><option>a</option><option>b</option></select></div>`))
-		expect(select.options[0]!.selected).toBe(false)
-
-		morph(select.options[0]!, parse(`<option selected>a</option>`), { preserveChanges: true })
-
-		expect(select.options[0]!.selected).toBe(true)
-		host.remove()
-	},
-)
-
 test("morphing an option in a multiple select applies its selected attribute", () => {
 	const host = mount(`<div><select id="m" multiple><option>a</option><option selected>b</option></select></div>`)
 	const select = host.querySelector("select")!
@@ -498,4 +498,22 @@ test("an option inside an SVG optgroup in a disabled optgroup is disabled", () =
 	expect(select.value).toBe("b")
 	observer.disconnect()
 	host.remove()
+})
+
+test("a new option that comes out of its parsed select selected doesn't take the user's choice", () => {
+	for (const wrapper of ["", "optgroup"]) {
+		const host = mount(`<div><select id="s"><option id="a">a</option><option id="b">b</option></select></div>`)
+		const select = host.querySelector("select")!
+		select.value = "b"
+		const x = wrapper ? `<${wrapper}><option>x</option></${wrapper}>` : `<option>x</option>`
+		const target = parse(`<div><select id="s">${x}<option id="a">a</option><option id="b">b</option></select></div>`)
+		target.querySelector("option")!.selected = true
+
+		morph(host.firstElementChild!, target, { preserveChanges: true })
+
+		expect(select.options).toHaveLength(3)
+		expect(select.value).toBe("b")
+		expect(select.options[0]!.hasAttribute("selected")).toBe(false)
+		host.remove()
+	}
 })

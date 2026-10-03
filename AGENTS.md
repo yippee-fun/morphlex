@@ -14,7 +14,9 @@ The `flagDirtyInputs` function sets a `morphlex-dirty` attribute on form element
 
 An option counts as dirty when its `.selected` differs from what the browser would select from the markup alone. A drop-down with no `selected` attribute shows its first enabled option as selected, so comparing against `defaultSelected` would flag every untouched select and get unnamed ones replaced.
 
-The browser keeps a select's selection when options are added, moved, or when the select switches between a drop-down, a list box and a multiple select. So after visiting a select's children, `#syncDefaultSelection` selects what the markup selects. It skips selects the user changed under `preserveChanges`, and selects where a `selected` update was vetoed. A morph rooted inside a select never visits the select, so `morph` and `morphInner` sync the enclosing select afterwards, but only when the morph changed which options the markup selects, so a vetoed morph changes nothing.
+The browser keeps a select's selection when options are added, moved, or when the select switches between a drop-down, a list box and a multiple select. So without `preserveChanges`, after visiting a select's children, `#syncDefaultSelection` selects what the markup selects, unless a `selected` update was vetoed. With `preserveChanges` it never changes the selection, because a user who picks the default option again looks untouched, so the browser's own record of the choice decides (Joel's call). A morph rooted inside a select never visits the select, so `morph` and `morphInner` sync the enclosing select afterwards, but only when the morph changed which options the markup selects, so a vetoed morph changes nothing.
+
+The parser selects the first option of a drop-down with no `selected` option, so a new option from the target can arrive selected and take the selection when inserted. `clearImplicitSelection` clears that once the option or its optgroup has left the parsed select.
 
 ### Content attributes vs DOM properties for form elements
 
