@@ -534,16 +534,19 @@ class Morph {
 
 	#visitTextArea(from: HTMLTextAreaElement, to: HTMLTextAreaElement): void {
 		const newTextContent = to.textContent || ""
-		const isModified = from.value !== from.defaultValue
 
-		// Update text content (which updates defaultValue)
+		// Update text content (which updates defaultValue). The browser keeps `.value` in sync
+		// with it until the textarea's value is dirty, so it decides whether the user changed it.
 		if (from.textContent !== newTextContent) {
 			from.textContent = newTextContent
 		}
 
-		if (this.#options.preserveChanges && isModified) return
+		if (this.#options.preserveChanges) return
 
-		from.value = from.defaultValue
+		// Assigning `.value` marks it dirty, so only do it when it has actually diverged.
+		if (from.value !== from.defaultValue) {
+			from.value = from.defaultValue
+		}
 	}
 
 	visitChildNodes(from: Element, to: Element): void {
