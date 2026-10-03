@@ -140,3 +140,45 @@ test("an untouched option is clean when it is the root of the morph", () => {
 	expect(option.textContent).toBe("a2")
 	host.remove()
 })
+
+test("an untouched drop-down shows the markup's default after options are added before its selection", () => {
+	for (const preserveChanges of [false, true]) {
+		const host = mount(`<div><select><option id="c">c</option></select></div>`)
+
+		morph(
+			host.firstElementChild!,
+			parse(`<div><select><option>a</option><option>b</option><option id="c">c</option></select></div>`),
+			{ preserveChanges },
+		)
+
+		expect(host.querySelector("select")!.value).toBe("a")
+		host.remove()
+	}
+})
+
+test("preserveChanges keeps the user's choice when options are added before it", () => {
+	const host = mount(`<div><select id="s"><option>x</option><option id="c">c</option></select></div>`)
+	const select = host.querySelector("select")!
+	select.value = "c"
+
+	morph(
+		host.firstElementChild!,
+		parse(`<div><select id="s"><option>a</option><option>b</option><option>x</option><option id="c">c</option></select></div>`),
+		{ preserveChanges: true },
+	)
+
+	expect(select.value).toBe("c")
+	host.remove()
+})
+
+test("adding options to a multiple select doesn't select any", () => {
+	const host = mount(`<div><select multiple><option id="c">c</option></select></div>`)
+
+	morph(
+		host.firstElementChild!,
+		parse(`<div><select multiple><option>a</option><option>b</option><option id="c">c</option></select></div>`),
+	)
+
+	expect(host.querySelector("select")!.selectedOptions).toHaveLength(0)
+	host.remove()
+})
