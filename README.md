@@ -58,6 +58,8 @@ morph(currentNode, newNode, {
 
 - **`preserveChanges`**: When `true`, preserves modified form inputs during morphing. This prevents user-entered data from being overwritten. Default: `false`
 
+  To discard the user’s changes for one morph, add a `morphlex-clobber` attribute to an element in the new markup. That element and everything inside it are morphed as if `preserveChanges` were `false`. For example, `<form morphlex-clobber>` clears a form after it has been submitted. The attribute only applies to that morph and never appears in the live DOM.
+
 - **`beforeNodeVisited`**: Called before a node is visited during morphing. Return `false` to skip morphing this node.
 
 - **`afterNodeVisited`**: Called after a node has been visited and morphed.

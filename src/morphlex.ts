@@ -3,6 +3,7 @@ const ELEMENT_NODE_TYPE = 1
 const TEXT_NODE_TYPE = 3
 const TREE_WALKER_SHOW_ELEMENT = 1
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+const CLOBBER_ATTRIBUTE = "morphlex-clobber"
 const DETACHED_NODE_ERROR = "[Morphlex] Cannot replace a detached node. It needs a parent."
 
 const IS_PARENT_NODE_TYPE = [
@@ -41,6 +42,8 @@ export interface Options {
 	 * When `true`, preserves modified form inputs during morphing.
 	 * This prevents user-entered data from being overwritten.
 	 * It also leaves the `open` state of `<details>` and `<dialog>` elements alone.
+	 * Add a `morphlex-clobber` attribute to an element in the new markup to discard
+	 * these changes inside that element for one morph.
 	 * @default false
 	 */
 	preserveChanges?: boolean
@@ -164,9 +167,10 @@ export function morphDocument(from: Document, to: Document | string, options?: O
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
 	if (typeof to === "string") to = parseFragment(to).childNodes
 
+	const clobbered = takeClobbered(to)
 	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
 	try {
-		new Morph(options).morph(from, to)
+		new Morph(options, clobbered).morph(from, to)
 	} finally {
 		if (flagged) clearDirtyFlags(flagged)
 	}
@@ -207,12 +211,42 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		(from as Element).namespaceURI === (to as Element).namespaceURI
 	) {
 		const fromElement = from as Element
+		const toElement = to as Element
+		const clobbered = takeClobbered(toElement)
+		if (clobbered?.has(toElement)) options = { ...options, preserveChanges: false }
 		const flagged = flagDirtyInputs(fromElement)
-		new Morph(options).visitChildNodes(fromElement, to as Element)
+		new Morph(options, clobbered).visitChildNodes(fromElement, toElement)
 		clearDirtyFlags(flagged)
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
 	}
+}
+
+// Remove `morphlex-clobber` from the target so it never reaches the live DOM,
+// and return the elements that had it so the morph can discard user changes inside them.
+function takeClobbered(to: ChildNode | NodeListOf<ChildNode>): Set<Element> | null {
+	let clobbered: Set<Element> | null = null
+	const nodes = isNodeList(to) ? to : [to]
+
+	for (let i = 0; i < nodes.length; i++) {
+		const node = nodes[i]!
+		if (node.nodeType !== ELEMENT_NODE_TYPE) continue
+
+		const element = node as Element
+		if (element.hasAttribute(CLOBBER_ATTRIBUTE)) {
+			;(clobbered ??= new Set()).add(element)
+		}
+
+		for (const descendant of element.querySelectorAll(`[${CLOBBER_ATTRIBUTE}]`)) {
+			;(clobbered ??= new Set()).add(descendant)
+		}
+	}
+
+	if (clobbered) {
+		for (const element of clobbered) element.removeAttribute(CLOBBER_ATTRIBUTE)
+	}
+
+	return clobbered
 }
 
 function flagDirtyInputs(node: Element): Array<Element> {
@@ -310,9 +344,13 @@ class Morph {
 	readonly #idArrayMap: IdArrayMap = new WeakMap()
 	readonly #idSetMap: IdSetMap = new WeakMap()
 	readonly #options: Options
+	readonly #clobbered: Set<Element> | null
+	#preserveChanges: boolean
 
-	constructor(options: Options = {}) {
+	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
 		this.#options = options
+		this.#clobbered = clobbered
+		this.#preserveChanges = options.preserveChanges ?? false
 	}
 
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
@@ -375,6 +413,10 @@ class Morph {
 	#morphMatchingElements(from: Element, to: Element): void {
 		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) return
 
+		// Discard user changes inside a `morphlex-clobber` element, as if `preserveChanges` were off.
+		const preserveChanges = this.#preserveChanges
+		if (preserveChanges && this.#clobbered?.has(to)) this.#preserveChanges = false
+
 		if (from.hasAttributes() || to.hasAttributes()) {
 			this.#visitAttributes(from, to)
 		}
@@ -385,6 +427,7 @@ class Morph {
 			this.visitChildNodes(from, to)
 		}
 
+		this.#preserveChanges = preserveChanges
 		this.#options.afterNodeVisited?.(from, to)
 	}
 
@@ -420,18 +463,12 @@ class Morph {
 		for (const { name, localName, value, namespaceURI } of to.attributes) {
 			if (name === "morphlex-dirty") continue
 			// Adding `open` would open it, but changing the value of an existing one is fine.
-			if (
-				name === "open" &&
-				namespaceURI === null &&
-				this.#options.preserveChanges &&
-				hasOpenState(from) &&
-				!from.hasAttribute("open")
-			) {
+			if (name === "open" && namespaceURI === null && this.#preserveChanges && hasOpenState(from) && !from.hasAttribute("open")) {
 				continue
 			}
 			if (name === "value") {
 				if (isInputElement(from) && from.type !== "file" && from.value !== value) {
-					if (!this.#options.preserveChanges) {
+					if (!this.#preserveChanges) {
 						from.value = value
 					}
 				}
@@ -439,7 +476,7 @@ class Morph {
 
 			if (name === "selected") {
 				if (isOptionElement(from) && !from.selected) {
-					if (!this.#options.preserveChanges) {
+					if (!this.#preserveChanges) {
 						from.selected = true
 					}
 				}
@@ -447,7 +484,7 @@ class Morph {
 
 			if (name === "checked") {
 				if (isInputElement(from) && !from.checked) {
-					if (!this.#options.preserveChanges) {
+					if (!this.#preserveChanges) {
 						from.checked = true
 					}
 				}
@@ -468,11 +505,11 @@ class Morph {
 		// Second pass: remove excess attributes
 		for (const { name, localName, value, namespaceURI } of Array.from(from.attributes)) {
 			if (!to.hasAttributeNS(namespaceURI, localName)) {
-				if (name === "open" && namespaceURI === null && this.#options.preserveChanges && hasOpenState(from)) continue
+				if (name === "open" && namespaceURI === null && this.#preserveChanges && hasOpenState(from)) continue
 
 				if (name === "selected") {
 					if (isOptionElement(from) && from.selected) {
-						if (!this.#options.preserveChanges) {
+						if (!this.#preserveChanges) {
 							from.selected = false
 						}
 					}
@@ -480,7 +517,7 @@ class Morph {
 
 				if (name === "checked") {
 					if (isInputElement(from) && from.checked) {
-						if (!this.#options.preserveChanges) {
+						if (!this.#preserveChanges) {
 							from.checked = false
 						}
 					}
@@ -498,7 +535,7 @@ class Morph {
 			}
 		}
 
-		if (!this.#options.preserveChanges) {
+		if (!this.#preserveChanges) {
 			this.#resetFormProperties(from, to)
 		}
 	}
@@ -541,7 +578,7 @@ class Morph {
 			from.textContent = newTextContent
 		}
 
-		if (this.#options.preserveChanges && isModified) return
+		if (this.#preserveChanges && isModified) return
 
 		from.value = from.defaultValue
 	}
