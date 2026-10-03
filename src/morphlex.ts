@@ -458,9 +458,6 @@ class Morph {
 			from.removeAttribute("morphlex-dirty")
 		}
 
-		const fromAttributeCount = from.attributes.length
-		let sharedAttributeCount = 0
-
 		// First pass: update/add attributes from reference (iterate forwards)
 		const toAttributes = to.attributes
 		for (let i = 0; i < toAttributes.length; i++) {
@@ -471,7 +468,6 @@ class Morph {
 				continue
 			}
 			const oldValue = from.getAttributeNS(namespaceURI, localName)
-			if (oldValue !== null) sharedAttributeCount++
 
 			if (oldValue !== value && (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true)) {
 				if (namespaceURI) {
@@ -483,8 +479,8 @@ class Morph {
 			}
 		}
 
-		// Second pass: remove excess attributes. Skip it when every attribute was in the reference.
-		if (sharedAttributeCount !== fromAttributeCount) {
+		// Second pass: remove excess attributes. Check for any first, to avoid copying the attribute list.
+		if (hasExcessAttributes(from, to)) {
 			for (const { name, localName, value, namespaceURI } of Array.from(from.attributes)) {
 				if (!to.hasAttributeNS(namespaceURI, localName)) {
 					if (name === "open" && namespaceURI === null && this.#preserveChanges && hasOpenState(from)) continue
@@ -1024,6 +1020,15 @@ function forEachDescendantElementWithId(node: ParentNode, callback: (element: El
 	for (const element of node.querySelectorAll("[id]")) {
 		if (element.id !== "") callback(element)
 	}
+}
+
+function hasExcessAttributes(from: Element, to: Element): boolean {
+	const attributes = from.attributes
+	for (let i = 0; i < attributes.length; i++) {
+		const { localName, namespaceURI } = attributes[i]!
+		if (!to.hasAttributeNS(namespaceURI, localName)) return true
+	}
+	return false
 }
 
 function bucketByTextContent(nodes: Array<ChildNode>, indices: Array<number>): Map<string, Array<number>> {
