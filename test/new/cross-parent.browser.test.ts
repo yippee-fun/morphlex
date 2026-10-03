@@ -702,39 +702,32 @@ test.skipIf(!groupsRadiosByForm())("a radio that moves out of a form keeps the c
 	host.remove()
 })
 
-test("a moved element's callbacks see the moves inside it completed", () => {
+test("an element moves into a new wrapper inside a moving element", () => {
 	const host = mount(`<div><section id="s"><input id="x"></section></div>`)
 	const section = host.querySelector("#s")!
-	const seen: Array<string> = []
+	const input = host.querySelector("#x")!
 
-	morph(host.firstElementChild!, parse(`<div><footer><section id="s"><label><input id="x"></label></section></footer></div>`), {
-		afterChildrenVisited: (node) => node === section && seen.push(section.innerHTML),
-		afterNodeVisited: (node) => node === section && seen.push(section.innerHTML),
-	})
+	morph(host.firstElementChild!, parse(`<div><footer><section id="s"><label><input id="x"></label></section></footer></div>`))
 
-	expect(seen).toEqual([`<label><input id="x"></label>`, `<label><input id="x"></label>`])
+	expect(host.innerHTML).toBe(`<div><footer><section id="s"><label><input id="x"></label></section></footer></div>`)
+	expect(host.querySelector("#s")).toBe(section)
+	expect(host.querySelector("#x")).toBe(input)
 	host.remove()
 })
 
-test("a moved element's callbacks see an element moved in from another moving element", () => {
+test("an element moves from one moving element into another", () => {
 	const host = mount(`<div><label><form id="a"></form><form id="b"><button id="x"></button></form></label></div>`)
-	const a = host.querySelector("#a")!
 	const button = host.querySelector("#x")!
-	const seen: Array<string> = []
 
-	morph(host.firstElementChild!, parse(`<div><form id="a"><button id="x"></button></form><form id="b"></form></div>`), {
-		afterNodeVisited: (node) => node === a && seen.push(a.innerHTML),
-	})
+	morph(host.firstElementChild!, parse(`<div><form id="a"><button id="x"></button></form><form id="b"></form></div>`))
 
 	expect(host.innerHTML).toBe(`<div><form id="a"><button id="x"></button></form><form id="b"></form></div>`)
 	expect(host.querySelector("#x")).toBe(button)
-	expect(seen).toEqual([`<button id="x"></button>`])
 	host.remove()
 })
 
-test("a moved element's callbacks see elements that move out of it gone", () => {
+test("an element moves out of a moving element without being removed with its old parent", () => {
 	const host = mount(`<div><section id="s"><p><input id="x"></p></section><aside id="a"></aside></div>`)
-	const section = host.querySelector("#s")!
 	const input = host.querySelector("#x")!
 	const seen: Array<string> = []
 
@@ -742,7 +735,6 @@ test("a moved element's callbacks see elements that move out of it gone", () => 
 		host.firstElementChild!,
 		parse(`<div><footer><section id="s"></section></footer><main><aside id="a"><input id="x"></aside></main></div>`),
 		{
-			afterNodeVisited: (node) => node === section && seen.push(section.innerHTML),
 			afterNodeRemoved: (node) => node.contains(input) && seen.push("removed with the input inside"),
 		},
 	)
@@ -751,13 +743,12 @@ test("a moved element's callbacks see elements that move out of it gone", () => 
 		`<div><footer><section id="s"></section></footer><main><aside id="a"><input id="x"></aside></main></div>`,
 	)
 	expect(host.querySelector("#x")).toBe(input)
-	expect(seen).toEqual([""])
+	expect(seen).toEqual([])
 	host.remove()
 })
 
-test("a moved element's callbacks see an element left in it gone when a later move takes it", () => {
+test("an element left in a moving element moves when a later target takes it", () => {
 	const host = mount(`<div><section id="s"><input id="x"></section><aside id="a"></aside></div>`)
-	const section = host.querySelector("#s")!
 	const input = host.querySelector("#x")!
 	const seen: Array<string> = []
 
@@ -765,13 +756,15 @@ test("a moved element's callbacks see an element left in it gone when a later mo
 		host.firstElementChild!,
 		parse(`<div><footer><section id="s"></section></footer><main><aside id="a"><b><input id="x"></b></aside></main></div>`),
 		{
-			afterNodeVisited: (node) => node === section && seen.push(section.innerHTML),
 			afterNodeRemoved: (node) => node.contains(input) && seen.push("removed with the input inside"),
 		},
 	)
 
+	expect(host.innerHTML).toBe(
+		`<div><footer><section id="s"></section></footer><main><aside id="a"><b><input id="x"></b></aside></main></div>`,
+	)
 	expect(host.querySelector("#x")).toBe(input)
-	expect(seen).toEqual([""])
+	expect(seen).toEqual([])
 	host.remove()
 })
 
@@ -802,21 +795,15 @@ test("an element left in a moving element can move deeper inside it", () => {
 	host.remove()
 })
 
-test("an element left in a moving element that nothing takes is removed before the element's callbacks", () => {
+test("an element left in a moving element that nothing takes is removed", () => {
 	const host = mount(`<div><section id="s"><input id="x"></section></div>`)
-	const section = host.querySelector("#s")!
-	const seen: Array<string> = []
 
 	morph(
 		host.firstElementChild!,
 		parse(`<div><footer><section id="s"></section></footer><aside><textarea id="x"></textarea></aside></div>`),
-		{
-			afterNodeVisited: (node) => node === section && seen.push(section.innerHTML),
-		},
 	)
 
 	expect(host.innerHTML).toBe(`<div><footer><section id="s"></section></footer><aside><textarea id="x"></textarea></aside></div>`)
-	expect(seen).toEqual([""])
 	host.remove()
 })
 
@@ -873,39 +860,19 @@ test("an element whose `is` changes isn't moved across parents", () => {
 	host.remove()
 })
 
-test.skipIf(!supportsOptionWrappers())("a moved element's callbacks see the selection of a select inside it settled", () => {
-	const host = mount(
-		`<div><section><div id="m"><select><div id="x"><div id="w"><option>a</option></div></div><option>b</option></select></div></section><aside></aside></div>`,
-	)
-	const moved = host.querySelector("#m")!
-	const seen: Array<string> = []
+test.skipIf(!supportsOptionWrappers())(
+	"a select inside a moved element shows its markup's default after its option wrappers move",
+	() => {
+		const host = mount(
+			`<div><section><div id="m"><select><div id="x"><div id="w"><option>a</option></div></div><option>b</option></select></div></section><aside></aside></div>`,
+		)
 
-	morph(
-		host.firstElementChild!,
-		`<div><section></section><aside><div id="m"><select><div id="x"></div><option>b</option><div id="y"><div id="w"><option>a</option></div></div></select></div></aside></div>`,
-		{
-			afterChildrenVisited: (node) => node === moved && seen.push(moved.querySelector("select")!.value),
-			afterNodeVisited: (node) => node === moved && seen.push(moved.querySelector("select")!.value),
-		},
-	)
+		morph(
+			host.firstElementChild!,
+			`<div><section></section><aside><div id="m"><select><div id="x"></div><option>b</option><div id="y"><div id="w"><option>a</option></div></div></select></div></aside></div>`,
+		)
 
-	expect(seen).toEqual(["b", "b"])
-	host.remove()
-})
-
-test("a select outside a moved element keeps the selection its markup gives it", () => {
-	const host = mount(
-		`<div><select id="s"><option>a</option><option>b</option></select><section><p id="m">1</p></section><aside></aside></div>`,
-	)
-	const select = host.querySelector("select")!
-	select.value = "b"
-
-	morph(
-		host.firstElementChild!,
-		`<div><select id="s"><option>a</option><option>b</option></select><section></section><aside><p id="m">2</p></aside></div>`,
-	)
-
-	expect(select.value).toBe("a")
-	expect(host.querySelector("#m")!.textContent).toBe("2")
-	host.remove()
-})
+		expect(host.querySelector("select")!.value).toBe("b")
+		host.remove()
+	},
+)

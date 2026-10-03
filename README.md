@@ -108,6 +108,8 @@ This can be useful for preserving UI state that your backend does not track. `pr
 
 When a node can’t be morphed in place and has to be replaced, `beforeNodeRemoved` is called first, then `beforeNodeAdded` only if the removal was allowed. Returning `false` from either one leaves the original node where it is.
 
+An element with a unique id can move to a new parent during a morph, and it moves once the rest of the morph is done. Until then, callbacks for other nodes, including `afterNodeAdded`, may see an empty comment where the element will go, or the element still in its old place. The after callbacks for the node you passed to `morph` see the finished DOM.
+
 ## Preserving changes
 
 Form controls have two sides: the content attribute in the markup (`value`, `checked`, `selected`, or the text inside a `<textarea>`), and the live property the user edits. Morphlex always updates the attributes to match the new markup. What happens to the live properties depends on `preserveChanges`.

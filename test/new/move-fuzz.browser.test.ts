@@ -1,4 +1,4 @@
-import { test } from "vitest"
+import { test, vi } from "vitest"
 import { morph, morphInner, type Options } from "../../src/morphlex"
 
 // Random trees where every id is unique, morphed into a copy whose elements have been moved
@@ -17,7 +17,12 @@ type Case = { seed: number; fromHtml: string; toHtml: string; shape: Shape }
 type Root = { tag: string; id: string | null }
 
 const SEED_COUNT = readPositiveIntEnv("MORPHLEX_FUZZ_MOVE_SEEDS", 300)
-const SEEDS = Array.from({ length: SEED_COUNT }, (_, index) => 0x3a00 + index)
+// CI starts at a different seed on each run, so repeated runs try new cases. A failure reports its
+// seed, which reruns with MORPHLEX_FUZZ_MOVE_SEED_START set to it and MORPHLEX_FUZZ_MOVE_SEEDS=1.
+const SEED_START = readPositiveIntEnv("MORPHLEX_FUZZ_MOVE_SEED_START", 0x3a00)
+const SEEDS = Array.from({ length: SEED_COUNT }, (_, index) => SEED_START + index)
+// Each test runs every seed, so its time limit grows with the seed count.
+vi.setConfig({ testTimeout: Math.max(30_000, SEED_COUNT * 100) })
 
 const CONTAINERS = ["div", "span", "section", "b", "label", "form", "details"] as const
 const LEAVES = ["input", "textarea", "button", "img", "select"] as const
@@ -99,8 +104,7 @@ test("preserveChanges keeps what the user typed into every control that moves, u
 })
 
 // Option wrappers with ids nest differently in each tree, inside an element that moves to another parent.
-// The moving element's callbacks see what each select finally shows.
-test("a moving element's callbacks see the final selection of a select inside it", () => {
+test("a select inside a moving element shows what its markup says, while its option wrappers move", () => {
 	let failures = 0
 	let smallest: string | null = null
 
@@ -109,22 +113,17 @@ test("a moving element's callbacks see the final selection of a select inside it
 		const fromHtml = `<div><section><div id="m">${createNestedSelect(random)}</div></section><aside></aside></div>`
 		const toHtml = `<div><section></section><aside><div id="m">${createNestedSelect(random)}</div></aside></div>`
 		const host = mount(fromHtml)
-		const views: Array<string> = []
 
-		morph(host.firstChild as ChildNode, toHtml, {
-			afterNodeVisited: (node) => {
-				if (isElement(node) && node.id === "m") views.push(selectionOf(node.querySelector("select")!))
-			},
-			afterChildrenVisited: (node) => {
-				if (isElement(node) && node.id === "m") views.push(selectionOf(node.querySelector("select")!))
-			},
-		})
+		morph(host.firstChild as ChildNode, toHtml)
 
-		const final = selectionOf(host.querySelector("select")!)
+		const expected = document.implementation.createHTMLDocument("")
+		expected.body.innerHTML = toHtml
+		const actual = selectionOf(host.querySelector("select")!)
+		const wanted = selectionOf(expected.querySelector("select")!)
 		host.remove()
-		if (views.some((view) => view !== final)) {
+		if (actual !== wanted) {
 			failures++
-			const report = `seed ${seed}: callbacks saw ${views.join(", ")}, but the select shows ${final}\nfrom: ${fromHtml}\nto:   ${toHtml}`
+			const report = `seed ${seed}: the select shows ${actual}, but its markup says ${wanted}\nfrom: ${fromHtml}\nto:   ${toHtml}`
 			if (smallest === null || report.length < smallest.length) smallest = report
 		}
 	}
@@ -150,14 +149,8 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 			snapshots.set(element, { html: element.innerHTML, nodes: descendants(element) })
 		}
 
-		// An element moved to another parent is morphed after it moves, so its callbacks see its finished subtree.
-		const parents = new Map<Node, Node | null>(live.map((element) => [element, element.parentNode]))
-		const movedViews = new Map<Element, string>()
-		const checkMoved = (node: Node) => {
-			if (!isElement(node) || parents.get(node) === node.parentNode) return
-			if (node.innerHTML.includes("<!---->")) fail(host, `a moved element's callbacks saw a placeholder: ${describe(node)}`)
-			movedViews.set(node, viewOf(node))
-		}
+		// Only the root's callbacks are promised the final DOM, with what each control shows.
+		const view = () => `${host.innerHTML.replaceAll(' morphlex-dirty=""', "")} ${stateOf(host)}`
 
 		const visited = new Set<Node>()
 		const childrenChecked = new Set<Node>()
@@ -172,16 +165,14 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 				return !vetoVisit.has(from as Element)
 			},
 			afterNodeVisited: (from) => {
-				if (from === root) rootViews.push(host.innerHTML)
-				else checkMoved(from)
+				if (from === root) rootViews.push(view())
 			},
 			beforeChildrenVisited: (parent) => {
 				childrenChecked.add(parent)
 				return !vetoChildren.has(parent as Element)
 			},
 			afterChildrenVisited: (parent) => {
-				if (parent === root) rootViews.push(host.innerHTML)
-				else checkMoved(parent)
+				if (parent === root) rootViews.push(view())
 			},
 			beforeNodeAdded: (_parent, node) => !(vetoAdded && isElement(node) && node.id !== "" && random() < 0.3),
 			afterNodeAdded: (node) => {
@@ -195,18 +186,12 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 			},
 		})
 
-		const final = host.innerHTML
 		// A dirty control whose visit was vetoed still has its sentinel until the morph returns.
-		if (rootViews.some((view) => view.replaceAll(' morphlex-dirty=""', "") !== final))
-			fail(host, "the root's callbacks saw an unsettled DOM")
-		if (final.includes("<!---->")) fail(host, "a placeholder was left behind")
+		const final = view()
+		if (rootViews.some((rootView) => rootView !== final)) fail(host, "the root's callbacks saw an unsettled DOM")
+		if (host.innerHTML.includes("<!---->")) fail(host, "a placeholder was left behind")
 		for (const node of removed) {
 			if (host.contains(node)) fail(host, "a removed node came back")
-		}
-		for (const [element, view] of movedViews) {
-			if (host.contains(element) && view.replaceAll(' morphlex-dirty=""', "") !== viewOf(element)) {
-				fail(host, `a moved element's callbacks saw an unfinished subtree: ${describe(element)}`)
-			}
 		}
 		for (const node of removedDescendants) {
 			if (host.contains(node)) fail(host, "a node was still inside a node reported as removed")
@@ -695,12 +680,6 @@ function checkednessOf(input: HTMLInputElement): string {
 
 function selectionOf(select: HTMLSelectElement): string {
 	return [...select.options].map((option) => (option.selected ? "1" : "0")).join("")
-}
-
-// An element's subtree, with what each select inside it shows.
-function viewOf(element: Element): string {
-	const selections = [...element.querySelectorAll("select")].map(selectionOf)
-	return `${element.innerHTML} ${selections.join(" ")}`
 }
 
 function descendants(element: Element): Array<Node> {
