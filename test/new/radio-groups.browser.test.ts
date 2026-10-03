@@ -124,7 +124,7 @@ test("a radio in a vetoed subtree keeps its checkedness", () => {
 	radio(host, "a").checked = false
 	radio(host, "b").checked = true
 
-	morph(host.firstElementChild!, parse(html), {
+	morph(host.firstElementChild!, parse(html.replace("<span>", `<span class="x">`)), {
 		beforeNodeVisited: (node) => node.nodeName !== "SPAN",
 	})
 
@@ -197,5 +197,58 @@ test("checking an earlier radio in the markup leaves the last one the markup che
 	)
 
 	expect(radio(host, "b").checked).toBe(true)
+	host.remove()
+})
+
+test("a group with a vetoed radio isn't synced", () => {
+	const host = mount(`<div><p></p><input id="a" type="radio" name="r" checked><input id="b" type="radio" name="r"></div>`)
+	radio(host, "a").checked = false
+	radio(host, "b").checked = true
+
+	morph(
+		host.firstElementChild!,
+		parse(`<div><p class="x"></p><input id="a" type="radio" name="r"><input id="b" type="radio" name="r"></div>`),
+		{
+			beforeAttributeUpdated: (element, name) => !(element.id === "a" && name === "checked"),
+			beforeNodeVisited: (node) => node.nodeName !== "P",
+		},
+	)
+
+	expect(radio(host, "a").checked).toBe(false)
+	expect(radio(host, "b").checked).toBe(false)
+	host.remove()
+})
+
+test("a clobbered target that claims its element moves it with preserveChanges off", () => {
+	const host = mount(
+		`<div><form id="f"><span id="s"><input id="a" type="radio" name="r" checked></span></form><form id="g"><input id="b" type="radio" name="r" checked></form></div>`,
+	)
+	radio(host, "a").checked = true
+	radio(host, "b").checked = true
+
+	const target = parse(
+		`<div><form id="f"></form><form id="g"><span id="s" morphlex-clobber><input id="a" type="radio" name="r" checked></span><input id="b" type="radio" name="r" checked></form></div>`,
+	)
+	morph(host.firstElementChild!, target, { preserveChanges: true })
+
+	expect(radio(host, "b").checked).toBe(true)
+	host.remove()
+})
+
+test("a vetoed subtree without radios doesn't stop a group from syncing", () => {
+	const host = mount(`<div><p></p><input id="a" type="radio" name="r" checked><input id="b" type="radio" name="r"></div>`)
+	radio(host, "a").checked = false
+	radio(host, "b").checked = true
+
+	morph(
+		host.firstElementChild!,
+		parse(`<div><p class="x"></p><input id="a" type="radio" name="r" checked><input id="b" type="radio" name="r"></div>`),
+		{
+			beforeNodeVisited: (node) => node.nodeName !== "P",
+		},
+	)
+
+	expect(radio(host, "a").checked).toBe(true)
+	expect(radio(host, "b").checked).toBe(false)
 	host.remove()
 })

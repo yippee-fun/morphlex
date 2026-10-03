@@ -56,22 +56,32 @@ test("every select and checkable input shows what the target markup says", () =>
 	})
 })
 
-test("preserveChanges keeps what the user typed into every control that moves", () => {
+test("preserveChanges keeps what the user typed into every control that moves, unless it's clobbered", () => {
 	check((scenario, fail) => {
 		const host = mount(scenario.fromHtml)
 		const expected = movableElements(host, scenario)
-		const typed = new Map<Element, string>()
-		for (const element of expected.values()) {
-			if (isTextControl(element)) {
-				element.value = `typed-${scenario.seed}`
-				typed.set(element, element.value)
-			}
+		const random = createRandom(scenario.seed ^ 0x5bd1e995)
+
+		// Some target elements discard user changes inside them.
+		const target = parse(scenario.toHtml)
+		for (const element of target.querySelectorAll("*")) {
+			if (random() < 0.15) element.setAttribute("morphlex-clobber", "")
 		}
 
-		run(host, scenario, { preserveChanges: true })
+		const typed = new Map<Element, string>()
+		for (const element of expected.values()) {
+			if (!isTextControl(element)) continue
+			element.value = `typed-${scenario.seed}`
+			const to = target.querySelector(`[id="${element.id}"]`)!
+			const clobbered = to.closest("[morphlex-clobber]") !== null
+			typed.set(element, clobbered ? (to as HTMLInputElement).defaultValue : element.value)
+		}
+
+		run(host, scenario, { preserveChanges: true }, target)
 
 		for (const [element, value] of typed) {
-			if ((element as HTMLInputElement).value !== value) fail(host, `#${element.id} lost its value`)
+			if ((element as HTMLInputElement).value !== value)
+				fail(host, `#${element.id} shows "${(element as HTMLInputElement).value}", not "${value}"`)
 		}
 	})
 })
@@ -96,10 +106,11 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 
 		// An element moved to another parent is morphed after it moves, so its callbacks see its finished subtree.
 		const parents = new Map<Node, Node | null>(live.map((element) => [element, element.parentNode]))
+		const movedViews = new Map<Element, string>()
 		const checkMoved = (node: Node) => {
-			if (isElement(node) && parents.get(node) !== node.parentNode && node.innerHTML.includes("<!---->")) {
-				fail(host, `a moved element's callbacks saw a placeholder: ${describe(node)}`)
-			}
+			if (!isElement(node) || parents.get(node) === node.parentNode) return
+			if (node.innerHTML.includes("<!---->")) fail(host, `a moved element's callbacks saw a placeholder: ${describe(node)}`)
+			movedViews.set(node, node.innerHTML)
 		}
 
 		const visited = new Set<Node>()
@@ -146,6 +157,11 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 		for (const node of removed) {
 			if (host.contains(node)) fail(host, "a removed node came back")
 		}
+		for (const [element, view] of movedViews) {
+			if (host.contains(element) && view.replaceAll(' morphlex-dirty=""', "") !== element.innerHTML) {
+				fail(host, `a moved element's callbacks saw an unfinished subtree: ${describe(element)}`)
+			}
+		}
 		for (const node of removedDescendants) {
 			if (host.contains(node)) fail(host, "a node was still inside a node reported as removed")
 		}
@@ -173,20 +189,19 @@ function vetoRan(
 	return (vetoVisit.has(element) && visited.has(element)) || (vetoChildren.has(element) && childrenChecked.has(element))
 }
 
-function run(host: HTMLElement, scenario: Case, options: Options = {}): void {
+function run(host: HTMLElement, scenario: Case, options: Options = {}, target = parse(scenario.toHtml)): void {
 	const root = host.firstChild as Element
 	if (scenario.shape === "inner") {
-		morphInner(root, parse(scenario.toHtml), options)
+		morphInner(root, target, options)
 	} else if (scenario.shape === "list") {
 		// Morph the root's first child into the target's children, as a node list.
-		const target = parse(scenario.toHtml)
 		const first = root.firstChild
 		if (!first) return morphInner(root, target, options)
 		const rest = [...root.childNodes].slice(1)
 		for (const node of rest) node.remove()
 		morph(first, target.childNodes, options)
 	} else {
-		morph(root, parse(scenario.toHtml), options)
+		morph(root, target, options)
 	}
 }
 

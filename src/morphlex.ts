@@ -565,7 +565,7 @@ class Morph {
 
 	#settleIfRoot(node: Node): void {
 		if (node === this.#root) this.#finish()
-		else if (node === this.#movingElement) this.#completeMoves()
+		else if (node === this.#movingElement) this.#completeMovesWithin(node)
 	}
 
 	#finish(): void {
@@ -608,12 +608,59 @@ class Morph {
 	}
 
 	// Completing a move morphs the element, which can claim more elements, so keep going until none are left.
-	// While a moved element is morphed, the moves it started complete before its own after callbacks.
 	#completeMoves(): void {
 		for (let moves = this.#pendingMoves; moves; moves = this.#pendingMoves) {
 			this.#pendingMoves = null
 			for (let i = 0; i < moves.length; i++) this.#completeMove(moves[i]!)
 		}
+	}
+
+	// While a moved element is morphed, everything that settles inside it settles before its own after
+	// callbacks: moves into and out of it, elements left in it that move or go, and removals put off.
+	#completeMovesWithin(element: Node): void {
+		while (this.#completeNextMoveWithin(element));
+
+		const unplaced = this.#unplacedElements
+		if (unplaced) {
+			this.#unplacedElements = unplaced.filter((node) => {
+				if (!element.contains(node)) return true
+				if (this.#liveElementsById.has(node.id)) this.#removeNodeNow(node)
+				return false
+			})
+		}
+
+		const deferred = this.#deferredRemovals
+		if (deferred) {
+			this.#deferredRemovals = deferred.filter((node) => {
+				if (!element.contains(node)) return true
+				node.remove()
+				this.#options.afterNodeRemoved?.(node)
+				return false
+			})
+		}
+	}
+
+	// Complete a move into or out of the element, or a move whose target holds the target of an element
+	// left in it or in a removal put off inside it, since completing that move takes the element.
+	#completeNextMoveWithin(element: Node): boolean {
+		const leaving = new Set<string>()
+		const unplaced = this.#unplacedElements
+		if (unplaced) for (const node of unplaced) if (element.contains(node)) leaving.add(node.id)
+		const deferred = this.#deferredRemovals
+		if (deferred) {
+			for (const node of deferred) {
+				if (element.contains(node)) for (const id of this.#idSetMap.get(node)!) leaving.add(id)
+			}
+		}
+
+		for (const move of this.#claimedElements.values()) {
+			const ids = this.#idArrayMap.get(move.target)
+			if (element.contains(move.placeholder) || element.contains(move.live) || ids?.some((id) => leaving.has(id))) {
+				this.#completeMove(move)
+				return true
+			}
+		}
+		return false
 	}
 
 	#morphOneToMany(from: ChildNode, to: NodeListOf<ChildNode>): void {
@@ -1268,17 +1315,19 @@ class Morph {
 	}
 
 	// Check each radio the markup checks, in document order, so the last one wins as when parsing.
-	// Radios outside the morph, in a vetoed subtree or with a vetoed `checked` update stay as they are.
+	// Radios outside the morph stay as they are, and so does a group with a radio in a vetoed subtree
+	// or with a vetoed `checked` update.
 	#syncRadioGroups(radios: Set<HTMLInputElement>): void {
 		const done = new Set<HTMLInputElement>()
 		for (const radio of radios) {
 			if (done.has(radio)) continue
 
-			const group = radioGroupOf(radio)
-			for (let i = 0; i < group.length; i++) {
-				const member = group[i]!
-				done.add(member)
-				if (!this.#inScope(member) || this.#isVetoed(member)) continue
+			// Checking one radio unchecks the others, so a group with a vetoed radio is left as it is.
+			const group = radioGroupOf(radio).filter((member) => this.#inScope(member))
+			for (const member of group) done.add(member)
+			if (group.some((member) => this.#isVetoed(member))) continue
+
+			for (const member of group) {
 				const checked = member.hasAttribute("checked")
 				if (member.checked !== checked) member.checked = checked
 			}
@@ -1342,10 +1391,11 @@ class Morph {
 	// Put the live element where its placeholder is and morph it into the target, unless a veto
 	// pinned it in the meantime. Then the target is added as a new node instead.
 	#completeMove({ live, target, placeholder, preserveChanges }: PendingMove): void {
-		// A move completes once, even when an inner move completed it first.
-		if (!this.#claimedElements.delete(live)) return
+		// A move completes once, even when another move completed it first.
+		if (!this.#claimedElements.has(live)) return
 
 		// A claimed element inside another claimed element waits for that one, whose morph can still pin it.
+		// That morph can complete this move too.
 		for (let ancestor = live.parentElement; ancestor; ancestor = ancestor.parentElement) {
 			const move = this.#claimedElements.get(ancestor)
 			if (move) {
@@ -1353,6 +1403,7 @@ class Morph {
 				break
 			}
 		}
+		if (!this.#claimedElements.delete(live)) return
 
 		// A custom element's `connectedCallback` can replace its children, placeholder included.
 		const parent = placeholder.parentNode
@@ -1478,7 +1529,8 @@ class Morph {
 		const live = this.#liveElementsById.get(target.id)!
 
 		const placeholder = live.ownerDocument.createComment("")
-		const move = { live, target, placeholder, preserveChanges: this.#preserveChanges }
+		const preserveChanges = this.#preserveChanges && !this.#clobbered?.has(target)
+		const move = { live, target, placeholder, preserveChanges }
 		;(this.#pendingMoves ??= []).push(move)
 		this.#claimedElements.set(live, move)
 		return placeholder
