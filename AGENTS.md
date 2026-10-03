@@ -27,3 +27,9 @@ When `preserveChanges` is false, `#resetFormProperties` runs after the attribute
 ### `open` on `details` and `dialog`
 
 For these elements the `open` attribute is the live state the user toggles, and there's no default to compare it against. So with `preserveChanges`, `#visitAttributes` never adds or removes `open` on them. Without it, removing `open` from a dialog calls `close()` instead of `removeAttribute`, because removing the attribute leaves a modal dialog stuck in the top layer.
+
+### Moving elements across parents
+
+An element whose id appears exactly once in the live tree and once in the target is moved to wherever the target puts that id, even under a different parent, and then morphed into the target. This keeps typed text, focus and listeners. It applies even when the old parent's id changed and the parent itself is replaced. Options and optgroups never move, because an option's selection belongs to its select, and the morph root is never moved.
+
+An unmatched movable element isn't removed straight away. It stays where it is until the end of the morph, and is removed then only if nothing took it. A removed node that still holds a movable element is also removed at the end, after the element has had the chance to move out. A new node is searched for targets of movable elements when it's inserted, and each live element replaces its target there, with `preserveChanges` off inside a `morphlex-clobber` element.

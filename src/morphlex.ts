@@ -224,7 +224,7 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const selection = select && markupSelectionOf(select)
 		const flagged = flagDirtyInputs(fromElement)
 		const morpher = new Morph(options, clobbered, dirtySelectsOf(fromElement, flagged))
-		morpher.visitChildNodes(fromElement, toElement)
+		morpher.morphChildren(fromElement, toElement)
 		if (select) morpher.syncEnclosingSelect(select, selection!, dirtySelect)
 		clearDirtyFlags(flagged)
 	} else {
@@ -473,6 +473,20 @@ function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNo
 }
 /* v8 ignore stop */
 
+/* v8 ignore start -- moveBefore keeps focus and other state, but only some browsers have it */
+function moveInto(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): void {
+	if (SUPPORTS_MOVE_BEFORE && node.isConnected && (parent as Node).isConnected) {
+		try {
+			;(parent as NodeWithMoveBefore).moveBefore(node, insertionPoint)
+			return
+		} catch {
+			// Fall back to insertBefore, for example when the nodes are in different documents.
+		}
+	}
+	parent.insertBefore(node, insertionPoint)
+}
+/* v8 ignore stop */
+
 class Morph {
 	readonly #idArrayMap: IdArrayMap = new WeakMap()
 	readonly #idSetMap: IdSetMap = new WeakMap()
@@ -480,6 +494,14 @@ class Morph {
 	readonly #clobbered: Set<Element> | null
 	readonly #dirtySelects: Set<Element> | null
 	#vetoedOptions: Set<Element> | null = null
+	// Live elements by id, and how often each id appears in the target. An element whose id appears
+	// once in each tree is moved to wherever the target puts that id, even under another parent.
+	readonly #liveElementsById: Map<string, Element | null> = new Map()
+	readonly #targetIdCounts: Map<string, number> = new Map()
+	// Movable elements left where they were, to be removed at the end unless they moved.
+	#unplacedElements: Array<Element> | null = null
+	// Approved removals put off until the end, because the node holds an element that may move out.
+	#deferredRemovals: Array<ChildNode> | null = null
 	#preserveChanges: boolean
 
 	constructor(options: Options = {}, clobbered: Set<Element> | null = null, dirtySelects: Set<Element> | null = null) {
@@ -502,6 +524,34 @@ class Morph {
 				this.#mapIdArrays(to)
 			}
 			this.#morphOneToOne(from, to)
+		}
+
+		this.#finish()
+	}
+
+	morphChildren(from: Element, to: Element): void {
+		this.#mapIdSets(from)
+		this.#mapIdArrays(to)
+		this.visitChildNodes(from, to)
+		this.#finish()
+	}
+
+	#finish(): void {
+		const unplaced = this.#unplacedElements
+		if (unplaced) {
+			for (let i = 0; i < unplaced.length; i++) {
+				const element = unplaced[i]!
+				if (this.#liveElementsById.has(element.id)) this.#removeNodeNow(element)
+			}
+		}
+
+		const deferred = this.#deferredRemovals
+		if (deferred) {
+			for (let i = 0; i < deferred.length; i++) {
+				const node = deferred[i]!
+				node.remove()
+				this.#options.afterNodeRemoved?.(node)
+			}
 		}
 	}
 
@@ -1064,8 +1114,13 @@ class Morph {
 
 				insertionPoint = match.nextSibling
 			} else {
-				if (this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true) {
+				const live = isElement(node) ? this.#takeMovableElement(node, parent) : null
+				if (live) {
+					moveInto(parent, live, insertionPoint)
+					this.#morphOneToOne(live, node)
+				} else if (this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true) {
 					parent.insertBefore(node, insertionPoint)
+					this.#placeMovableDescendants(node)
 					this.#options.afterNodeAdded?.(node)
 					insertionPoint = node.nextSibling
 				}
@@ -1133,17 +1188,102 @@ class Morph {
 			(this.#options.beforeNodeAdded?.(parent, newNode, insertionPoint) ?? true)
 		) {
 			parent.insertBefore(newNode, insertionPoint)
+			this.#placeMovableDescendants(newNode)
 			this.#options.afterNodeAdded?.(newNode)
+			this.#removeApprovedNode(node)
+		}
+	}
+
+	#removeNode(node: ChildNode): void {
+		// A movable element stays put for now, since the target may place it under another parent.
+		if (isElement(node) && this.#movableElement(node.id) === node) {
+			;(this.#unplacedElements ??= []).push(node)
+			return
+		}
+
+		if (this.#options.beforeNodeRemoved?.(node) ?? true) this.#removeApprovedNode(node)
+	}
+
+	#removeNodeNow(node: ChildNode): void {
+		if (this.#options.beforeNodeRemoved?.(node) ?? true) {
 			node.remove()
 			this.#options.afterNodeRemoved?.(node)
 		}
 	}
 
-	#removeNode(node: ChildNode): void {
-		if (this.#options.beforeNodeRemoved?.(node) ?? true) {
+	#removeApprovedNode(node: ChildNode): void {
+		if (this.#holdsMovableElement(node)) {
+			;(this.#deferredRemovals ??= []).push(node)
+		} else {
 			node.remove()
 			this.#options.afterNodeRemoved?.(node)
 		}
+	}
+
+	#movableElement(id: string): Element | null {
+		if (id === "" || this.#targetIdCounts.get(id) !== 1) return null
+
+		// Options and optgroups don't move, because an option's selection belongs to its select.
+		const live = this.#liveElementsById.get(id)
+		if (!live || isOptionElement(live) || isOptgroupElement(live)) return null
+		return live
+	}
+
+	#holdsMovableElement(node: ChildNode): boolean {
+		const ids = this.#idSetMap.get(node)
+		if (!ids) return false
+
+		for (const id of ids) {
+			const live = this.#movableElement(id)
+			if (live && live !== node && node.contains(live)) return true
+		}
+		return false
+	}
+
+	// Take the live element with the target's id, if it can be morphed into the target where the target goes.
+	#takeMovableElement(target: Element, parent: ParentNode): Element | null {
+		const live = this.#movableElement(target.id)
+		if (!live || !canMorphElementInPlace(live, target) || live.contains(parent)) return null
+
+		this.#liveElementsById.delete(target.id)
+		return live
+	}
+
+	// A new node can hold targets for live elements elsewhere. Put each live element in its target's place.
+	#placeMovableDescendants(node: ChildNode): void {
+		if (!isElement(node)) return
+
+		const ids = this.#idArrayMap.get(node)
+		if (!ids?.some((id) => id !== node.id && this.#movableElement(id))) return
+
+		this.#placeMovableChildren(node)
+	}
+
+	// Put live elements in place of their targets under `parent`. Inside a `morphlex-clobber`
+	// element, discard user changes as if `preserveChanges` were off.
+	#placeMovableChildren(parent: Element): void {
+		const preserveChanges = this.#preserveChanges
+		if (preserveChanges && this.#clobbered?.has(parent)) this.#preserveChanges = false
+
+		let target = parent.firstElementChild
+		while (target) {
+			const next = target.nextElementSibling
+
+			if (this.#idArrayMap.has(target)) {
+				const live = this.#takeMovableElement(target, parent)
+				if (live) {
+					moveInto(parent, live, target)
+					target.remove()
+					this.#morphOneToOne(live, target)
+				} else {
+					this.#placeMovableChildren(target)
+				}
+			}
+
+			target = next
+		}
+
+		this.#preserveChanges = preserveChanges
 	}
 
 	#mapIdArraysForEach(nodeList: NodeList): void {
@@ -1158,8 +1298,11 @@ class Morph {
 	#mapIdArrays(node: ParentNode): void {
 		const idArrayMap = this.#idArrayMap
 
+		const targetIdCounts = this.#targetIdCounts
+
 		forEachDescendantElementWithId(node, (element) => {
 			const id = element.id
+			targetIdCounts.set(id, (targetIdCounts.get(id) ?? 0) + 1)
 
 			let currentElement: Element | null = element
 
@@ -1180,8 +1323,11 @@ class Morph {
 	#mapIdSets(node: ParentNode): void {
 		const idSetMap = this.#idSetMap
 
+		const liveElementsById = this.#liveElementsById
+
 		forEachDescendantElementWithId(node, (element) => {
 			const id = element.id
+			liveElementsById.set(id, liveElementsById.has(id) ? null : element)
 
 			let currentElement: Element | null = element
 
@@ -1375,8 +1521,16 @@ function isSelectElement(element: Element): element is HTMLSelectElement {
 	return element.localName === "select" && element.namespaceURI === HTML_NAMESPACE
 }
 
+function isOptgroupElement(element: Element): boolean {
+	return element.localName === "optgroup" && element.namespaceURI === HTML_NAMESPACE
+}
+
 function isOptionElement(element: Element): element is HTMLOptionElement {
 	return element.localName === "option"
+}
+
+function isElement(node: Node): node is Element {
+	return node.nodeType === ELEMENT_NODE_TYPE
 }
 
 function isParentNode(node: Node): node is ParentNode {
