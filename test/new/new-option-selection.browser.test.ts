@@ -124,3 +124,52 @@ test("new options nested in wrappers inside a select are inserted", () => {
 	expect(select.innerHTML).toBe(html)
 	host.remove()
 })
+
+test("preserveChanges keeps the user's choice when new options come from a parsed document", () => {
+	const host = mount(`<select id="s"><option id="a">a</option><option id="b">b</option></select>`)
+	const select = host.querySelector("select")!
+	select.value = "b"
+
+	const parsed = new DOMParser().parseFromString(
+		`<select id="s"><option>n</option><option id="a">a</option><option id="b">b</option></select>`,
+		"text/html",
+	)
+	morph(select, parsed.querySelector("select")!, { preserveChanges: true })
+
+	expect(select.options[0]!.textContent).toBe("n")
+	expect(select.value).toBe("b")
+	host.remove()
+})
+
+test("a new select inside a select keeps its own selection", () => {
+	const host = mount(`<div></div>`)
+	const select = host.appendChild(document.createElement("select"))
+	select.id = "s"
+	select.appendChild(document.createElement("div")).id = "w"
+
+	const target = document.createElement("select")
+	target.id = "s"
+	const wrapper = target.appendChild(document.createElement("div"))
+	wrapper.id = "w"
+	const inner = wrapper.appendChild(document.createElement("select"))
+	inner.append(option("x"), option("y"))
+
+	morph(select, target, { preserveChanges: true })
+
+	const innerSelect = select.querySelector("select")!
+	expect(innerSelect.value).toBe("x")
+	expect(innerSelect.options[0]!.selected).toBe(true)
+	host.remove()
+})
+
+test("a live option passed as the target is moved", () => {
+	const host = mount(`<select id="s"><!--x--><option>a</option><option>b</option></select>`)
+	const select = host.querySelector("select")!
+	const b = select.options[1]!
+
+	morph(select.firstChild!, b, { preserveChanges: true })
+
+	expect(select.options[0]).toBe(b)
+	expect(select.options.length).toBe(2)
+	host.remove()
+})

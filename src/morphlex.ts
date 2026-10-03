@@ -375,12 +375,15 @@ function isDisabledOption(option: HTMLOptionElement): boolean {
 // option can arrive selected and take the selection from the option the user chose. New options
 // going into a select lose that implicit selection. The node leaves its parsed select
 // first, where clearing an option would just select it again. Live nodes passed as the target
-// keep their state.
+// keep their state, and so does a new select, whose options are its own.
 function clearImplicitSelection(node: ChildNode, parent: ParentNode): void {
-	if (node.nodeType !== ELEMENT_NODE_TYPE || node.isConnected || parent.nodeType !== ELEMENT_NODE_TYPE) return
+	if (node.nodeType !== ELEMENT_NODE_TYPE || parent.nodeType !== ELEMENT_NODE_TYPE) return
+	if (node.isConnected && node.ownerDocument === parent.ownerDocument) return
 	if (!isSelectElement(parent as Element) && !selectOf(parent)) return
 
 	const element = node as Element
+	if (isSelectElement(element)) return
+
 	let selected: Array<HTMLOptionElement> | null = null
 	if (isOptionElement(element)) {
 		if (isImplicitlySelected(element)) selected = [element]
