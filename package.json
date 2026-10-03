@@ -18,6 +18,7 @@
 	},
 	"scripts": {
 		"build": "node build.ts",
+		"check:package": "node check-package.ts",
 		"bench": "node benchmark/run.ts",
 		"bench:thorough": "node benchmark/run.ts --thorough",
 		"bench:decision": "node benchmark/run.ts --repeats 3 --thorough",
