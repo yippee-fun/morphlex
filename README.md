@@ -106,7 +106,7 @@ This can be useful for preserving UI state that your backend does not track. `pr
 
 - **`afterChildrenVisited(parent)`**: Called after an element’s children have been visited and morphed.
 
-When a node can’t be morphed in place and has to be replaced, both `beforeNodeRemoved` and `beforeNodeAdded` are called, and returning `false` from either one leaves the original node where it is.
+When a node can’t be morphed in place and has to be replaced, `beforeNodeRemoved` is called first, then `beforeNodeAdded` only if the removal was allowed. Returning `false` from either one leaves the original node where it is.
 
 ## Preserving changes
 
@@ -138,9 +138,7 @@ With `morphInner`, putting the attribute on the target element itself applies it
 
 ### With `preserveChanges: false`
 
-The target markup wins. Values, checked states, selected options and `<textarea>` contents are reset to match it, even where the user has edited them and the markup itself hasn’t changed. Removing `open` from a `<dialog>` calls `close()`, so a modal dialog leaves the top layer properly.
-
-If `beforeAttributeUpdated` returns `false` for one of these attributes, Morphlex leaves the matching property alone too.
+The target markup wins. Values, checked states, selected options and `<textarea>` contents are reset to match it, even where the user has edited them and the markup itself hasn’t changed. The one exception is `<input type="file">`, whose selected file Morphlex never clears. Removing `open` from a `<dialog>` calls `close()`, so a modal dialog leaves the top layer properly.
 
 ## How matching works
 
@@ -149,10 +147,10 @@ When morphing the children of an element, Morphlex pairs each new child with an 
 1. An existing node that is already identical.
 2. An element with the same `id`.
 3. An element that contains one of the same `id`s somewhere inside it.
-4. An element with the same `name`, `href` or `src` attribute.
+4. An element with the same non-empty `name`, `href` or `src` attribute.
 5. Any element with the same tag name, as long as neither element has an `id`, one of the attributes above, or ids inside it, and neither is a form control.
 
-Elements are only paired with elements of the same tag name and namespace. Text and comment nodes are paired with nodes of the same type.
+Elements are only paired with elements of the same tag name and namespace. Text and comment nodes are paired with nodes of the same type, except text nodes that are only whitespace, which are removed and inserted fresh rather than paired.
 
 Paired nodes are morphed in place, existing nodes that weren’t paired are removed, and new nodes that weren’t paired are inserted. Morphlex then moves the fewest nodes it can to get them in the right order, using `moveBefore` where the browser supports it so moved elements keep their state.
 
