@@ -32,6 +32,7 @@ type Operation = (typeof Operation)[keyof typeof Operation]
 type IdSetMap = WeakMap<Node, Set<string>>
 type IdArrayMap = WeakMap<Node, Array<string>>
 type CandidateIdBucket = number | Array<number>
+type DefaultOptionMap = Map<HTMLSelectElement, HTMLOptionElement | null>
 
 /**
  * Configuration options for morphing operations.
@@ -250,6 +251,7 @@ function takeClobbered(to: ChildNode | NodeListOf<ChildNode>): Set<Element> | nu
 
 function flagDirtyInputs(node: Element): Array<Element> {
 	const flagged: Array<Element> = []
+	const defaultOptions: DefaultOptionMap = new Map()
 
 	if (isInputElement(node)) {
 		if (isDirtyInput(node)) {
@@ -257,7 +259,7 @@ function flagDirtyInputs(node: Element): Array<Element> {
 			flagged.push(node)
 		}
 	} else if (isOptionElement(node)) {
-		if (node.selected !== node.defaultSelected) {
+		if (isDirtyOption(node, defaultOptions)) {
 			node.setAttribute("morphlex-dirty", "")
 			flagged.push(node)
 		}
@@ -277,7 +279,7 @@ function flagDirtyInputs(node: Element): Array<Element> {
 	}
 
 	for (const element of node.querySelectorAll("option")) {
-		if (element.selected !== element.defaultSelected) {
+		if (isDirtyOption(element, defaultOptions)) {
 			element.setAttribute("morphlex-dirty", "")
 			flagged.push(element)
 		}
@@ -301,6 +303,43 @@ function isDirtyInput(input: HTMLInputElement): boolean {
 	}
 
 	return input.value !== input.defaultValue
+}
+
+// A single select shows one option as selected even when no option has a `selected`
+// attribute, so compare each option with what the browser selects from the markup alone.
+function isDirtyOption(option: HTMLOptionElement, defaultOptions: DefaultOptionMap): boolean {
+	// Customizable selects allow options nested inside other elements.
+	const select = option.closest("select")
+	if (!select || select.multiple) return option.selected !== option.defaultSelected
+
+	let defaultOption = defaultOptions.get(select)
+	if (defaultOption === undefined) {
+		defaultOption = defaultOptionOf(select)
+		defaultOptions.set(select, defaultOption)
+	}
+
+	return option.selected !== (option === defaultOption)
+}
+
+// The last option with a `selected` attribute wins. Without one, a drop-down
+// (display size 1) selects its first enabled option and a list box selects nothing.
+function defaultOptionOf(select: HTMLSelectElement): HTMLOptionElement | null {
+	const options = select.options
+	let firstEnabled: HTMLOptionElement | null = null
+
+	for (let i = options.length - 1; i >= 0; i--) {
+		const option = options[i]!
+		if (option.hasAttribute("selected")) return option
+		if (!isDisabledOption(option)) firstEnabled = option
+	}
+
+	return Number.parseInt(select.getAttribute("size") ?? "", 10) > 1 ? null : firstEnabled
+}
+
+function isDisabledOption(option: HTMLOptionElement): boolean {
+	if (option.disabled) return true
+	const parent = option.parentElement!
+	return parent.localName === "optgroup" && (parent as HTMLOptGroupElement).disabled
 }
 
 function clearDirtyFlags(elements: Array<Element>): void {

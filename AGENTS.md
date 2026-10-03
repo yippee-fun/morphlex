@@ -12,6 +12,8 @@
 
 The `flagDirtyInputs` function sets a `morphlex-dirty` attribute on form elements where the user has modified the value (i.e., the DOM property has diverged from the content attribute). This attribute is not read for any conditional logic — its purpose is to act as a sentinel that forces `isEqualNode` to return `false` for dirty inputs. Without it, `#morphOneToOne` would short-circuit on line `if (from.isEqualNode(to)) return` and skip syncing DOM properties like `.value`, `.checked`, and `.selected`. The attribute is cleaned up at the start of `#visitAttributes`.
 
+An option counts as dirty when its `.selected` differs from what the browser would select from the markup alone. A drop-down with no `selected` attribute shows its first enabled option as selected, so comparing against `defaultSelected` would flag every untouched select and get unnamed ones replaced.
+
 ### Content attributes vs DOM properties for form elements
 
 `#visitAttributes` only updates content attributes (`setAttribute`/`removeAttribute`). It never assigns `.value`, `.checked` or `.selected` itself, so a `beforeAttributeUpdated` veto leaves both the attribute and the property alone. Attribute updates are safe under `preserveChanges`: once the user has changed a control, `setAttribute("checked", "")` only changes `defaultChecked`, not `.checked`, and the same goes for `selected` and `value`, because the property decouples from the attribute per the HTML spec.
