@@ -437,3 +437,65 @@ test("morphing an option in a multiple select applies its selected attribute", (
 	expect([...select.selectedOptions].map((option) => option.value)).toEqual(["a", "b"])
 	host.remove()
 })
+
+test("an SVG select next to an untouched select is untouched", () => {
+	const host = mount(`<div><select id="s"><option>a</option><option>b</option></select></div>`)
+	host.firstElementChild!.append(document.createElementNS("http://www.w3.org/2000/svg", "select"))
+	const html = host.innerHTML
+
+	const observer = new MutationObserver(() => {})
+	observer.observe(host, { subtree: true, attributes: true, childList: true })
+	morph(host.firstElementChild!, host.firstElementChild!.cloneNode(true) as Element)
+
+	expect(observer.takeRecords()).toHaveLength(0)
+	expect(host.innerHTML).toBe(html)
+	observer.disconnect()
+	host.remove()
+})
+
+// happy-dom doesn't implement `defaultSelected`.
+test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))(
+	"an untouched select with options nested in a datalist or optgroup is untouched",
+	() => {
+		for (const wrapper of ["datalist", "optgroup"]) {
+			const host = mount(`<div><select id="s"><optgroup><option>a</option></optgroup><option>b</option></select></div>`)
+			const select = host.querySelector("select")!
+			const nested = document.createElement(wrapper)
+			nested.innerHTML = `<option selected>c</option>`
+			host.querySelector("optgroup")!.append(nested)
+			const value = select.value
+			const html = host.innerHTML
+
+			const observer = new MutationObserver(() => {})
+			observer.observe(host, { subtree: true, attributes: true, childList: true })
+			morph(host.firstElementChild!, host.firstElementChild!.cloneNode(true) as Element)
+
+			expect(observer.takeRecords()).toHaveLength(0)
+			expect(host.innerHTML).toBe(html)
+			expect(select.value).toBe(value)
+			observer.disconnect()
+			host.remove()
+		}
+	},
+)
+
+test("an option inside an SVG optgroup in a disabled optgroup is disabled", () => {
+	const host = mount(`<div><select id="s"><optgroup disabled></optgroup><option>b</option></select></div>`)
+	const select = host.querySelector("select")!
+	const foreign = document.createElementNS("http://www.w3.org/2000/svg", "optgroup")
+	const option = document.createElement("option")
+	option.textContent = "a"
+	foreign.append(option)
+	host.querySelector("optgroup")!.append(foreign)
+	const html = host.innerHTML
+
+	const observer = new MutationObserver(() => {})
+	observer.observe(host, { subtree: true, attributes: true, childList: true })
+	morph(host.firstElementChild!, host.firstElementChild!.cloneNode(true) as Element)
+
+	expect(observer.takeRecords()).toHaveLength(0)
+	expect(host.innerHTML).toBe(html)
+	expect(select.value).toBe("b")
+	observer.disconnect()
+	host.remove()
+})
