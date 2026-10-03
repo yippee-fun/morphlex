@@ -84,7 +84,7 @@ test("vetoed value attribute keeps the typed value", () => {
 	})
 
 	expect(from.getAttribute("value")).toBe("a")
-	expect(from.value).not.toBe("a")
+	expect(from.value).toBe("typed")
 })
 
 test("vetoed checked and selected attributes are not reset", () => {
