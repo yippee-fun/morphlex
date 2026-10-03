@@ -14,6 +14,8 @@ The `flagDirtyInputs` function sets a `morphlex-dirty` attribute on form element
 
 An option counts as dirty when its `.selected` differs from what the browser would select from the markup alone. A drop-down with no `selected` attribute shows its first enabled option as selected, so comparing against `defaultSelected` would flag every untouched select and get unnamed ones replaced.
 
+The browser keeps a select's selection when options are added, moved, or when the select switches between a drop-down, a list box and a multiple select. So after visiting a select's children, `#syncDefaultSelection` selects what the markup selects. It skips selects the user changed under `preserveChanges`, and selects where a `selected` update was vetoed.
+
 ### Content attributes vs DOM properties for form elements
 
 `#visitAttributes` only updates content attributes (`setAttribute`/`removeAttribute`). It never assigns `.value`, `.checked` or `.selected` itself, so a `beforeAttributeUpdated` veto leaves both the attribute and the property alone. Attribute updates are safe under `preserveChanges`: once the user has changed a control, `setAttribute("checked", "")` only changes `defaultChecked`, not `.checked`, and the same goes for `selected` and `value`, because the property decouples from the attribute per the HTML spec.
