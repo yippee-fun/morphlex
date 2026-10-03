@@ -168,9 +168,13 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 	if (typeof to === "string") to = parseFragment(to).childNodes
 
 	const clobbered = takeClobbered(to)
+	const select = selectOf(from)
+	const dirtySelect = select !== null && isDirtySelect(select)
 	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
 	try {
-		new Morph(options, clobbered, flagged && dirtySelectsOf(from as Element, flagged)).morph(from, to)
+		const morpher = new Morph(options, clobbered, flagged && dirtySelectsOf(from as Element, flagged))
+		morpher.morph(from, to)
+		if (select) morpher.syncEnclosingSelect(select, dirtySelect)
 	} finally {
 		if (flagged) clearDirtyFlags(flagged)
 	}
@@ -214,8 +218,12 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const toElement = to as Element
 		const clobbered = takeClobbered(toElement)
 		if (clobbered?.has(toElement)) options = { ...options, preserveChanges: false }
+		const select = selectOf(fromElement)
+		const dirtySelect = select !== null && isDirtySelect(select)
 		const flagged = flagDirtyInputs(fromElement)
-		new Morph(options, clobbered, dirtySelectsOf(fromElement, flagged)).visitChildNodes(fromElement, toElement)
+		const morpher = new Morph(options, clobbered, dirtySelectsOf(fromElement, flagged))
+		morpher.visitChildNodes(fromElement, toElement)
+		if (select) morpher.syncEnclosingSelect(select, dirtySelect)
 		clearDirtyFlags(flagged)
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
@@ -279,7 +287,7 @@ function flagDirtyInputs(node: Element): Array<Element> {
 	}
 
 	for (const element of node.querySelectorAll("option")) {
-		if (isDirtyOption(element, defaultOptions)) {
+		if (element.namespaceURI === HTML_NAMESPACE && isDirtyOption(element, defaultOptions)) {
 			element.setAttribute("morphlex-dirty", "")
 			flagged.push(element)
 		}
@@ -352,12 +360,21 @@ function isDisabledOption(option: HTMLOptionElement): boolean {
 }
 
 // Customizable selects allow options nested inside other elements, so look past the parent.
-function selectOf(option: Element): HTMLSelectElement | null {
-	for (let parent = option.parentElement; parent; parent = parent.parentElement) {
+function selectOf(node: Node): HTMLSelectElement | null {
+	for (let parent = node.parentElement; parent; parent = parent.parentElement) {
 		if (isSelectElement(parent)) return parent
 	}
 
 	return null
+}
+
+function isDirtySelect(select: HTMLSelectElement): boolean {
+	const defaultOptions: DefaultOptionMap = new Map()
+	const options = select.options
+	for (let i = 0; i < options.length; i++) {
+		if (isDirtyOption(options[i]!, defaultOptions)) return true
+	}
+	return false
 }
 
 // The selects the user changed, found before morphing moves their options around. Find them from
@@ -1021,6 +1038,11 @@ class Morph {
 		if (isSelectElement(from)) this.#syncDefaultSelection(from)
 
 		this.#options.afterChildrenVisited?.(from)
+	}
+
+	// A morph inside a select never visits the select, so sync it afterwards.
+	syncEnclosingSelect(select: HTMLSelectElement, dirty: boolean): void {
+		if (!(this.#preserveChanges && dirty)) this.#syncDefaultSelection(select)
 	}
 
 	// The browser keeps its selection when options are added or moved, or when the select changes
