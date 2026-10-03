@@ -210,6 +210,8 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 		}
 		for (const [element, snapshot] of snapshots) {
 			if (!host.contains(element) || !vetoRan(element, vetoVisit, visited, vetoChildren, childrenChecked)) continue
+			// A descendant that the target puts around the element moves out before the element's veto is asked.
+			if (snapshot.nodes.some((node) => node.contains(element))) continue
 			const nodes = descendants(element)
 			const same = nodes.length === snapshot.nodes.length && nodes.every((node, index) => node === snapshot.nodes[index])
 			if (!same || element.innerHTML !== snapshot.html) fail(host, `a vetoed subtree changed: ${describe(element)}`)
