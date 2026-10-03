@@ -118,6 +118,8 @@ User intent always wins. If the user typed into a field, checked a box or picked
 
 Morphlex doesn’t guess whether a control has changed. It updates the attributes and lets the browser decide, using its own record of whether the user has interacted with the control. Controls the user hasn’t touched follow the new markup, and controls they have touched keep their values.
 
+A select shows whatever the browser selects. When an option gains a `selected` attribute, or a new one arrives with it, the browser selects it, as it would for any untouched option. But Morphlex never reselects anything itself, so after options are added or moved, a select keeps showing the option it showed before, even if the user never touched it.
+
 The `open` attribute on `<details>` and `<dialog>` is also live state, toggled by the user and with no default to compare against. So Morphlex never adds or removes it, and an open element stays open while a closed one stays closed. If the attribute is present on both sides, its value is still updated.
 
 One limitation follows from this. Once a control’s value has been set by script, including by Morphlex during a morph without `preserveChanges`, the browser treats it as changed, so it won’t follow new markup in later morphs that use `preserveChanges`.
