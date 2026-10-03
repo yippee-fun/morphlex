@@ -212,6 +212,20 @@ test("checking an earlier radio in the markup leaves the last one the markup che
 	host.remove()
 })
 
+test("adding a checked radio before the last one the markup checks leaves that one checked", () => {
+	const host = mount(`<div><p></p><p class="a"><input id="b" type="radio" name="r" checked></p></div>`)
+
+	morph(
+		host.firstElementChild!,
+		parse(
+			`<div><p><input id="a" type="radio" name="r" checked></p><p class="b"><input id="b" type="radio" name="r" checked></p></div>`,
+		),
+	)
+
+	expect(radio(host, "b").checked).toBe(true)
+	host.remove()
+})
+
 test("a group with a vetoed radio isn't synced", () => {
 	const host = mount(`<div><p></p><input id="a" type="radio" name="r" checked><input id="b" type="radio" name="r"></div>`)
 	radio(host, "a").checked = false
@@ -342,6 +356,33 @@ test("a radio outside the morph whose form moves stays checked", () => {
 	expect(radio(host, "y").checked).toBe(true)
 	host.remove()
 })
+
+test("a radio outside the morph stays checked when its form is reordered", () => {
+	const host = mount(`<div><p id="p"></p><form id="f"><input id="a" type="radio" name="r"></form></div>`)
+	host.insertAdjacentHTML("beforeend", `<input id="y" type="radio" name="r" form="f" checked>`)
+
+	morph(host.firstElementChild!, parse(`<div><form id="f"><input id="a" type="radio" name="r"></form><p id="p"></p></div>`))
+
+	expect(checkedIds(host)).toBe("y")
+	host.remove()
+})
+
+test.skipIf(!groupsRadiosByForm())(
+	"reordering a form that owns a checked radio outside the morph leaves other groups alone",
+	() => {
+		const host = mount(`<div><p id="p"></p><form id="f"></form><input id="a" type="radio" name="r" checked></div>`)
+		host.insertAdjacentHTML("beforeend", `<input id="y" type="radio" name="r" form="f" checked>`)
+
+		morph(
+			host.firstElementChild!,
+			parse(`<div><form id="f"></form><p id="p"></p><input id="a" type="radio" name="r" checked></div>`),
+		)
+
+		expect(radio(host, "a").checked).toBe(true)
+		expect(radio(host, "y").checked).toBe(true)
+		host.remove()
+	},
+)
 
 test("a checked radio that keeps its form when it moves stays checked", () => {
 	const host = mount(

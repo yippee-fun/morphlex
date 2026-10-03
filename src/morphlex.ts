@@ -493,6 +493,27 @@ function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNo
 }
 /* v8 ignore stop */
 
+// Moving a form briefly frees the radios outside it that it owns through a `form` attribute, and a
+// checked one then unchecks the rest of its new group. So they move unchecked, to be checked again
+// straight after. Returns the radios it unchecked.
+function uncheckOutsideRadios(element: Element): Array<HTMLInputElement> {
+	const outside: Array<HTMLInputElement> = []
+	const forms = isFormElement(element) ? [element] : element.getElementsByTagName("form")
+	for (let i = 0; i < forms.length; i++) {
+		const form = forms[i]!
+		if (!isFormElement(form)) continue
+		const controls = form.elements
+		for (let j = 0; j < controls.length; j++) {
+			const control = controls[j]!
+			if (isCheckedRadio(control) && !element.contains(control)) {
+				control.checked = false
+				outside.push(control)
+			}
+		}
+	}
+	return outside
+}
+
 /* v8 ignore start -- moveBefore keeps focus and other state, but only some browsers have it */
 function moveInto(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): void {
 	if (SUPPORTS_MOVE_BEFORE && node.isConnected && (parent as Node).isConnected) {
@@ -548,6 +569,8 @@ class Morph {
 	// the root is replaced, so the root's own callbacks see the finished DOM.
 	#root: Node | null = null
 	#preserveChanges: boolean
+	// Only a target with a checked input can add a checked radio, so other morphs skip looking for one.
+	#targetChecksInputs = false
 
 	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
 		this.#options = options
@@ -666,14 +689,6 @@ class Morph {
 			}
 
 			this.#morphOneToOne(from, first)
-
-			// The first node went in after the others, so a radio it checks can uncheck a later one.
-			if (!this.#preserveChanges) {
-				for (let i = 0; i < newNodes.length; i++) {
-					const node = newNodes[i]!
-					if (isElement(node) && node.parentNode === parent) this.#noteRadioGroups(node)
-				}
-			}
 		}
 	}
 
@@ -1223,7 +1238,9 @@ class Morph {
 				const operation = op[i]!
 
 				if (!shouldNotMove[matchInd]) {
+					const outsideRadios = isElement(match) ? uncheckOutsideRadios(match) : null
 					moveBefore(parent, match, insertionPoint)
+					if (outsideRadios) for (const radio of outsideRadios) radio.checked = true
 				}
 				// Read this before the morph, which can replace the match.
 				insertionPoint = match.nextSibling
@@ -1288,8 +1305,18 @@ class Morph {
 		;(this.#syncedSelects ??= new Set()).add(select)
 	}
 
-	// A radio that moved or was added out of order can uncheck the rest of its group, so note the whole
-	// group now, in case the morph then removes the radio.
+	// A checked radio that's added unchecks the rest of its group, even radios the markup checks later on.
+	// The morph never removes a node it added, so noting the radio is enough.
+	#noteAddedRadios(element: Element): void {
+		const inputs = isInputElement(element) ? [element] : element.getElementsByTagName("input")
+		for (let i = 0; i < inputs.length; i++) {
+			const input = inputs[i]!
+			if (input.type === "radio" && input.checked) (this.#radiosToSync ??= new Set()).add(input)
+		}
+	}
+
+	// A radio that moved can uncheck the rest of its group, so note the whole group now, in case the
+	// morph then removes the radio.
 	#noteRadioGroups(element: Element): void {
 		const inputs = isInputElement(element) ? [element] : element.querySelectorAll("input")
 		const groups: RadioGroups = new Map()
@@ -1309,20 +1336,7 @@ class Morph {
 	// and are checked again when the morph settles if the markup or a veto keeps them checked.
 	// Returns the radios outside.
 	#uncheckRadiosForMove(element: Element, parent: ParentNode): Array<HTMLInputElement> {
-		const outside: Array<HTMLInputElement> = []
-		const forms = isFormElement(element) ? [element] : element.querySelectorAll("form")
-		for (let i = 0; i < forms.length; i++) {
-			const form = forms[i]!
-			if (!isFormElement(form)) continue
-			const controls = form.elements
-			for (let j = 0; j < controls.length; j++) {
-				const control = controls[j]!
-				if (isCheckedRadio(control) && !element.contains(control)) {
-					control.checked = false
-					outside.push(control)
-				}
-			}
-		}
+		const outside = uncheckOutsideRadios(element)
 
 		if (!this.#preserveChanges) {
 			const inputs = isInputElement(element) ? [element] : element.querySelectorAll("input")
@@ -1352,8 +1366,11 @@ class Morph {
 			for (const member of group) done.add(member)
 			if (group.some((member) => this.#isVetoed(member))) continue
 
+			// Checking each radio in turn would uncheck the one before, so check only the last.
+			let last: HTMLInputElement | null = null
+			for (const member of group) if (member.hasAttribute("checked")) last = member
 			for (const member of group) {
-				const checked = member.hasAttribute("checked")
+				const checked = member === last
 				if (member.checked !== checked) member.checked = checked
 			}
 		}
@@ -1410,6 +1427,7 @@ class Morph {
 		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, parent)
 		parent.insertBefore(node, insertionPoint)
+		if (this.#targetChecksInputs && !this.#preserveChanges && isElement(node)) this.#noteAddedRadios(node)
 		this.#options.afterNodeAdded?.(node)
 		return true
 	}
@@ -1616,6 +1634,11 @@ class Morph {
 	// For each node with an ID, push that ID into the IdArray on the IdArrayMap, for each of its parent elements.
 	#mapIdArrays(node: ParentNode, countRoot = true): void {
 		const idArrayMap = this.#idArrayMap
+
+		if (!this.#targetChecksInputs) {
+			this.#targetChecksInputs =
+				isElement(node) && isInputElement(node) ? node.hasAttribute("checked") : node.querySelector("input[checked]") !== null
+		}
 
 		// An inner morph leaves the target's own element out of the result, so its id doesn't count.
 		const targetIdCounts = this.#targetIdCounts
