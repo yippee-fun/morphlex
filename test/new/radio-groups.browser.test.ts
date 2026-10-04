@@ -696,3 +696,29 @@ test("a radio the user checked keeps its check when it changes form", () => {
 	expect(radio(host, "b").getAttribute("form")).toBe("g")
 	host.remove()
 })
+
+test("with preserveChanges, a radio the user checked outside a clobbered element keeps its check when a form inside it changes id", () => {
+	const host = mount(`<div><input id="y" type="radio" name="r" form="f"><section id="s"><form id="f"></form></section></div>`)
+	radio(host, "y").checked = true
+
+	const target = parse(`<div><input id="y" type="radio" name="r" form="f"><section id="s"><form id="g"></form></section></div>`)
+	target.querySelector("section")!.setAttribute("morphlex-clobber", "")
+	morph(host.firstElementChild!, target, { preserveChanges: true })
+
+	expect(host.querySelector("form")!.id).toBe("g")
+	expect(radio(host, "y").checked).toBe(true)
+	host.remove()
+})
+
+test("with preserveChanges, a radio the user checked outside a clobbered element keeps its check when a form moves into it", () => {
+	const host = mount(`<div><input id="y" type="radio" name="r" form="f"><b><form id="f"></form></b><section></section></div>`)
+	radio(host, "y").checked = true
+
+	const target = parse(`<div><input id="y" type="radio" name="r" form="f"><b></b><section><form id="f"></form></section></div>`)
+	target.querySelector("section")!.setAttribute("morphlex-clobber", "")
+	morph(host.firstElementChild!, target, { preserveChanges: true })
+
+	expect(host.querySelector("section form")).not.toBe(null)
+	expect(radio(host, "y").checked).toBe(true)
+	host.remove()
+})

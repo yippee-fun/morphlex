@@ -537,6 +537,9 @@ class Morph {
 	#radiosUncheckedForMove: Set<HTMLInputElement> | null = null
 	// The morph's own nodes are inside this node, between these two siblings when there are any.
 	#scope: Node | null = null
+	// The live node whose subtree discards user changes because of `morphlex-clobber`, while the rest of
+	// the morph preserves them.
+	#clobberedScope: Node | null = null
 	#scopeStart: Node | null = null
 	#scopeEnd: Node | null = null
 	// Selects synced to their markup, synced again when the morph settles, after options have moved or gone.
@@ -710,7 +713,11 @@ class Morph {
 
 		// Discard user changes inside a `morphlex-clobber` element, as if `preserveChanges` were off.
 		const preserveChanges = this.#preserveChanges
-		if (preserveChanges && this.#clobbered?.has(to)) this.#preserveChanges = false
+		const clobberedScope = this.#clobberedScope
+		if (preserveChanges && this.#clobbered?.has(to)) {
+			this.#preserveChanges = false
+			this.#clobberedScope = from
+		}
 
 		if (from.hasAttributes() || to.hasAttributes()) {
 			this.#visitAttributes(from, to)
@@ -723,6 +730,7 @@ class Morph {
 		}
 
 		this.#preserveChanges = preserveChanges
+		this.#clobberedScope = clobberedScope
 		this.#options.afterNodeVisited?.(from, to)
 	}
 
@@ -1398,7 +1406,7 @@ class Morph {
 	// Setting `.checked` stops a radio from following its `checked` attribute. So a radio that's checked
 	// again straight after, and still follows the attribute, is unchecked by removing the attribute.
 	#uncheckRadio(radio: HTMLInputElement): void {
-		if ((this.#preserveChanges || !this.#inScope(radio)) && radio.hasAttribute("checked")) {
+		if (!this.#defersRadio(radio) && radio.hasAttribute("checked")) {
 			radio.removeAttribute("checked")
 			if (!radio.checked) {
 				uncheckedByAttribute.add(radio)
@@ -1417,9 +1425,17 @@ class Morph {
 		for (let i = 0; i < radios.length; i++) {
 			const radio = radios[i]!
 			if (uncheckedByAttribute.delete(radio)) radio.setAttribute("checked", "")
-			else if (this.#preserveChanges || !this.#inScope(radio)) radio.checked = true
+			else if (!this.#defersRadio(radio)) radio.checked = true
 			else (this.#radiosUncheckedForMove ??= new Set()).add(radio)
 		}
+	}
+
+	// Whether a radio that changed form waits until the morph settles to be checked again: one that
+	// the morph discards user changes for, which is the whole morph, or inside a `morphlex-clobber` element.
+	#defersRadio(radio: HTMLInputElement): boolean {
+		if (this.#preserveChanges) return false
+		const scope = this.#clobberedScope
+		return scope ? scope.contains(radio) : this.#inScope(radio)
 	}
 
 	#removeChild(node: ChildNode): void {
@@ -1541,7 +1557,9 @@ class Morph {
 		if (!parent) return
 
 		const saved = this.#preserveChanges
+		const savedScope = this.#clobberedScope
 		this.#preserveChanges = preserveChanges
+		if (!preserveChanges && this.#options.preserveChanges) this.#clobberedScope = live
 
 		if (!inCycle && this.#liveElementsById.get(target.id) === live && !live.contains(parent)) {
 			this.#liveElementsById.delete(target.id)
@@ -1557,6 +1575,7 @@ class Morph {
 		}
 
 		this.#preserveChanges = saved
+		this.#clobberedScope = savedScope
 	}
 
 	#replaceNode(node: ChildNode, newNode: ChildNode): void {
