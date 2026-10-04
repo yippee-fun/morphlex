@@ -1001,3 +1001,35 @@ test("changed labels that differ only by their template's content keep their own
 	expect(inputs[1]).toBe(a)
 	expect(from.querySelectorAll("template")[0]!.content.textContent).toBe("b")
 })
+
+test("a ticked label takes the target whose checkbox has the same is", () => {
+	const box = (is: string) => `<input type="checkbox" name="t" value="a" is="${is}">`
+	const from = form(`<label>${box("x-check")}</label>`)
+	const input = check(from, "a")
+
+	morph(from, form(`<label>${box("y-check")}</label><label class="z">${box("x-check")}</label>`), {
+		preserveChanges: true,
+	})
+
+	expect(from.querySelectorAll("input")[1]).toBe(input)
+	expect(input.checked).toBe(true)
+})
+
+test("a ticked label doesn't take a target whose checkbox moves in from elsewhere", () => {
+	const box = `<input type="checkbox" name="t" value="a">`
+	const from = form(`<input type="checkbox" name="t" value="a" id="x"><label>${box}</label>`)
+	const input = from.querySelector("label input") as HTMLInputElement
+	input.checked = true
+
+	morph(
+		from,
+		form(`<label><input type="checkbox" name="t" value="a" id="x"></label><label class="z"><b id="b"></b>${box}</label>`),
+		{
+			preserveChanges: true,
+		},
+	)
+
+	expect(from.querySelectorAll("label")[1]!.lastElementChild).toBe(input)
+	expect(input.checked).toBe(true)
+	expect(new FormData(from).getAll("t")).toEqual(["a"])
+})

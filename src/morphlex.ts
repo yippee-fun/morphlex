@@ -1833,14 +1833,16 @@ class Morph {
 		return true
 	}
 
-	// How often each choice appears in the target, and how many choices it holds.
+	// How often each choice appears in the target, and how many choices it holds. A control with a movable id
+	// keeps its live element wherever it goes, so it isn't a choice the target can keep for a wrapper.
 	#targetChoicesOf(element: Element): { counts: Map<string, number>; size: number } {
 		let targetChoices = this.#targetChoices.get(element)
 		if (!targetChoices) {
 			const choices: Array<string> = []
 			for (const control of [element, ...element.querySelectorAll("input, option")]) {
+				if (this.#isClobberedWithin(control, element) || this.#movableElement(control.id)) continue
 				const choice = this.#choiceOf(control)
-				if (choice !== null && !this.#isClobberedWithin(control, element)) choices.push(choice)
+				if (choice !== null) choices.push(choice)
 			}
 			targetChoices = { counts: countChoices(choices), size: choices.length }
 			this.#targetChoices.set(element, targetChoices)
@@ -1894,13 +1896,14 @@ class Morph {
 	}
 
 	// The choices of the checkboxes, radios and options the user changed in this element, or null when there are none.
+	// A control with a movable id goes to its own target, so the element doesn't need a target for it.
 	// The picked ones leave out options and radios the user moved away from, which can be matched once those can't.
 	#dirtyChoicesOf(element: Element): { choices: Array<string>; picked: Array<string> } | null {
 		if (!this.#dirtyElements?.has(element)) return null
 		const choices: Array<string> = []
 		const picked: Array<string> = []
 		for (const control of [element, ...element.querySelectorAll("input, option")]) {
-			const choice = this.#flagged.has(control) ? this.#choiceOf(control) : null
+			const choice = this.#flagged.has(control) && !this.#movableElement(control.id) ? this.#choiceOf(control) : null
 			if (choice === null) continue
 			choices.push(choice)
 			if (control === element || !isLeftChoice(control)) picked.push(choice)
@@ -2342,7 +2345,7 @@ function trimFragmentEdgeWhitespace(fragment: DocumentFragment): void {
 }
 
 // What choosing this element means: an option's value in its select, or a checkbox or radio's type, name,
-// value and form. An option's select is passed in, since a target's option is keyed by the live select.
+// value and form, along with its `is`, since a control with another `is` is recreated. An option's select is passed in, since a target's option is keyed by the live select.
 function choiceOf(element: Element, select: HTMLSelectElement | null): string | null {
 	if (isOptionElement(element)) {
 		return JSON.stringify([
@@ -2350,10 +2353,11 @@ function choiceOf(element: Element, select: HTMLSelectElement | null): string | 
 			select && formOf(select),
 			select && (select.hasAttribute("multiple") ? 2 : displaySizeOf(select) > 1 ? 1 : 0),
 			element.value,
+			element.getAttribute("is"),
 		])
 	}
 	if (isInputElement(element) && (element.type === "checkbox" || element.type === "radio")) {
-		return JSON.stringify([element.type, element.name, element.value, formOf(element)])
+		return JSON.stringify([element.type, element.name, element.value, formOf(element), element.getAttribute("is")])
 	}
 	return null
 }
