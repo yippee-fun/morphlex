@@ -433,3 +433,20 @@ test("an item whose name has a line break is reopened", () => {
 	expect(openIds(host)).toBe("q2")
 	host.remove()
 })
+
+// happy-dom builds an unescaped selector for getElementsByName, so it only runs where browsers close other items.
+test.skipIf(!closesOtherDetails())("an item whose name has quotes and backslashes is reopened", () => {
+	const name = `a"b\\c&#13;d&#12;e`
+	const host = mount(`<div><details id="q1" name='${name}' open></details></div>`)
+	morph(host.firstElementChild!, `<div><details id="q2" name='${name}'></details><span id="q1"></span></div>`)
+	morph(host.firstElementChild!, `<div><details id="q2" name='${name}' open></details></div>`)
+	expect(openIds(host)).toBe("q2")
+	host.remove()
+})
+
+test("an item outside a document is opened when another item in its group closes", () => {
+	const host = document.createElement("div")
+	host.innerHTML = `<details id="x" name="a" open></details><details id="y" name="a"></details>`
+	morph(host, `<div><details id="x" name="a"></details><details id="y" name="a" open></details></div>`)
+	expect(openIds(host)).toBe("y")
+})

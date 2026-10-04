@@ -1,6 +1,7 @@
 const SUPPORTS_MOVE_BEFORE = typeof Element !== "undefined" && "moveBefore" in Element.prototype
 const ELEMENT_NODE_TYPE = 1
 const TEXT_NODE_TYPE = 3
+const DOCUMENT_NODE_TYPE = 9
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
 const CLOBBER_ATTRIBUTE = "morphlex-clobber"
 const DETACHED_NODE_ERROR = "[Morphlex] Cannot replace a detached node. It needs a parent."
@@ -2089,8 +2090,14 @@ function openDetailsInGroup(details: Element): Array<Element> {
 	const name = details.getAttribute("name")
 	if (!name) return []
 
-	const candidates = [...(details.getRootNode() as ParentNode).querySelectorAll("details[open][name]")]
-	return candidates.filter((other) => other !== details && other.getAttribute("name") === name && isDetailsElement(other))
+	// A document finds elements by name without looking through the rest, so only other roots are searched.
+	const root = details.getRootNode()
+	const candidates = isDocument(root)
+		? root.getElementsByName(name)
+		: (root as ParentNode).querySelectorAll("details[open][name]")
+	return [...candidates].filter(
+		(other) => other !== details && other.getAttribute("name") === name && other.hasAttribute("open") && isDetailsElement(other),
+	)
 }
 
 // A document keeps only the first open item of an accordion, but WebKit's parser keeps them all, so
@@ -2126,6 +2133,10 @@ function isOptionElement(element: Element): element is HTMLOptionElement {
 
 function isElement(node: Node): node is Element {
 	return node.nodeType === ELEMENT_NODE_TYPE
+}
+
+function isDocument(node: Node): node is Document {
+	return node.nodeType === DOCUMENT_NODE_TYPE
 }
 
 function isParentNode(node: Node): node is ParentNode {
