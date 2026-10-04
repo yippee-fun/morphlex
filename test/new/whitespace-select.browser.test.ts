@@ -45,7 +45,7 @@ test("whitespace in a select is judged after the select is synced", () => {
 	expect(from.querySelector(".g")!.childNodes[1]!.nodeValue).toBe(" ")
 })
 
-test("whitespace inside a select is judged after the enclosing select is synced", () => {
+test("whitespace inside a select is judged after the enclosing select is synced, before the root's callbacks", () => {
 	const select = document.createElement("select")
 	select.className = "s"
 	const from = document.createElement("optgroup")
@@ -55,8 +55,14 @@ test("whitespace inside a select is judged after the enclosing select is synced"
 	const to = document.createElement("optgroup")
 	to.append(...options("ba", " "))
 
-	morphInner(from, to)
+	const seen: Array<string | null> = []
+	morphInner(from, to, {
+		afterChildrenVisited: (node) => {
+			if (node === from) seen.push(select.selectedOptions[0]!.className, select.querySelector(".g")!.childNodes[1]!.nodeValue)
+		},
+	})
 
+	expect(seen).toEqual(["b", " "])
 	expect(select.selectedOptions[0]!.className).toBe("b")
 	expect(select.querySelector(".g")!.childNodes[1]!.nodeValue).toBe(" ")
 })
