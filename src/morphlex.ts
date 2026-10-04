@@ -578,8 +578,10 @@ class Morph {
 	#preserveChanges: boolean
 	// Only a target with a checked input can add a checked radio, so other morphs skip looking for one.
 	#targetChecksInputs = false
-	// Whether each parent collapses whitespace, read once per morph since reading it updates styles.
-	#collapsesWhitespace: Map<Element, boolean> | null = null
+	// Whitespace left alone because it may not render differently. Whether it does depends on the
+	// parent's final style, which selectors like `:has()` tie to the finished tree, so it's checked
+	// when the morph settles.
+	#whitespaceToCheck: Array<[ChildNode, ChildNode]> | null = null
 
 	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
 		this.#options = options
@@ -644,6 +646,8 @@ class Morph {
 			}
 			this.#deferredRemovals = null
 		}
+
+		this.#checkWhitespace()
 
 		// Option wrappers can move or go after a select was synced, which keeps the old selection, so sync it again.
 		const selects = this.#syncedSelects
@@ -722,8 +726,8 @@ class Morph {
 		}
 	}
 
-	// Whitespace the browser collapses looks the same whatever it holds, so it's left alone. Spaces and
-	// line breaks aren't interchangeable, since some browsers drop a line break between CJK characters.
+	// Whitespace the browser collapses looks the same whatever it holds. Spaces and line breaks aren't
+	// interchangeable, since some browsers drop a line break between CJK characters.
 	#isInterchangeableWhitespace(from: ChildNode, to: ChildNode): boolean {
 		if (!isWhitespaceTextNode(from) || !isWhitespaceTextNode(to)) return false
 
@@ -731,17 +735,27 @@ class Morph {
 		const toValue = to.nodeValue!
 		if (!fromValue || !toValue || hasSegmentBreak(fromValue) !== hasSegmentBreak(toValue)) return false
 
-		const parent = from.parentElement
-		if (!parent) return false
+		;(this.#whitespaceToCheck ??= []).push([from, to])
+		return true
+	}
 
-		this.#collapsesWhitespace ??= new Map()
-		let collapses = this.#collapsesWhitespace.get(parent)
-		if (collapses === undefined) {
-			collapses = collapsesWhitespace(parent)
-			this.#collapsesWhitespace.set(parent, collapses)
+	// Update the whitespace left alone where its parent keeps whitespace after all.
+	#checkWhitespace(): void {
+		const pairs = this.#whitespaceToCheck
+		if (!pairs) return
+		this.#whitespaceToCheck = null
+
+		const collapses: Map<Element, boolean> = new Map()
+		for (let i = 0; i < pairs.length; i++) {
+			const [from, to] = pairs[i]!
+			const parent = from.parentElement
+			let parentCollapses = parent ? collapses.get(parent) : false
+			if (parentCollapses === undefined) {
+				parentCollapses = collapsesWhitespace(parent!)
+				collapses.set(parent!, parentCollapses)
+			}
+			if (!parentCollapses) this.#morphOtherNode(from, to)
 		}
-
-		return collapses
 	}
 
 	#morphMatchingElements(from: Element, to: Element): void {

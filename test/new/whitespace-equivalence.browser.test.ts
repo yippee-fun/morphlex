@@ -154,3 +154,21 @@ test("whitespace becoming text is updated", () => {
 
 	expect(from.textContent).toBe("A and B")
 })
+
+test("whitespace is judged by the parent's style once the morph has finished", () => {
+	const style = document.createElement("style")
+	style.textContent = `.box { white-space: normal } .box:has(.marker) { white-space: pre }`
+	document.body.append(style)
+	const from = attached(`<div class="box"><b>A</b>  <b>B</b></div>`)
+	const visited: Array<Node> = []
+
+	morph(from, `<div class="box"><b>A</b> <b>B</b><i class="marker"></i></div>`, {
+		beforeNodeVisited: (node) => {
+			visited.push(node)
+			return true
+		},
+	})
+
+	expect(from.childNodes[1]!.nodeValue).toBe(" ")
+	expect(visited).toContain(from.childNodes[1])
+})
