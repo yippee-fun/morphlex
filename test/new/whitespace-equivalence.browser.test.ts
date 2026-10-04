@@ -247,3 +247,11 @@ test("whitespace in a custom element with an open shadow root follows its slot",
 
 	expect(host.childNodes[1]!.nodeValue).toBe("  ")
 })
+
+test("whitespace in a customized built-in that may have a closed shadow root is updated", () => {
+	const host = attached(`<div is="x-built-in" style="white-space: normal"><b>A</b>  <b>B</b></div>`)
+
+	morph(host, `<div is="x-built-in" style="white-space: normal"><b>A</b> <b>B</b></div>`)
+
+	expect(host.childNodes[1]!.nodeValue).toBe(" ")
+})

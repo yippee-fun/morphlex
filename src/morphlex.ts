@@ -1922,12 +1922,12 @@ function hasSegmentBreak(string: string): boolean {
 }
 
 // Only a connected element has computed styles, so a detached one is treated as preserving whitespace,
-// as is an unknown value. So is a custom element without an open shadow root, since a closed one hides
-// the slot the text is shown in.
+// as is an unknown value. So is a custom element, including a customized built-in, without an open
+// shadow root, since a closed one hides the slot the text is shown in.
 function collapsesWhitespace(element: Element): boolean {
 	const view = element.ownerDocument.defaultView
 	if (!view || !element.isConnected) return false
-	if (element.localName.includes("-") && !element.shadowRoot) return false
+	if ((element.localName.includes("-") || element.hasAttribute("is")) && !element.shadowRoot) return false
 
 	const whiteSpace = view.getComputedStyle(element).whiteSpace
 	return whiteSpace === "normal" || whiteSpace === "nowrap"
