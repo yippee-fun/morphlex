@@ -1429,6 +1429,8 @@ class Morph {
 			if (value !== undefined) {
 				uncheckedByAttribute.delete(radio)
 				radio.setAttribute("checked", value)
+				/* v8 ignore next -- Firefox can stop a radio following the attribute while it changes form */
+				if (!radio.checked) radio.checked = true
 			} else if (!this.#defersRadio(radio)) radio.checked = true
 			else (this.#radiosUncheckedForMove ??= new Set()).add(radio)
 		}

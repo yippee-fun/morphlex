@@ -756,3 +756,27 @@ test.skipIf(!groupsRadiosByForm())(
 		host.remove()
 	},
 )
+
+// Found by the move fuzzer in Firefox, which can stop a radio following its `checked` attribute while its form moves.
+const movingForms: Array<[string, string]> = [
+	[
+		`<div><section><input id="i0" type="radio" name="s" checked><form id="f"><textarea></textarea></form></section><form id="i5"><input id="i3" type="radio" name="r" checked><input id="i4" type="radio" name="r" checked></form></div>`,
+		`<div><input id="i4" type="radio" name="r" checked><form id="f"><textarea></textarea><section><input id="i0" type="radio" name="s" checked></section></form><form id="i5"><input id="i3" type="radio" name="r" checked></form></div>`,
+	],
+	[
+		`<div><form><input id="i0" type="radio" name="r" checked><input id="i2" type="radio" name="r" checked></form><form id="f"></form></div>`,
+		`<div><span id="i4"><input id="i2" type="radio" name="r" checked><form><input id="i0" type="radio" name="r" checked></form></span><b><form id="f"></form></b></div>`,
+	],
+]
+for (const [from, to] of movingForms) {
+	test.skipIf(!groupsRadiosByForm())(`a radio outside the morph stays checked when its form moves: ${to}`, () => {
+		const host = mount(from)
+		host.insertAdjacentHTML("afterbegin", `<input id="y" type="radio" name="r" form="f" checked>`)
+
+		morph(host.querySelector("div")!, parse(to))
+
+		expect(radio(host, "y").checked).toBe(true)
+		expect(radio(host, "y").getAttribute("checked")).toBe("")
+		host.remove()
+	})
+}
