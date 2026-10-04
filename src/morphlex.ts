@@ -2406,7 +2406,7 @@ function countChoices(choices: Array<string>): Map<string, number> {
 function attributesKeyOf(element: Element, ignored: ReadonlyArray<string>): string {
 	const attributes: Array<[string | null, string, string]> = []
 	for (const { namespaceURI, name, localName, value } of element.attributes) {
-		if (namespaceURI !== null || (name !== "morphlex-dirty" && !ignored.includes(name))) {
+		if (namespaceURI !== null || (name !== DIRTY_ATTRIBUTE && !ignored.includes(name))) {
 			attributes.push([namespaceURI, localName, value])
 		}
 	}
@@ -2426,7 +2426,7 @@ function shapeOf(node: Node): string {
 	if (!isElement(node)) return JSON.stringify([node.nodeType, node.nodeName, node.nodeValue])
 	const attributes: Array<string> = []
 	for (const { namespaceURI, localName, value } of node.attributes) {
-		if (namespaceURI !== null || localName !== "morphlex-dirty") attributes.push(JSON.stringify([namespaceURI, localName, value]))
+		if (namespaceURI !== null || localName !== DIRTY_ATTRIBUTE) attributes.push(JSON.stringify([namespaceURI, localName, value]))
 	}
 	let children = ""
 	for (const child of node.childNodes) children += shapeOf(child)
