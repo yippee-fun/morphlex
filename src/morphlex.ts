@@ -1383,22 +1383,22 @@ class Morph {
 	// which are only those outside the node unless `inside` is set.
 	#uncheckRadiosNamingFormsIn(node: Node, root: Node, inside = false): Array<HTMLInputElement> | null {
 		if (!isElement(node)) return null
-		let ids: Array<string> | null = null
+		let ids: Set<string> | null = null
 		const forms = isFormElement(node) ? [node] : node.getElementsByTagName("form")
 		for (let i = 0; i < forms.length; i++) {
 			const form = forms[i]!
-			if (form.id !== "" && isFormElement(form)) (ids ??= []).push(form.id)
+			if (form.id !== "" && isFormElement(form)) (ids ??= new Set()).add(form.id)
 		}
 		return ids && this.#uncheckRadiosNaming(ids, root, inside ? null : node)
 	}
 
-	#uncheckRadiosNaming(ids: Array<string>, root: Node, except: Node | null): Array<HTMLInputElement> | null {
+	#uncheckRadiosNaming(ids: ReadonlySet<string>, root: Node, except: Node | null): Array<HTMLInputElement> | null {
 		let unchecked: Array<HTMLInputElement> | null = null
 		// Only checked inputs matter, which keeps this short on pages with many radios.
 		const inputs = (root as ParentNode).querySelectorAll("input[form]:checked")
 		for (let i = 0; i < inputs.length; i++) {
 			const input = inputs[i]!
-			if (isCheckedRadio(input) && ids.includes(input.getAttribute("form")!) && !except?.contains(input)) {
+			if (isCheckedRadio(input) && ids.has(input.getAttribute("form")!) && !except?.contains(input)) {
 				this.#uncheckRadio(input)
 				;(unchecked ??= []).push(input)
 			}
@@ -1413,7 +1413,7 @@ class Morph {
 			return [element]
 		}
 		if (name === "id" && isFormElement(element)) {
-			const ids = value === null || value === "" ? [element.id] : [element.id, value]
+			const ids = new Set(value === null || value === "" ? [element.id] : [element.id, value])
 			return this.#uncheckRadiosNaming(ids, element.getRootNode(), null)
 		}
 		return null
@@ -1583,11 +1583,11 @@ class Morph {
 	#insertNewNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null, approved = false): boolean {
 		if (!approved && !(this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true)) return false
 
-		clearImplicitSelection(node, parent)
 		// A live target takes its forms away from the radios where it is, in its own document or shadow root
 		// and inside it, including forms that live elements claim out of it next. Those inside it are
 		// checked again straight away, since they're the target's own state, not markup the morph resets.
 		const sourceRadios = node.isConnected ? this.#uncheckRadiosNamingFormsIn(node, node.getRootNode(), true) : null
+		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, parent)
 		const radios = this.#uncheckRadiosNamingFormsIn(node, (parent as Node).getRootNode())
 		parent.insertBefore(node, insertionPoint)

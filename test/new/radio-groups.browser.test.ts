@@ -1007,3 +1007,16 @@ test.skipIf(!groupsRadiosByForm())("a clobbered radio that a passing radio unche
 	expect(checkedIds(host)).toBe("")
 	host.remove()
 })
+
+test("a live form from another document leaves the radios there checked", () => {
+	const source = document.implementation.createHTMLDocument("")
+	source.body.innerHTML = `<div id="source"><form id="f"></form></div><form id="f"></form><input id="y" type="radio" name="r" form="f" checked><input id="a" type="radio" name="r" checked>`
+	const host = mount(`<div></div>`)
+
+	morphInner(host.firstElementChild!, source.getElementById("source")!)
+
+	expect(source.getElementById("y")).toHaveProperty("checked", true)
+	expect(source.getElementById("a")).toHaveProperty("checked", true)
+	expect(host.querySelector("form")).not.toBeNull()
+	host.remove()
+})
