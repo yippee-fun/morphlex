@@ -952,6 +952,8 @@ class Morph {
 
 		const details = isDetailsElement(from)
 		const open = details ? from.getAttributeNS(null, "open") : null
+		// The user toggles `open` on these elements, so with `preserveChanges` it's neither added nor removed.
+		const keepsOpen = this.#preserveChanges && hasOpenState(from)
 
 		// First pass: update/add attributes from reference (iterate forwards)
 		const toAttributes = to.attributes
@@ -959,15 +961,7 @@ class Morph {
 			const attribute = toAttributes[i]!
 			const { name, localName, value, namespaceURI } = attribute
 			// Adding `open` would open it, but changing the value of an existing one is fine.
-			if (
-				name === "open" &&
-				namespaceURI === null &&
-				this.#preserveChanges &&
-				hasOpenState(from) &&
-				!from.hasAttributeNS(null, "open")
-			) {
-				continue
-			}
+			if (keepsOpen && name === "open" && namespaceURI === null && !from.hasAttributeNS(null, "open")) continue
 			const oldValue = from.getAttributeNS(namespaceURI, localName)
 
 			if (oldValue === value) continue
@@ -994,7 +988,7 @@ class Morph {
 		if (hasExcessAttributes(from, to)) {
 			for (const { name, localName, value, namespaceURI } of Array.from(from.attributes)) {
 				if (!to.hasAttributeNS(namespaceURI, localName)) {
-					if (name === "open" && namespaceURI === null && this.#preserveChanges && hasOpenState(from)) continue
+					if (keepsOpen && name === "open" && namespaceURI === null) continue
 
 					if (this.#options.beforeAttributeUpdated?.(from, name, null) ?? true) {
 						// Removing `open` from a modal dialog leaves it stuck in the top layer, so close it properly.
