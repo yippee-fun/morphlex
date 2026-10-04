@@ -103,3 +103,16 @@ test("a morphInner that throws leaves no morphlex-dirty behind", () => {
 	).toThrow("boom")
 	expect(input.hasAttribute("morphlex-dirty")).toBe(false)
 })
+
+test("an attribute that beforeAttributeUpdated removes is still updated", () => {
+	const host = mount(`<div><button @click="a" title="a">x</button></div>`)
+
+	morph(host.firstElementChild!, `<div><button @click="b" title="b">x</button></div>`, {
+		beforeAttributeUpdated: (element, name) => {
+			element.removeAttribute(name)
+			return true
+		},
+	})
+
+	expect(host.innerHTML).toBe(`<div><button @click="b" title="b">x</button></div>`)
+})

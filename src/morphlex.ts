@@ -789,12 +789,13 @@ class Morph {
 			if (name === "open" && namespaceURI === null && this.#preserveChanges && hasOpenState(from) && !from.hasAttribute("open")) {
 				continue
 			}
-			const existing = from.getAttributeNodeNS(namespaceURI, localName)
-			const oldValue = existing && existing.value
+			const oldValue = from.getAttributeNS(namespaceURI, localName)
 
 			if (oldValue === value) continue
 			if (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true) {
 				// Go through `Attr` nodes, because `setAttribute` rejects names the parser accepts, like `@click`.
+				// Look the attribute up after the callback, which may have removed or replaced it.
+				const existing = from.getAttributeNodeNS(namespaceURI, localName)
 				if (existing) {
 					existing.value = value
 				} else {
