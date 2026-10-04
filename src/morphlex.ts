@@ -733,7 +733,7 @@ class Morph {
 		if (unplaced) {
 			for (let i = 0; i < unplaced.length; i++) {
 				const element = unplaced[i]!
-				if (this.#liveElementsById.has(element.id)) this.#removeNodeNow(element)
+				if (this.#liveElementsById.has(element.id)) this.#removeNode(element, true)
 			}
 			this.#unplacedElements = null
 		}
@@ -2360,25 +2360,18 @@ class Morph {
 		this.#settleIfRoot(node)
 	}
 
-	#removeNode(node: ChildNode): void {
-		// A movable element stays put for now, since the target may place it under another parent.
-		if (isElement(node) && this.#movableElement(node.id) === node) {
+	// A movable element stays put for now, since the target may place it under another parent, until the morph settles.
+	#removeNode(node: ChildNode, settled = false): void {
+		if (!settled && isElement(node) && this.#movableElement(node.id) === node) {
 			;(this.#unplacedElements ??= []).push(node)
 			return
 		}
 
-		if (this.#options.beforeNodeRemoved?.(node) ?? true) this.#removeApprovedNode(node)
+		if (this.#options.beforeNodeRemoved?.(node) ?? true) this.#removeApprovedNode(node, settled)
 	}
 
-	#removeNodeNow(node: ChildNode): void {
-		if (this.#options.beforeNodeRemoved?.(node) ?? true) {
-			this.#removeChild(node)
-			this.#options.afterNodeRemoved?.(node)
-		}
-	}
-
-	#removeApprovedNode(node: ChildNode): void {
-		if (this.#holdsMovableElement(node)) {
+	#removeApprovedNode(node: ChildNode, settled = false): void {
+		if (!settled && this.#holdsMovableElement(node)) {
 			;(this.#deferredRemovals ??= []).push(node)
 		} else {
 			this.#removeChild(node)
