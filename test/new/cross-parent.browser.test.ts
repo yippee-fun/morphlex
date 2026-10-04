@@ -916,3 +916,57 @@ test.skipIf(!supportsOptionWrappers())(
 		host.remove()
 	},
 )
+
+test("an element that moves to another parent stays when its visit is vetoed", () => {
+	const host = mount(`<div><p id="p"><b id="b">x</b></p><p id="q"></p></div>`)
+	const b = host.querySelector("b")!
+
+	morph(host.firstElementChild!, parse(`<div><p id="p"></p><p id="q"><b id="b">y</b></p></div>`), {
+		beforeNodeVisited: (node) => node !== b,
+	})
+
+	expect(host.innerHTML).toBe(`<div><p id="p"></p><p id="q"><b id="b">x</b></p></div>`)
+	expect(host.querySelector("b")).toBe(b)
+	host.remove()
+})
+
+test("an element that moves to another parent stays when its children are vetoed", () => {
+	const host = mount(`<div><p id="p"><b id="b" class="old">x</b></p><p id="q"></p></div>`)
+	const b = host.querySelector("b")!
+
+	morph(host.firstElementChild!, parse(`<div><p id="p"></p><p id="q"><b id="b" class="new">y</b></p></div>`), {
+		beforeChildrenVisited: (node) => node !== b,
+	})
+
+	expect(host.innerHTML).toBe(`<div><p id="p"></p><p id="q"><b id="b" class="new">x</b></p></div>`)
+	expect(host.querySelector("b")).toBe(b)
+	host.remove()
+})
+
+test("an element that moves out of a replaced parent stays when its visit is vetoed", () => {
+	const host = mount(`<div><p id="p"><b id="b">x</b></p></div>`)
+	const b = host.querySelector("b")!
+
+	morph(host.firstElementChild!, parse(`<div><p id="q"><b id="b">y</b></p></div>`), {
+		beforeNodeVisited: (node) => node !== b,
+	})
+
+	expect(host.innerHTML).toBe(`<div><p id="q"><b id="b">x</b></p></div>`)
+	expect(host.querySelector("b")).toBe(b)
+	host.remove()
+})
+
+test("an element inside a vetoed element that moved stays inside it", () => {
+	const host = mount(`<div><p id="p"><b id="b"><i id="i">x</i></b></p><p id="q"></p><p id="r"></p></div>`)
+	const b = host.querySelector("b")!
+	const i = host.querySelector("i")!
+
+	morph(host.firstElementChild!, parse(`<div><p id="p"></p><p id="q"><b id="b"></b></p><p id="r"><i id="i">y</i></p></div>`), {
+		beforeNodeVisited: (node) => node !== b,
+	})
+
+	expect(host.innerHTML).toBe(`<div><p id="p"></p><p id="q"><b id="b"><i id="i">x</i></b></p><p id="r"><i id="i">y</i></p></div>`)
+	expect(host.querySelector("b")).toBe(b)
+	expect(b.firstChild).toBe(i)
+	host.remove()
+})

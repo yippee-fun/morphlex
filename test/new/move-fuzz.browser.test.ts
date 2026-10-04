@@ -209,7 +209,8 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 			if (removed.includes(element)) fail(host, `a vetoed removal went ahead`)
 		}
 		for (const [element, snapshot] of snapshots) {
-			if (!host.contains(element) || !vetoRan(element, vetoVisit, visited, vetoChildren, childrenChecked)) continue
+			if (!vetoRan(element, vetoVisit, visited, vetoChildren, childrenChecked)) continue
+			if (!host.contains(element)) fail(host, `a vetoed element was removed: ${describe(element)}`)
 			// A descendant that the target puts around the element moves out before the element's veto is asked.
 			if (snapshot.nodes.some((node) => node.contains(element))) continue
 			const nodes = descendants(element)
