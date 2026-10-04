@@ -4,6 +4,7 @@ const TEXT_NODE_TYPE = 3
 const DOCUMENT_NODE_TYPE = 9
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
 const CLOBBER_ATTRIBUTE = "morphlex-clobber"
+const DIRTY_ATTRIBUTE = "morphlex-dirty"
 const DETACHED_NODE_ERROR = "[Morphlex] Cannot replace a detached node. It needs a parent."
 
 const IS_PARENT_NODE_TYPE = [
@@ -248,7 +249,7 @@ function takeClobbered(to: ChildNode | NodeListOf<ChildNode>): Set<Element> | nu
 		const element = node as Element
 		if (stripMarkerAttributes(element)) (clobbered ??= new Set()).add(element)
 
-		for (const descendant of element.querySelectorAll(`[${CLOBBER_ATTRIBUTE}], [morphlex-dirty]`)) {
+		for (const descendant of element.querySelectorAll(`[${CLOBBER_ATTRIBUTE}], [${DIRTY_ATTRIBUTE}]`)) {
 			if (stripMarkerAttributes(descendant)) (clobbered ??= new Set()).add(descendant)
 		}
 	}
@@ -258,7 +259,7 @@ function takeClobbered(to: ChildNode | NodeListOf<ChildNode>): Set<Element> | nu
 
 // Returns whether the element had `morphlex-clobber`.
 function stripMarkerAttributes(element: Element): boolean {
-	if (element.hasAttribute("morphlex-dirty")) element.removeAttribute("morphlex-dirty")
+	element.removeAttribute(DIRTY_ATTRIBUTE)
 	if (!element.hasAttribute(CLOBBER_ATTRIBUTE)) return false
 	element.removeAttribute(CLOBBER_ATTRIBUTE)
 	return true
@@ -271,27 +272,23 @@ function flagDirtyInputs(node: Element): Array<Element> {
 
 	if (isInputElement(node)) {
 		if (isDirtyInput(node)) {
-			node.setAttribute("morphlex-dirty", "")
-			flagged.push(node)
+			flagDirty(node, flagged)
 		}
 	} else if (isOptionElement(node)) {
 		optionSelects = optionSelectsOf(node)
 		if (isDirtyOption(node, optionSelects.get(node), defaultOptions)) {
-			node.setAttribute("morphlex-dirty", "")
-			flagged.push(node)
+			flagDirty(node, flagged)
 		}
 	} else if (isTextAreaElement(node)) {
 		if (node.value !== node.defaultValue) {
-			node.setAttribute("morphlex-dirty", "")
-			flagged.push(node)
+			flagDirty(node, flagged)
 		}
 	}
 
 	// The selectors also match elements with these names in other namespaces, like SVG.
 	for (const input of node.querySelectorAll("input")) {
 		if (isInputElement(input) && isDirtyInput(input)) {
-			input.setAttribute("morphlex-dirty", "")
-			flagged.push(input)
+			flagDirty(input, flagged)
 		}
 	}
 
@@ -299,19 +296,23 @@ function flagDirtyInputs(node: Element): Array<Element> {
 		if (!isOptionElement(element)) continue
 		optionSelects ??= optionSelectsOf(node)
 		if (isDirtyOption(element, optionSelects.get(element), defaultOptions)) {
-			element.setAttribute("morphlex-dirty", "")
-			flagged.push(element)
+			flagDirty(element, flagged)
 		}
 	}
 
 	for (const element of node.querySelectorAll("textarea")) {
 		if (isTextAreaElement(element) && element.value !== element.defaultValue) {
-			element.setAttribute("morphlex-dirty", "")
-			flagged.push(element)
+			flagDirty(element, flagged)
 		}
 	}
 
 	return flagged
+}
+
+function flagDirty(element: Element, flagged: Array<Element>): void {
+	// Stryker disable next-line StringLiteral: only the marker's presence matters, never its value.
+	element.setAttribute(DIRTY_ATTRIBUTE, "")
+	flagged.push(element)
 }
 
 // Checkboxes and radios report a `.value` of "on" when they have no `value` attribute,
@@ -451,8 +452,7 @@ function optionSelectsOf(node: Element): Map<Element, HTMLSelectElement> {
 }
 
 function addOptionSelects(optionSelects: Map<Element, HTMLSelectElement>, select: HTMLSelectElement): void {
-	const options = select.options
-	for (let i = 0; i < options.length; i++) optionSelects.set(options[i]!, select)
+	for (const option of select.options) optionSelects.set(option, select)
 }
 
 // The options the markup selects, to tell whether a morph inside the select changed them.
@@ -463,10 +463,7 @@ function markupSelectionOf(select: HTMLSelectElement): Array<HTMLOptionElement |
 
 function clearDirtyFlags(elements: Array<Element>): void {
 	for (let i = 0; i < elements.length; i++) {
-		const element = elements[i]!
-		if (element.hasAttribute("morphlex-dirty")) {
-			element.removeAttribute("morphlex-dirty")
-		}
+		elements[i]!.removeAttribute(DIRTY_ATTRIBUTE)
 	}
 }
 
@@ -809,9 +806,7 @@ class Morph {
 	}
 
 	#visitAttributes(from: Element, to: Element): void {
-		if (from.hasAttribute("morphlex-dirty")) {
-			from.removeAttribute("morphlex-dirty")
-		}
+		from.removeAttribute(DIRTY_ATTRIBUTE)
 
 		const details = isDetailsElement(from)
 		const open = details ? from.getAttribute("open") : null
