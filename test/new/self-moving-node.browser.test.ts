@@ -127,3 +127,53 @@ test("a new first node that moves itself and removes the node it was added befor
 	host.remove()
 	elsewhere.remove()
 })
+
+test("a replacement that removes the node after it keeps the rest after it", () => {
+	const host = mount(`<div><p id="x"></p><p id="a"></p></div>`)
+
+	morph(host.firstElementChild!, `<div><p id="x" is="x-other"></p><span>new</span><p id="a"></p></div>`, {
+		afterNodeAdded: (node) => {
+			if (node.nodeName === "P") host.querySelector("#a")!.remove()
+		},
+	})
+
+	expect(host.innerHTML).toBe(`<div><p id="x" is="x-other"></p><span>new</span></div>`)
+	host.remove()
+})
+
+test("a node after a claimed element stays after it when the insertion point is removed", () => {
+	const elsewhere = mount("")
+	const host = mount(`<div><p id="a"></p><section><input id="m"></section></div>`)
+	const input = host.querySelector("input")!
+
+	morph(host.firstElementChild!, `<div><input id="m"><i></i><span>new</span><p id="a"></p><section></section></div>`, {
+		afterNodeAdded: (node) => {
+			if (node.nodeName !== "I") return
+			host.querySelector("#a")!.remove()
+			elsewhere.append(node)
+		},
+	})
+
+	expect(host.innerHTML).toBe(`<div><input id="m"><span>new</span><section></section></div>`)
+	expect(host.querySelector("input")).toBe(input)
+	host.remove()
+	elsewhere.remove()
+})
+
+test("nodes stay after earlier siblings when a callback removes the last placed node and the insertion point", () => {
+	const elsewhere = mount("")
+	const host = mount(`<div><b>keep</b><u></u><p id="a"></p></div>`)
+
+	morph(host.firstElementChild!, `<div><b>keep</b><u></u><i></i><span>one</span><em>two</em><p id="a"></p></div>`, {
+		afterNodeAdded: (node) => {
+			if (node.nodeName !== "I") return
+			host.querySelector("u")!.remove()
+			host.querySelector("#a")!.remove()
+			elsewhere.append(node)
+		},
+	})
+
+	expect(host.innerHTML).toBe(`<div><b>keep</b><span>one</span><em>two</em></div>`)
+	host.remove()
+	elsewhere.remove()
+})

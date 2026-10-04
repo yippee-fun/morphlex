@@ -156,6 +156,33 @@ test("nodes that move themselves out when they connect leave the rest in target 
 	})
 })
 
+test("afterNodeAdded can move the new node away and remove the node after it, and the rest stays in target order", () => {
+	check((scenario, fail) => {
+		const random = createRandom(scenario.seed ^ 0x68e31da4)
+		const host = mount(scenario.fromHtml)
+		const to = parse(scenario.toHtml)
+		let order = 0
+		for (const element of [to, ...to.querySelectorAll("*")]) element.setAttribute("data-order", String(order++))
+
+		morph(host.firstChild!, to, {
+			afterNodeAdded: (node) => {
+				if (random() < 0.3) node.nextSibling?.remove()
+				if (random() < 0.3) portal.append(node)
+			},
+		})
+		portal.replaceChildren()
+
+		for (const element of [host, ...host.querySelectorAll("*")]) {
+			let previous = -1
+			for (const child of element.children) {
+				const current = Number(child.getAttribute("data-order"))
+				if (current <= previous) fail(host)
+				previous = current
+			}
+		}
+	})
+})
+
 let teleporting = false
 const portal = document.createElement("div")
 customElements.define(

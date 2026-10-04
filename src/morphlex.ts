@@ -1241,12 +1241,10 @@ class Morph {
 		}
 
 		let insertionPoint: ChildNode | null = parent.firstChild
-		// The last node placed in the parent, so the next one can go after it.
-		let placed: ChildNode | null = null
 		for (let i = 0; i < toChildNodes.length; i++) {
-			// A callback can move or remove the insertion point. Then the next node goes after the last one placed.
+			// A callback can move or remove the insertion point. Then the next node goes after everything placed so far.
 			if (insertionPoint && insertionPoint.parentNode !== parent) {
-				insertionPoint = placed?.parentNode === parent ? placed.nextSibling : parent.firstChild
+				insertionPoint = insertionPointAfterPlaced(parent, fromChildNodes, matches, i)
 			}
 
 			const node = toChildNodes[i]!
@@ -1262,10 +1260,7 @@ class Morph {
 				}
 				// Read this before the morph, which can replace the match. A match that moved itself
 				// elsewhere when it reconnected leaves the insertion point where it was.
-				if (match.parentNode === parent) {
-					placed = match
-					insertionPoint = match.nextSibling
-				}
+				if (match.parentNode === parent) insertionPoint = match.nextSibling
 
 				if (operation === Operation.EqualNode) {
 				} else if (operation === Operation.SameElement) {
@@ -1282,10 +1277,7 @@ class Morph {
 			} else {
 				this.#addNode(parent, node, insertionPoint)
 				// A new node can move or remove itself when it's added, and then the insertion point stays.
-				if (node.parentNode === parent) {
-					placed = node
-					insertionPoint = node.nextSibling
-				}
+				if (node.parentNode === parent) insertionPoint = node.nextSibling
 			}
 		}
 
@@ -2029,6 +2021,31 @@ function isNodeList(value: ChildNode | NodeListOf<ChildNode>): value is NodeList
 
 // Find longest increasing subsequence to minimize moves during reordering
 // Returns the indices in the sequence that form the LIS
+// The live nodes at the end of the parent that the morph hasn't reached yet come after everything it
+// placed, whatever callbacks did to the parent. Returns the first of them, or `null` to append.
+function insertionPointAfterPlaced(
+	parent: ParentNode,
+	fromChildNodes: Array<ChildNode>,
+	matches: Array<number>,
+	index: number,
+): ChildNode | null {
+	const reached = new Set<ChildNode>()
+	for (let i = 0; i < index; i++) {
+		const match = matches[i]
+		if (match !== undefined) reached.add(fromChildNodes[match]!)
+	}
+
+	let insertionPoint: ChildNode | null = null
+	for (
+		let child = parent.lastChild;
+		child && !reached.has(child) && fromChildNodes.includes(child);
+		child = child.previousSibling
+	) {
+		insertionPoint = child
+	}
+	return insertionPoint
+}
+
 function longestIncreasingSubsequence(sequence: Array<number | undefined>): Array<number> {
 	const n = sequence.length
 	if (n === 0) return []
