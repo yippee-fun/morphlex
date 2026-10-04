@@ -333,30 +333,11 @@ function hasDirtyValue(input: HTMLInputElement): boolean {
 // The attributes besides `type` and `value` that the browser sanitizes an input's value with.
 const SANITIZING_ATTRIBUTES = ["min", "max", "step", "multiple"]
 
-// An untouched input can still differ from its target, because the browser sanitizes its value
-// as attributes change: a range that gains `max="10"` clamps 50 to 10, while the parsed target
-// shows 5. Setting the `value` attribute again sanitizes it afresh, without marking it as changed
-// the way assigning `.value` would. Try it on a clone first, so it only happens when it helps.
-// Returns whether it dealt with the input, so assigning `.value` isn't needed. An untouched input
-// whose sanitizing attribute update was vetoed is left alone on purpose.
-function resanitizeValue(input: HTMLInputElement, target: Element, value: string | null, shown: string): boolean {
-	/* v8 ignore start -- happy-dom doesn't sanitize values, so an untouched input always matches its target there */
-	if (hasDirtyValue(input)) return false
-	if (SANITIZING_ATTRIBUTES.some((name) => input.getAttribute(name) !== target.getAttribute(name))) return true
-	const clone = probeClone(input)
-	setValueAttribute(clone, value)
-	if (clone.value !== shown) return false
-	setValueAttribute(input, value)
-	return true
-}
-
-function setValueAttribute(input: HTMLInputElement, value: string | null): void {
-	if (value === null) {
-		input.setAttribute("value", "")
-		input.removeAttribute("value")
-	} else {
-		input.setAttribute("value", value)
-	}
+// An untouched input whose `min`, `max`, `step` or `multiple` update was vetoed shows the browser's own
+// sanitized value, so it's left alone. A value the user typed is still reset.
+/* v8 ignore start -- happy-dom doesn't sanitize values, so an untouched input always matches its target there */
+function keepsSanitizedValue(input: HTMLInputElement, target: Element): boolean {
+	return !hasDirtyValue(input) && SANITIZING_ATTRIBUTES.some((name) => input.getAttribute(name) !== target.getAttribute(name))
 }
 /* v8 ignore stop */
 
@@ -1038,7 +1019,7 @@ class Morph {
 				from.getAttribute("value") === value
 			) {
 				const shown = isDirtyInput(target) ? (value ?? "") : target.value
-				if (from.value !== shown && !resanitizeValue(from, to, value, shown)) from.value = shown
+				if (from.value !== shown && !keepsSanitizedValue(from, to)) from.value = shown
 			}
 		} else if (isOptionElement(from)) {
 			const selected = to.hasAttribute("selected")
