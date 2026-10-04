@@ -1551,7 +1551,9 @@ class Morph {
 		if (!ids) return
 
 		for (const id of ids) {
-			if (this.#liveElementsById.get(id) !== node) this.#liveElementsById.set(id, null)
+			// An element that has already moved isn't in the map any more, so it stays where it is.
+			const live = this.#liveElementsById.get(id)
+			if (live && live !== node) this.#liveElementsById.set(id, null)
 		}
 	}
 
