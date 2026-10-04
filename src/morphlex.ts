@@ -582,6 +582,8 @@ class Morph {
 	// Inserting an open item, or giving one a name, closes it while another in its group is open, so the
 	// ones left closed are opened again when the morph settles.
 	#openDetails: Map<Element, string> | null = null
+	// The noted items whose open state the morph kept as it was, because of a veto or `preserveChanges`.
+	#keptDetails: Set<Element> | null = null
 	// Only a target with an open `details` can add one, so other morphs skip looking for one.
 	#targetOpensDetails = false
 
@@ -680,14 +682,17 @@ class Morph {
 		const openDetails = this.#openDetails
 		if (openDetails) {
 			this.#openDetails = null
-			this.#reopenDetails(openDetails)
+			this.#reopenDetails(openDetails, this.#keptDetails)
+			this.#keptDetails = null
 		}
 	}
 
 	// Open each item the morph wants open but the browser closed, in document order, so the first one wins
-	// as when parsing. An item stays closed while another in its group is open, since opening it would
-	// close that one, which is either wanted open too, outside the morph, vetoed or kept open by the user.
-	#reopenDetails(openDetails: Map<Element, string>): void {
+	// as when parsing. Opening it closes the open item in its group, so it stays closed while that one is
+	// outside the morph, vetoed or kept open by the user, including one the morph skipped because it equals
+	// its target. Otherwise the target opens that one too, which WebKit's parser allows, so the item still
+	// opens when that one comes later.
+	#reopenDetails(openDetails: Map<Element, string>, kept: Set<Element> | null): void {
 		const closed: Array<Element> = []
 		for (const details of openDetails.keys()) {
 			if (!details.hasAttribute("open") && this.#inScope(details)) closed.push(details)
@@ -695,7 +700,15 @@ class Morph {
 		closed.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
 
 		for (const details of closed) {
-			if (openDetailsInGroup(details).length === 0) details.setAttribute("open", openDetails.get(details)!)
+			const others = openDetailsInGroup(details)
+			const yielding = others.every(
+				(other) =>
+					(openDetails.has(other) ? !kept?.has(other) : !this.#preserveChanges) &&
+					this.#inScope(other) &&
+					!this.#isVetoed(other) &&
+					(details.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+			)
+			if (yielding) details.setAttribute("open", openDetails.get(details)!)
 		}
 	}
 
@@ -767,6 +780,8 @@ class Morph {
 		}
 
 		this.#preserveChanges = preserveChanges
+		// A root without children isn't settled by visiting them, so settle it before its callback.
+		this.#settleIfRoot(from)
 		this.#options.afterNodeVisited?.(from, to)
 	}
 
@@ -863,15 +878,15 @@ class Morph {
 	// Note the `open` value the morph means an accordion item to have, whatever the browser does to it:
 	// the target's, unless the update was vetoed, or `preserveChanges` keeps the item open or closed.
 	#noteIntendedOpen(details: Element, to: Element, open: string | null): void {
+		const vetoed = this.#vetoedControls?.has(details) ?? false
 		let intended = to.getAttribute("open")
-		if (this.#vetoedControls?.has(details)) intended = open
+		if (vetoed) intended = open
 		else if (this.#preserveChanges) intended = open === null ? null : (intended ?? open)
 
-		if (intended === null) {
-			this.#openDetails?.delete(details)
-		} else {
-			;(this.#openDetails ??= new Map()).set(details, intended)
-		}
+		if (intended === null) return
+
+		;(this.#openDetails ??= new Map()).set(details, intended)
+		if (vetoed || this.#preserveChanges) (this.#keptDetails ??= new Set()).add(details)
 	}
 
 	// Opening an accordion item closes the open one in its group, which may be vetoed, kept by the user,
@@ -899,7 +914,7 @@ class Morph {
 		for (let i = 0; i < items.length; i++) {
 			const item = items[i]!
 			const value = item.getAttribute("open")
-			if (value !== null) openDetails.set(item, value)
+			if (value !== null && isDetailsElement(item)) openDetails.set(item, value)
 		}
 	}
 

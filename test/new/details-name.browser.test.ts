@@ -216,6 +216,81 @@ test("an item inside a new item is reopened", () => {
 	host.remove()
 })
 
+// happy-dom and WebKit parse several open items in one group, and only the first stays open in a document.
+test("a closed item opens when the only open item in its group comes later and the target opens it", () => {
+	const host = mount(`<div><details id="q1" name="g" open></details></div>`)
+	morph(
+		host.firstElementChild!,
+		`<div><details id="q2" name="g" open></details><details id="b" name="g" open></details><span id="q1"></span></div>`,
+		{
+			afterNodeAdded(node) {
+				if (node instanceof Element && node.id === "q2") node.removeAttribute("open")
+			},
+		},
+	)
+	expect(host.querySelector("#q2")!.hasAttribute("open")).toBe(true)
+	host.remove()
+})
+
+test("a closed item stays closed when an earlier item in its group is open", () => {
+	const host = mount(`<div><details id="q1" name="g" open></details></div>`)
+	morph(
+		host.firstElementChild!,
+		`<div><details id="q2" name="g" open></details><details id="b" name="g" open></details><span id="q1"></span></div>`,
+		{
+			afterNodeAdded(node) {
+				if (node instanceof Element && node.id === "b") node.removeAttribute("open")
+			},
+		},
+	)
+	expect(openIds(host)).toBe("q2")
+	host.remove()
+})
+
+test("a new item stays closed when the user keeps a later item in its group open", () => {
+	for (const preserveChanges of [true, false]) {
+		const host = mount(`<div><details id="a" name="g" open></details></div>`)
+		morph(
+			host.firstElementChild!,
+			`<div><details id="n" name="g" open></details><details id="a" name="g" open></details></div>`,
+			{
+				preserveChanges,
+				afterNodeAdded(node) {
+					if (node instanceof Element && node.id === "n") node.removeAttribute("open")
+				},
+			},
+		)
+		// Without preserveChanges the target decides, and its first open item wins.
+		expect(openIds(host).split(" ")[0]).toBe(preserveChanges ? "a" : "n")
+		host.remove()
+	}
+})
+
+test("a new item stays closed when a later item the user keeps open differs from its target", () => {
+	const host = mount(`<div><details id="a" name="g" open class="x"></details></div>`)
+	morph(host.firstElementChild!, `<div><details id="n" name="g" open></details><details id="a" name="g" open></details></div>`, {
+		preserveChanges: true,
+		afterNodeAdded(node) {
+			if (node instanceof Element && node.id === "n") node.removeAttribute("open")
+		},
+	})
+	expect(openIds(host)).toBe("a")
+	host.remove()
+})
+
+test("an item stays closed when a later item in its group is open in a vetoed subtree", () => {
+	const host = mount(`<div><details id="b" name="g"></details><section><details name="g" open></details></section></div>`)
+	morph(host.firstElementChild!, `<div><details id="b" name="g" open></details><section></section></div>`, {
+		beforeNodeVisited: (node) => !(node instanceof Element && node.localName === "section"),
+		afterAttributeUpdated(element, name) {
+			if (name === "open") element.removeAttribute("open")
+		},
+	})
+	expect(openIds(host)).toBe("")
+	expect(host.querySelector("section details")!.hasAttribute("open")).toBe(true)
+	host.remove()
+})
+
 // Random accordions, morphed into a shuffled copy where items are renamed, opened, closed, added and removed.
 test.skipIf(!closesOtherDetails())("items the user opened stay open, and other items show what the target says", () => {
 	const failures: Array<string> = []
@@ -276,3 +351,29 @@ function createRandom(seed: number): () => number {
 		return ((next ^ (next >>> 14)) >>> 0) / 4294967296
 	}
 }
+
+test("an item that is the morph root is reopened before its own callback", () => {
+	const host = mount(`<details id="a" name="g"></details>`)
+	let openInCallback = false
+	morph(host.firstElementChild!, `<details id="a" name="g" open></details>`, {
+		afterAttributeUpdated(element, name) {
+			if (name === "open") element.removeAttribute("open")
+		},
+		afterNodeVisited(node) {
+			openInCallback = (node as Element).hasAttribute("open")
+		},
+	})
+	expect(openInCallback).toBe(true)
+	host.remove()
+})
+
+test("an svg element named details is left alone", () => {
+	const host = mount(`<div><p id="q1"></p></div>`)
+	morph(host.firstElementChild!, `<div><svg><details open></details></svg><details name="g" open></details></div>`, {
+		afterNodeAdded(node) {
+			if (node instanceof Element) node.querySelector("svg details")?.removeAttribute("open")
+		},
+	})
+	expect(host.querySelector("svg details")!.hasAttribute("open")).toBe(false)
+	host.remove()
+})
