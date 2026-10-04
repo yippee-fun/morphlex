@@ -1242,6 +1242,20 @@ class Morph {
 			liveWhitespace!.add(fromChildNodes[whitespaceNodeIndices[i]!]!)
 		}
 
+		// Unmatched nodes that are still here, such as movable elements waiting to move, don't hide whitespace behind them.
+		let unplaced: Set<ChildNode> | null = null
+		if (liveWhitespace) {
+			for (let i = 0; i < fromChildNodes.length; i++) {
+				const candidate = fromChildNodes[i]!
+				if (
+					(candidateNodeActive[i] || candidateElementActive[i] || candidateElementWithIdActive[i]) &&
+					candidate.parentNode === parent
+				) {
+					;(unplaced ??= new Set()).add(candidate)
+				}
+			}
+		}
+
 		let insertionPoint: ChildNode | null = parent.firstChild
 		const placed: Array<ChildNode> = []
 		for (let i = 0; i < toChildNodes.length; i++) {
@@ -1259,8 +1273,10 @@ class Morph {
 
 			const node = toChildNodes[i]!
 			const matchInd = matches[i]
-			if (insertionPoint && liveWhitespace?.has(insertionPoint) && isWhitespaceTextNode(node)) {
-				const whitespace: ChildNode = insertionPoint
+			let reusable = insertionPoint
+			while (reusable && unplaced?.has(reusable)) reusable = reusable.nextSibling
+			if (reusable && liveWhitespace?.has(reusable) && isWhitespaceTextNode(node)) {
+				const whitespace: ChildNode = reusable
 				liveWhitespace.delete(whitespace)
 				placed.push(whitespace)
 				insertionPoint = whitespace.nextSibling
@@ -1292,10 +1308,9 @@ class Morph {
 				// A replaced match leaves the target in its place.
 				placed.push(match.parentNode === parent ? match : node)
 			} else {
-				if (this.#addNode(parent, node, insertionPoint)) {
-					placed.push(node)
-					insertionPoint = node.nextSibling
-				}
+				const added = this.#addNode(parent, node, insertionPoint)
+				if (added) placed.push(added)
+				if (added === node) insertionPoint = node.nextSibling
 			}
 		}
 
@@ -1455,15 +1470,16 @@ class Morph {
 		from.content.replaceChildren(to.content)
 	}
 
-	// Add a new node, or claim the live element with its id. Returns whether the new node was inserted.
-	#addNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): boolean {
+	// Add a new node, or claim the live element with its id. Returns the new node or the claim's
+	// placeholder, or null when the new node wasn't inserted.
+	#addNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): ChildNode | null {
 		const placeholder = isElement(node) ? this.#claimMovableElement(node, parent) : null
 		if (placeholder) {
 			parent.insertBefore(placeholder, insertionPoint)
-			return false
+			return placeholder
 		}
 
-		return this.#insertNewNode(parent, node, insertionPoint)
+		return this.#insertNewNode(parent, node, insertionPoint) ? node : null
 	}
 
 	#insertNewNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null, approved = false): boolean {

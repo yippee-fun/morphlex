@@ -217,3 +217,33 @@ test("a callback that removes the whitespace after a replaced node keeps later n
 
 	expect(from.outerHTML).toBe(`<div><button is="x-b"></button><span></span></div>`)
 })
+
+test("a callback that removes the whitespace after a node keeps later nodes after a claimed element", () => {
+	const from = dom(`<div><section><i id="x"></i></section><div id="list"><p>1</p> <b></b></div></div>`)
+
+	morph(from, dom(`<div><section></section><div id="list"><i id="x"></i><p>2</p><span></span><b></b></div></div>`), {
+		afterNodeVisited: (node) => {
+			if (node.nodeName === "P") {
+				node.nextSibling?.remove()
+				;(node as Element).remove()
+			}
+		},
+	})
+
+	expect(from.querySelector("#list")!.innerHTML).toBe(`<i id="x"></i><span></span><b></b>`)
+})
+
+test("whitespace behind an element waiting to move elsewhere is kept", () => {
+	const from = dom(`<div><div id="list"><i id="x"></i> <b></b></div><section id="s"></section></div>`)
+	const whitespace = from.querySelector("#list")!.childNodes[1]
+	const changed: Array<string> = []
+
+	morph(from, dom(`<div><div id="list"> <b></b></div><section id="s"><i id="x"></i></section></div>`), {
+		afterNodeAdded: (node) => void changed.push(`+${node.nodeName}`),
+		afterNodeRemoved: (node) => void changed.push(`-${node.nodeName}`),
+	})
+
+	expect(from.outerHTML).toBe(`<div><div id="list"> <b></b></div><section id="s"><i id="x"></i></section></div>`)
+	expect(from.querySelector("#list")!.firstChild).toBe(whitespace)
+	expect(changed).toEqual([])
+})
