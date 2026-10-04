@@ -1,5 +1,6 @@
 import { test } from "vitest"
 import { morph, morphInner } from "../../src/morphlex"
+import { isSameTree } from "./utils"
 
 // Random trees of mixed elements, text and comments, morphed into a mutated or unrelated
 // tree. Each test checks one property over every seed and reports the smallest failure.
@@ -20,6 +21,7 @@ const TAGS = [
 	"div",
 	"span",
 	"p",
+	"pre",
 	"ul",
 	"li",
 	"section",
@@ -53,13 +55,16 @@ const ATTRIBUTES = [
 	"selected",
 	"open",
 	"disabled",
+	"min",
+	"max",
 	"@click",
 	":class",
 	"x-on:click.prevent",
 	"xlink:href",
 ]
-const INPUT_TYPES = ["text", "checkbox", "radio", "hidden"]
-const ATTRIBUTE_VALUES = ["", "1", "2", "on"]
+// Most of these sanitize their value, so an untouched one can read differently from its `value` attribute.
+const INPUT_TYPES = ["text", "checkbox", "radio", "hidden", "range", "color", "email", "number", "date", "file"]
+const ATTRIBUTE_VALUES = ["", "1", "2", "on", " 3 ", "200", "a\nb", "#ABCDEF"]
 const TEXTS = ["", " ", "\n  ", "hello", "world", " ", "x y", "123"]
 
 test("the result matches the target", () => {
@@ -87,7 +92,7 @@ test("preserveChanges without any user changes matches the target, apart from op
 	check((scenario, fail) => {
 		const host = mount(scenario.fromHtml)
 		morph(host.firstChild!, parse(scenario.toHtml), { preserveChanges: true })
-		if (!isSameTree(withoutOpen(host.firstChild!), withoutOpen(parse(scenario.toHtml)))) fail(host)
+		if (!isSameTree(host.firstChild!, parse(scenario.toHtml), true)) fail(host)
 	})
 })
 
@@ -190,6 +195,84 @@ test("changing one attribute makes only that one mutation", () => {
 		if (countMutations(host, () => morph(host.firstChild!, target)) !== 1) fail(host)
 	})
 })
+
+test("nodes that move themselves out when they connect leave the rest in target order", () => {
+	check((scenario, fail) => {
+		const random = createRandom(scenario.seed ^ 0x2545f491)
+		const host = mount(scenario.fromHtml)
+		withTeleports(random, host.firstChild as HTMLElement, 0.15)
+		const to = withTeleports(random, parse(scenario.toHtml), 0.3)
+
+		teleporting = true
+		try {
+			morph(host.firstChild!, to)
+		} finally {
+			teleporting = false
+			portal.replaceChildren()
+		}
+
+		if (!isSameTree(withoutTeleports(host.firstChild!), withoutTeleports(parse(scenario.toHtml)))) fail(host)
+	})
+})
+
+test("afterNodeAdded can move the new node away, remove the node after it and append another, and the rest stays in target order", () => {
+	check((scenario, fail) => {
+		const random = createRandom(scenario.seed ^ 0x68e31da4)
+		const host = mount(scenario.fromHtml)
+		const to = parse(scenario.toHtml)
+		let order = 0
+		for (const element of [to, ...to.querySelectorAll("*")]) element.setAttribute("data-order", String(order++))
+
+		morph(host.firstChild!, to, {
+			afterNodeAdded: (node) => {
+				if (random() < 0.3) node.nextSibling?.remove()
+				if (random() < 0.2) node.parentNode?.append(document.createElement("u"))
+				if (random() < 0.3) portal.append(node)
+			},
+		})
+		portal.replaceChildren()
+
+		for (const element of [host, ...host.querySelectorAll("*")]) {
+			let previous = -1
+			for (const child of element.children) {
+				// Elements the callback added have no order.
+				if (!child.hasAttribute("data-order")) continue
+				const current = Number(child.getAttribute("data-order"))
+				if (current <= previous) fail(host)
+				previous = current
+			}
+		}
+	})
+})
+
+let teleporting = false
+const portal = document.createElement("div")
+customElements.define(
+	"x-tree-fuzz-teleport",
+	class extends HTMLElement {
+		connectedCallback(): void {
+			if (teleporting && this.parentNode !== portal) portal.append(this)
+		}
+	},
+)
+
+// Adds elements that move themselves out of the tree whenever they connect during a morph.
+function withTeleports(random: Random, root: HTMLElement, chance: number): HTMLElement {
+	for (const element of [root, ...root.querySelectorAll("*")]) {
+		if (element.closest("template, svg, select, textarea") || VOID_TAGS.includes(element.localName)) continue
+		if (random() >= chance) continue
+		const index = randomInt(random, 0, element.childNodes.length)
+		element.insertBefore(document.createElement("x-tree-fuzz-teleport"), element.childNodes[index] ?? null)
+	}
+	return root
+}
+
+function withoutTeleports(node: Node): Node {
+	const clone = node.cloneNode(true) as Element
+	for (const teleport of clone.querySelectorAll("x-tree-fuzz-teleport")) teleport.remove()
+	clone.normalize()
+	return clone
+}
 
 function check(property: (scenario: Case, fail: (host: HTMLElement) => void) => void): void {
 	let smallest: string | null = null
@@ -309,7 +392,11 @@ function changeControls(host: HTMLElement, seed: number): Array<Change> {
 
 		if (control instanceof HTMLInputElement && (control.type === "checkbox" || control.type === "radio")) {
 			control.checked = !control.checked
-		} else if (control instanceof HTMLTextAreaElement || control.type !== "hidden") {
+		} else if (control instanceof HTMLTextAreaElement) {
+			control.value = `typed-${seed}`
+		} else if (control.type in TYPED_VALUES) {
+			control.value = TYPED_VALUES[control.type]!
+		} else if (control.type !== "hidden" && control.type !== "file") {
 			control.value = `typed-${seed}`
 		} else {
 			continue
@@ -320,6 +407,9 @@ function changeControls(host: HTMLElement, seed: number): Array<Change> {
 
 	return changes
 }
+
+// Values each type keeps as typed, so the change is real.
+const TYPED_VALUES: Record<string, string> = { range: "7", color: "#123456", number: "42", date: "2020-01-02" }
 
 // A control whose type changed (which morphlex allows for id-matched inputs) has a different kind of state.
 function isKept(host: HTMLElement, change: Change): boolean {
@@ -337,7 +427,8 @@ function readDefault(control: HTMLInputElement | HTMLTextAreaElement): string | 
 	if (control instanceof HTMLInputElement && (control.type === "checkbox" || control.type === "radio")) {
 		return control.defaultChecked
 	}
-	return control.defaultValue
+	// The browser sanitizes some types' values, so read what a fresh control with the same markup shows.
+	return (parse(control.outerHTML) as HTMLInputElement | HTMLTextAreaElement).value
 }
 
 function toHtml(nodes: Array<TreeNode>): string {
@@ -388,24 +479,6 @@ function countMutations(host: HTMLElement, morph: () => void): number {
 	const records = observer.takeRecords().filter((record) => record.attributeName !== "morphlex-dirty")
 	observer.disconnect()
 	return records.length
-}
-
-// Like `isEqualNode`, but also compares template contents.
-function isSameTree(a: Node, b: Node): boolean {
-	if (!a.isEqualNode(b)) return false
-	if (a instanceof HTMLTemplateElement && !isSameTree(a.content, (b as HTMLTemplateElement).content)) return false
-
-	for (let index = 0; index < a.childNodes.length; index++) {
-		if (!isSameTree(a.childNodes[index]!, b.childNodes[index]!)) return false
-	}
-
-	return true
-}
-
-function withoutOpen(node: Node): Node {
-	const clone = node.cloneNode(true) as Element
-	for (const details of clone.querySelectorAll("details[open]")) details.removeAttribute("open")
-	return clone
 }
 
 function shuffle<T>(random: Random, items: Array<T>): Array<T> {

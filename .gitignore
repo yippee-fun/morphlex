@@ -8,3 +8,5 @@ coverage
 reference
 test/**/__screenshots__
 .vitest-attachments
+reports
+.stryker-tmp

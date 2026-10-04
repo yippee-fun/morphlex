@@ -1,5 +1,6 @@
 import { test, vi } from "vitest"
 import { morph, morphInner, type Options } from "../../src/morphlex"
+import { isSameTree } from "./utils"
 
 // Random trees where every id is unique, morphed into a copy whose elements have been moved
 // across parents, wrapped, unwrapped and replaced. Each test checks one property over every
@@ -27,7 +28,7 @@ vi.setConfig({ testTimeout: Math.max(30_000, SEED_COUNT * 100) })
 const CONTAINERS = ["div", "span", "section", "b", "label", "form", "details"] as const
 const LEAVES = ["input", "textarea", "button", "img", "select"] as const
 const VOID_TAGS = ["input", "img"]
-const INPUT_TYPES = ["text", "checkbox", "radio", "hidden"]
+const INPUT_TYPES = ["text", "checkbox", "radio", "hidden", "range", "color"]
 const TEXTS = ["hello", "x y", "123", " "]
 const IS_VALUES = ["x-a", "x-b"]
 
@@ -690,14 +691,6 @@ function mount(html: string): HTMLElement {
 	host.append(parse(html))
 	document.body.append(host)
 	return host
-}
-
-function isSameTree(a: Node, b: Node): boolean {
-	if (!a.isEqualNode(b)) return false
-	for (let index = 0; index < a.childNodes.length; index++) {
-		if (!isSameTree(a.childNodes[index]!, b.childNodes[index]!)) return false
-	}
-	return true
 }
 
 function isSameChildren(a: Node, b: Node): boolean {
