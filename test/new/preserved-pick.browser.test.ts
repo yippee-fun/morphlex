@@ -557,3 +557,29 @@ test("labels with the same ticked choice keep their order when their classes cha
 	expect(Array.from(from.querySelectorAll("label"))).toEqual([alpha, beta])
 	expect(alpha!.textContent).toBe("Alpha")
 })
+
+test("a single select with the user's pick isn't paired with a multiple select of the same name", () => {
+	const options = `<option value="a">a</option><option value="b">b</option>`
+	const from = form(`<select name="s" multiple>${options}</select><select name="s">${options}</select>`)
+	const single = from.querySelectorAll("select")[1]!
+	single.value = "b"
+
+	morph(from, form(`<select name="s" multiple class="x">${options}</select><select name="s" data-new>${options}</select>`), {
+		preserveChanges: true,
+	})
+
+	expect(from.querySelectorAll("select")[1]).toBe(single)
+	expect(single.value).toBe("b")
+	expect(from.querySelector<HTMLSelectElement>("[multiple]")!.selectedOptions.length).toBe(0)
+})
+
+test("many labels with the same tick keep them when one label is removed", () => {
+	const count = 2_000
+	const label = (attributes = "") => `<label${attributes}><input type="checkbox" name="t" value="a"></label>`
+	const from = form(label().repeat(count))
+	for (const input of from.querySelectorAll("input")) input.checked = true
+
+	morph(from, form(label(' class="x"').repeat(count - 1)), { preserveChanges: true })
+
+	expect(new FormData(from).getAll("t").length).toBe(count - 1)
+})

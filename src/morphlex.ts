@@ -1221,17 +1221,31 @@ class Morph {
 
 				// Pair as many candidates with targets as possible, so one taking a target can't leave another without any.
 				const owners: Map<number, number> = new Map()
-				const assign = (k: number, seen: Set<number>): boolean => {
-					for (const target of targets) {
-						if (seen.has(target) || !takes(k, target)) continue
-						seen.add(target)
-						const owner = owners.get(target)
-						if (owner === undefined || assign(owner, seen)) {
-							owners.set(target, k)
-							return true
+				// Search breadth first for a chain of candidates, each taking the next one's target, that ends at a free
+				// target, and shift the targets along it.
+				const assign = (start: number): void => {
+					const reachedFrom: Map<number, number> = new Map()
+					const ownedTarget: Map<number, number> = new Map()
+					const queue = [start]
+					for (let q = 0; q < queue.length; q++) {
+						const k = queue[q]!
+						for (const target of targets) {
+							if (reachedFrom.has(target) || !takes(k, target)) continue
+							reachedFrom.set(target, k)
+							const owner = owners.get(target)
+							if (owner !== undefined) {
+								ownedTarget.set(owner, target)
+								queue.push(owner)
+								continue
+							}
+							for (let next: number | undefined = target; next !== undefined;) {
+								const taker = reachedFrom.get(next)!
+								owners.set(next, taker)
+								next = ownedTarget.get(taker)
+							}
+							return
 						}
 					}
-					return false
 				}
 
 				// Give each candidate a free target first, so augmenting paths are only searched for the rest.
@@ -1242,7 +1256,10 @@ class Morph {
 					if (target === undefined) unassigned.push(k)
 					else owners.set(target, k)
 				}
-				for (const k of unassigned) assign(k, new Set())
+				for (const k of unassigned) {
+					if (owners.size === targets.length) break
+					assign(k)
+				}
 
 				for (const [target, k] of owners) {
 					const candidateIndex = choiceCandidates[k]![0]
@@ -2064,7 +2081,12 @@ function trimFragmentEdgeWhitespace(fragment: DocumentFragment): void {
 function choiceOf(element: Element, enclosingSelect: HTMLSelectElement | null): string | null {
 	if (isOptionElement(element)) {
 		const select = enclosingSelect ?? selectOf(element)
-		return JSON.stringify([select?.getAttribute("name") ?? null, select?.getAttribute("form") ?? null, element.value])
+		return JSON.stringify([
+			select?.getAttribute("name") ?? null,
+			select?.getAttribute("form") ?? null,
+			select?.hasAttribute("multiple"),
+			element.value,
+		])
 	}
 	if (isInputElement(element) && (element.type === "checkbox" || element.type === "radio")) {
 		return JSON.stringify([element.type, element.name, element.value, element.getAttribute("form")])
