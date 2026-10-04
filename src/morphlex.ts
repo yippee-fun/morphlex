@@ -1568,8 +1568,21 @@ class Morph {
 			live !== null &&
 			canMorphElementInPlace(live, target) &&
 			!live.contains(parent) &&
+			!this.#wrapsMovableAncestor(live, target) &&
 			!movesOptionsBetweenSelects(live, select === undefined ? selectAt(parent) : select)
 		)
+	}
+
+	// Whether the target puts a movable ancestor of the live element inside the element. Moving the
+	// element out would come before that ancestor's visit, so a veto there couldn't keep it.
+	#wrapsMovableAncestor(live: Element, target: Element): boolean {
+		const ids = this.#idArrayMap.get(target)
+		if (!ids) return false
+
+		for (let ancestor = live.parentElement; ancestor; ancestor = ancestor.parentElement) {
+			if (ancestor.id !== "" && this.#movableElement(ancestor.id) === ancestor && ids.includes(ancestor.id)) return true
+		}
+		return false
 	}
 
 	// Claim the live element with the target's id, if it can be. Returns a placeholder for the target's

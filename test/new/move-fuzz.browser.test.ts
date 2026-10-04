@@ -210,8 +210,6 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 		}
 		for (const [element, snapshot] of snapshots) {
 			if (!host.contains(element) || !vetoRan(element, vetoVisit, visited, vetoChildren, childrenChecked)) continue
-			// A descendant that the target puts around the element moves out before the element's veto is asked.
-			if (snapshot.nodes.some((node) => node.contains(element))) continue
 			const nodes = descendants(element)
 			const same = nodes.length === snapshot.nodes.length && nodes.every((node, index) => node === snapshot.nodes[index])
 			if (!same || element.innerHTML !== snapshot.html) fail(host, `a vetoed subtree changed: ${describe(element)}`)
@@ -275,7 +273,19 @@ function movableElements(host: HTMLElement, scenario: Case): Map<string, Element
 		if (select || toSelect) {
 			if (element.localName === "option" || !select || toSelect?.id !== select.id || !keeps(select)) return false
 		}
-		return !isInsideOwnDescendant(element, to, target)
+		return !isInsideOwnDescendant(element, to, target) && !wrapsOwnAncestor(element, to)
+	}
+
+	// The element is recreated rather than moved out of a movable ancestor that the target puts inside it.
+	const morphRoot = scenario.shape === "list" ? root.firstChild : root
+	const wrapsOwnAncestor = (element: Element, to: Element): boolean => {
+		for (let ancestor = element.parentElement; ancestor && ancestor !== morphRoot; ancestor = ancestor.parentElement) {
+			const id = ancestor.id
+			if (!id || ancestor.localName === "option" || ancestor.localName === "optgroup") continue
+			if (root.querySelectorAll(`[id="${id}"]`).length !== 1 || target.querySelectorAll(`[id="${id}"]`).length !== 1) continue
+			if (to.querySelector(`[id="${id}"]`)) return true
+		}
+		return false
 	}
 
 	for (const element of root.querySelectorAll("[id]")) {
@@ -383,6 +393,7 @@ function createCase(seed: number): Case {
 		to =
 			(selects && random() < 0.7 && mutateSelect(random, top, ids)) ||
 			(forms && random() < 0.4 && moveRadio(random, top)) ||
+			(random() < 0.15 && wrapInDescendant(random, top)) ||
 			mutate(random, to, ids)
 	}
 
@@ -580,6 +591,22 @@ function moveRadio(random: Random, top: ElementNode): Array<TreeNode> | null {
 	)
 	into.children.splice(randomInt(random, 0, into.children.length), 0, node)
 	if (random() < 0.5) toggleAttribute(node, "checked")
+	return top.children
+}
+
+// Swap a container with a container inside it, so the inner one ends up wrapping the outer one.
+function wrapInDescendant(random: Random, top: ElementNode): Array<TreeNode> | null {
+	const pairs = containersOf(top).flatMap((outer) =>
+		outer === top ? [] : containersOf(outer).flatMap((inner) => (inner === outer ? [] : [[outer, inner] as const])),
+	)
+	if (pairs.length === 0) return null
+	const [outer, inner] = pick(random, pairs)
+
+	const innerParent = containersOf(outer).find((place) => place.children.includes(inner))!
+	innerParent.children.splice(innerParent.children.indexOf(inner), 1)
+	const outerParent = containersOf(top).find((place) => place.children.includes(outer))!
+	outerParent.children[outerParent.children.indexOf(outer)] = inner
+	inner.children.splice(randomInt(random, 0, inner.children.length), 0, outer)
 	return top.children
 }
 

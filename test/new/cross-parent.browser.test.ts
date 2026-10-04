@@ -344,6 +344,37 @@ test("elements inside a subtree whose visit is vetoed don't move", () => {
 	}
 })
 
+test("a vetoed element keeps a descendant that the target wraps around it", () => {
+	for (const veto of ["beforeNodeVisited", "beforeChildrenVisited"]) {
+		const host = mount(`<div><section id="a"><span id="b"><i>x</i></span></section></div>`)
+		const a = host.querySelector("#a")!
+		const b = host.querySelector("#b")!
+
+		morph(host.firstElementChild!, parse(`<div><span id="b"><section id="a"><i>y</i></section></span></div>`), {
+			[veto]: (node: Node) => node !== a,
+		})
+
+		expect(b.parentElement).toBe(a)
+		expect(a.innerHTML).toBe(`<span id="b"><i>x</i></span>`)
+		host.remove()
+	}
+})
+
+test("an element wrapped in its own descendant keeps its node, and the descendant is recreated", () => {
+	const host = mount(`<div><section id="a"><span id="b"><input id="c"></span></section></div>`)
+	const a = host.querySelector("#a")!
+	const b = host.querySelector("#b")!
+	const c = host.querySelector("#c")!
+
+	morph(host.firstElementChild!, parse(`<div><span id="b"><section id="a"></section><input id="c"></span></div>`))
+
+	expect(host.innerHTML).toBe(`<div><span id="b"><section id="a"></section><input id="c"></span></div>`)
+	expect(host.querySelector("#a")).toBe(a)
+	expect(host.querySelector("#b")).not.toBe(b)
+	expect(host.querySelector("#c")).toBe(c)
+	host.remove()
+})
+
 test("an element can be recreated while another moves in the same morph", () => {
 	const host = mount(`<div><input id="d" type="text"><p><input id="e"></p></div>`)
 	const e = host.querySelector("#e")!
