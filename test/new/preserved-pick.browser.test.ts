@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { morph } from "../../src/morphlex"
+import { morph, morphInner } from "../../src/morphlex"
 import { dom } from "./utils"
 
 function form(html: string): HTMLFormElement {
@@ -401,4 +401,49 @@ test("a label with the user's tick keeps it when the label gains an id", () => {
 
 	expect(from.querySelector("#new input")).toBe(input)
 	expect(input.checked).toBe(true)
+})
+
+test("wrappers with the user's ticks share out the targets so each keeps all of them", () => {
+	const box = (value: string) => `<input type="checkbox" name="t" value="${value}">`
+	const from = form(`<div>${box("a")}${box("b")}</div><div>${box("a")}${box("c")}</div>`)
+	for (const input of from.querySelectorAll("input")) input.checked = true
+
+	morph(
+		from,
+		form(`<div class="changed">${box("a")}${box("b")}${box("c")}</div><div class="changed">${box("a")}${box("b")}</div>`),
+		{ preserveChanges: true },
+	)
+
+	expect(new FormData(from).getAll("t")).toEqual(["a", "c", "a", "b"])
+})
+
+test("morphing inside a select keeps the user's pick when its option changes", () => {
+	const select = dom(
+		`<select name="s"><optgroup><option value="a">a</option><option value="b">b</option></optgroup></select>`,
+	) as HTMLSelectElement
+	select.value = "b"
+
+	morphInner(
+		select.firstElementChild!,
+		`<optgroup><option value="c">c</option><option value="a">a</option><option value="b">B!</option></optgroup>`,
+		{
+			preserveChanges: true,
+		},
+	)
+
+	expect(select.value).toBe("b")
+	expect(select.selectedOptions[0]!.text).toBe("B!")
+})
+
+test("a wrapper with the user's tick takes the smallest target holding it", () => {
+	const box = (value: string) => `<input type="checkbox" name="t" value="${value}">`
+	const from = form(`<div>${box("a")}</div>`)
+	const input = check(from, "a")
+
+	morph(from, form(`<div class="changed">${box("a")}</div><div class="changed">${box("a")}${box("b")}</div>`), {
+		preserveChanges: true,
+	})
+
+	expect(from.firstElementChild!.firstElementChild).toBe(input)
+	expect(new FormData(from).getAll("t")).toEqual(["a"])
 })

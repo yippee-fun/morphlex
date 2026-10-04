@@ -187,7 +187,7 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 	const selection = select && markupSelectionOf(select)
 	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
 	try {
-		const morpher = new Morph(options, clobbered, flagged)
+		const morpher = new Morph(options, clobbered, flagged, select)
 		morpher.morph(from, to)
 		if (select) morpher.syncEnclosingSelect(select, selection!)
 	} finally {
@@ -236,7 +236,7 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const select = selectOf(fromElement)
 		const selection = select && markupSelectionOf(select)
 		const flagged = flagDirtyInputs(fromElement)
-		const morpher = new Morph(options, clobbered, flagged)
+		const morpher = new Morph(options, clobbered, flagged, select)
 		morpher.morphChildren(fromElement, toElement)
 		if (select) morpher.syncEnclosingSelect(select, selection!)
 		clearDirtyFlags(flagged)
@@ -597,10 +597,18 @@ class Morph {
 	readonly #dirtyElements: Set<Element> | null = null
 	// The flagged elements themselves. A nested morph from a callback can clear their flags, so they're kept here.
 	readonly #flagged: Set<Element> = new Set()
-	readonly #targetChoices: Map<Element, Map<string, number>> = new Map()
+	// The select around a morph inside a select, which the target's options don't have.
+	readonly #enclosingSelect: HTMLSelectElement | null
+	readonly #targetChoices: Map<Element, { counts: Map<string, number>; size: number }> = new Map()
 
-	constructor(options: Options = {}, clobbered: Set<Element> | null = null, flagged: Array<Element> | null = null) {
+	constructor(
+		options: Options = {},
+		clobbered: Set<Element> | null = null,
+		flagged: Array<Element> | null = null,
+		enclosingSelect: HTMLSelectElement | null = null,
+	) {
 		this.#options = options
+		this.#enclosingSelect = enclosingSelect
 		this.#clobbered = clobbered
 		this.#preserveChanges = options.preserveChanges ?? false
 		if (flagged?.length) {
@@ -1179,6 +1187,9 @@ class Morph {
 					if (!candidateElementActive[candidateIndex]) continue
 					const candidate = fromChildNodes[candidateIndex] as Element
 
+					// When it needs all of its choices, it takes the target holding the fewest, leaving bigger ones for others.
+					let best: number | undefined
+					let bestSize = Infinity
 					for (let i = 0; i < unmatchedElementIndices.length; i++) {
 						const unmatchedIndex = unmatchedElementIndices[i]!
 						if (!unmatchedElementActive[unmatchedIndex]) continue
@@ -1191,12 +1202,20 @@ class Morph {
 							this.#holdsChoices(choices, element, allChoices) &&
 							(!sameAttributes || hasSameAttributes(candidate, element, STYLING_ATTRIBUTES))
 						) {
-							matches[unmatchedIndex] = candidateIndex
-							op[unmatchedIndex] = Operation.SameElement
-							candidateElementActive[candidateIndex] = 0
-							unmatchedElementActive[unmatchedIndex] = 0
-							break
+							const size = allChoices ? this.#targetChoicesOf(element).size : 0
+							if (size < bestSize) {
+								best = unmatchedIndex
+								bestSize = size
+							}
+							if (!allChoices) break
 						}
+					}
+
+					if (best !== undefined) {
+						matches[best] = candidateIndex
+						op[best] = Operation.SameElement
+						candidateElementActive[candidateIndex] = 0
+						unmatchedElementActive[best] = 0
 					}
 				}
 			}
@@ -1522,20 +1541,34 @@ class Morph {
 	// A checkbox, radio or option the user changed holds their choice of its value, so under
 	// preserveChanges it must not be matched to a target with another value.
 	#holdsOtherChoice(candidate: Element, element: Element): boolean {
-		return this.#preserveChanges && this.#flagged.has(candidate) && choiceOf(candidate) !== choiceOf(element)
+		return this.#preserveChanges && this.#flagged.has(candidate) && this.#choiceOf(candidate) !== this.#choiceOf(element)
 	}
 
 	// Whether the target holds all of the choices, or with `all` false, any of them.
 	#holdsChoices(choices: Array<string>, element: Element, all: boolean): boolean {
-		let targetChoices = this.#targetChoices.get(element)
-		if (!targetChoices) {
-			targetChoices = countChoices([element, ...element.querySelectorAll("input, option")])
-			this.#targetChoices.set(element, targetChoices)
-		}
-
+		const targetChoices = this.#targetChoicesOf(element).counts
 		if (!all) return choices.some((choice) => targetChoices.has(choice))
 		for (const [choice, count] of countChoices(choices)) if ((targetChoices.get(choice) ?? 0) < count) return false
 		return true
+	}
+
+	// How often each choice appears in the target, and how many choices it holds.
+	#targetChoicesOf(element: Element): { counts: Map<string, number>; size: number } {
+		let targetChoices = this.#targetChoices.get(element)
+		if (!targetChoices) {
+			const choices: Array<string> = []
+			for (const control of [element, ...element.querySelectorAll("input, option")]) {
+				const choice = this.#choiceOf(control)
+				if (choice !== null) choices.push(choice)
+			}
+			targetChoices = { counts: countChoices(choices), size: choices.length }
+			this.#targetChoices.set(element, targetChoices)
+		}
+		return targetChoices
+	}
+
+	#choiceOf(element: Element): string | null {
+		return choiceOf(element, this.#enclosingSelect)
 	}
 
 	// The choices of the checkboxes, radios and options the user changed in this element, or null when there are none.
@@ -1543,7 +1576,7 @@ class Morph {
 		if (!this.#dirtyElements?.has(element)) return null
 		const choices: Array<string> = []
 		for (const control of this.#flagged) {
-			const choice = element.contains(control) ? choiceOf(control) : null
+			const choice = element.contains(control) ? this.#choiceOf(control) : null
 			if (choice !== null) choices.push(choice)
 		}
 		return choices.length ? choices : null
@@ -1982,10 +2015,11 @@ function trimFragmentEdgeWhitespace(fragment: DocumentFragment): void {
 }
 
 // What choosing this element means: an option's value in its select, or a checkbox or radio's type, name,
-// value and form attribute.
-function choiceOf(element: Element): string | null {
+// value and form attribute. A target's option inside a morph rooted in a select has no select of its own, so it
+// takes the enclosing one.
+function choiceOf(element: Element, enclosingSelect: HTMLSelectElement | null): string | null {
 	if (isOptionElement(element)) {
-		const select = selectOf(element)
+		const select = selectOf(element) ?? enclosingSelect
 		return JSON.stringify([select?.getAttribute("name") ?? null, select?.getAttribute("form") ?? null, element.value])
 	}
 	if (isInputElement(element) && (element.type === "checkbox" || element.type === "radio")) {
@@ -1994,13 +2028,10 @@ function choiceOf(element: Element): string | null {
 	return null
 }
 
-// How often each choice appears, given choices or the elements holding them.
-function countChoices(items: Array<string | Element>): Map<string, number> {
+// How often each choice appears.
+function countChoices(choices: Array<string>): Map<string, number> {
 	const counts = new Map<string, number>()
-	for (const item of items) {
-		const choice = typeof item === "string" ? item : choiceOf(item)
-		if (choice !== null) counts.set(choice, (counts.get(choice) ?? 0) + 1)
-	}
+	for (const choice of choices) counts.set(choice, (counts.get(choice) ?? 0) + 1)
 	return counts
 }
 
