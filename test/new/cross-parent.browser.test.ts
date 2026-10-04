@@ -391,6 +391,55 @@ test("an element wrapped in its own descendant keeps its node, and the descendan
 	host.remove()
 })
 
+test("an element of the same tag as the ancestor it wraps is recreated, and the ancestor keeps its node", () => {
+	const host = mount(`<div><div id="a"><div id="b"></div></div></div>`)
+	const a = host.querySelector("#a")!
+	const b = host.querySelector("#b")!
+
+	morph(host.firstElementChild!, parse(`<div><div id="b"><div id="a"></div></div></div>`))
+
+	expect(host.innerHTML).toBe(`<div><div id="b"><div id="a"></div></div></div>`)
+	expect(host.querySelector("#a")).toBe(a)
+	expect(host.querySelector("#b")).not.toBe(b)
+	host.remove()
+})
+
+test("an element keeps its node when the ancestor it wraps can't move", () => {
+	const host = mount(`<div><section id="a"><div id="b"></div></section></div>`)
+	const b = host.querySelector("#b")!
+
+	morph(host.firstElementChild!, parse(`<div><div id="b"><article id="a"></article></div></div>`))
+
+	expect(host.innerHTML).toBe(`<div><div id="b"><article id="a"></article></div></div>`)
+	expect(host.querySelector("#b")).toBe(b)
+	host.remove()
+})
+
+test("vetoed elements keep their descendants when moves wait on each other in a cycle", () => {
+	const from = `<div><section id="a"><span id="b"></span></section><article id="c"><i id="d"></i></article></div>`
+	const to = `<div><span id="b"><article id="c"></article></span><i id="d"><section id="a"></section></i></div>`
+	for (const [vetoed, child] of [
+		["a", "b"],
+		["c", "d"],
+	]) {
+		for (const veto of ["beforeNodeVisited", "beforeChildrenVisited"]) {
+			const host = mount(from)
+			const element = host.querySelector(`#${vetoed}`)!
+			const descendant = host.querySelector(`#${child}`)!
+
+			morph(host.firstElementChild!, parse(to), { [veto]: (node: Node) => node !== element })
+
+			expect(descendant.parentElement).toBe(element)
+			host.remove()
+		}
+	}
+
+	const host = mount(from)
+	morph(host.firstElementChild!, parse(to))
+	expect(host.innerHTML).toBe(to)
+	host.remove()
+})
+
 test("an element can be recreated while another moves in the same morph", () => {
 	const host = mount(`<div><input id="d" type="text"><p><input id="e"></p></div>`)
 	const e = host.querySelector("#e")!

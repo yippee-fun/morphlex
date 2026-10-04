@@ -1449,15 +1449,19 @@ class Morph {
 		if (!this.#claimedElements.has(live) || this.#movesInProgress.has(move)) return
 
 		// An element doesn't move out of an ancestor whose visit can still be vetoed: one that's claimed,
-		// or one that a pending move will reach. Those moves complete first. A cycle of moves goes in order.
+		// or one that a pending move will reach. Those moves complete first. A move that's already waiting
+		// on this one is a cycle, which this move breaks by adding its target as a new node instead.
 		this.#movesInProgress.add(move)
-		for (let ancestor = live.parentElement; ancestor;) {
+		let inCycle = false
+		for (let ancestor = live.parentElement; ancestor && !inCycle;) {
 			const first = this.#claimedElements.get(ancestor) ?? this.#moveReaching(ancestor)
-			if (first && !this.#movesInProgress.has(first)) {
+			if (!first) {
+				ancestor = ancestor.parentElement
+			} else if (this.#movesInProgress.has(first)) {
+				inCycle = true
+			} else {
 				this.#completeMove(first)
 				ancestor = live.parentElement
-			} else {
-				ancestor = ancestor.parentElement
 			}
 		}
 		this.#movesInProgress.delete(move)
@@ -1470,7 +1474,7 @@ class Morph {
 		const saved = this.#preserveChanges
 		this.#preserveChanges = preserveChanges
 
-		if (this.#liveElementsById.get(target.id) === live && !live.contains(parent)) {
+		if (!inCycle && this.#liveElementsById.get(target.id) === live && !live.contains(parent)) {
 			this.#liveElementsById.delete(target.id)
 			const outsideRadios = this.#uncheckRadiosForMove(live, parent)
 			moveInto(parent, live, placeholder)
@@ -1582,14 +1586,16 @@ class Morph {
 		)
 	}
 
-	// Whether the target puts a movable ancestor of the live element inside the element. Moving the
-	// element out would come before that ancestor's visit, so a veto there couldn't keep it.
+	// Whether the target puts a movable ancestor of the live element inside the element, where that
+	// ancestor can be morphed into its own target. Moving the element out would come before that
+	// ancestor's visit, so a veto there couldn't keep it.
 	#wrapsMovableAncestor(live: Element, target: Element): boolean {
 		const ids = this.#idArrayMap.get(target)
 		if (!ids) return false
 
 		for (let ancestor = live.parentElement; ancestor; ancestor = ancestor.parentElement) {
-			if (ancestor.id !== "" && this.#movableElement(ancestor.id) === ancestor && ids.includes(ancestor.id)) return true
+			const id = ancestor.id
+			if (id !== "" && this.#movableElement(id) === ancestor && ids.includes(id) && canMoveInto(ancestor, target)) return true
 		}
 		return false
 	}
@@ -1610,11 +1616,11 @@ class Morph {
 		return placeholder
 	}
 
-	// The pending move whose target holds the target of this live element, if it's still to be placed.
+	// The pending move whose target holds the target of this live element, if it's still to be placed there.
 	#moveReaching(element: Element): PendingMove | undefined {
 		if (element.id === "" || this.#liveElementsById.get(element.id) !== element) return undefined
 		const move = this.#movesByTargetId.get(element.id)
-		return move && this.#claimedElements.has(move.live) ? move : undefined
+		return move && this.#claimedElements.has(move.live) && canMoveInto(element, move.target) ? move : undefined
 	}
 
 	// A new node can hold targets for live elements elsewhere. Claim each live element, leaving a
@@ -1723,6 +1729,12 @@ class Morph {
 			}
 		})
 	}
+}
+
+// Whether the live element can be morphed into the element with its id inside `target`, which holds one.
+function canMoveInto(live: Element, target: Element): boolean {
+	const element = Array.from(target.querySelectorAll("[id]")).find((element) => element.id === live.id)!
+	return canMorphElementInPlace(live, element)
 }
 
 function forEachDescendantElementWithId(node: ParentNode, callback: (element: Element) => void): void {
