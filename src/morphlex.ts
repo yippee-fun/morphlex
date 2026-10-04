@@ -350,14 +350,17 @@ const SANITIZING_ATTRIBUTES = ["min", "max", "step", "multiple"]
 // as attributes change: a range that gains `max="10"` clamps 50 to 10, while the parsed target
 // shows 5. Setting the `value` attribute again sanitizes it afresh, without marking it as changed
 // the way assigning `.value` would. Try it on a clone first, so it only happens when it helps.
-function resanitizeValue(input: HTMLInputElement, value: string | null, shown: string): boolean {
+// Returns whether it dealt with the input, so assigning `.value` isn't needed. An untouched input
+// whose sanitizing attribute update was vetoed is left alone on purpose.
+function resanitizeValue(input: HTMLInputElement, target: Element, value: string | null, shown: string): boolean {
+	/* v8 ignore start -- happy-dom doesn't sanitize values, so an untouched input always matches its target there */
+	if (hasDirtyValue(input)) return false
+	if (SANITIZING_ATTRIBUTES.some((name) => input.getAttribute(name) !== target.getAttribute(name))) return true
 	const clone = probeClone(input)
 	setValueAttribute(clone, value)
-	/* v8 ignore start -- happy-dom doesn't sanitize values, so an untouched input always matches its target there */
 	if (clone.value !== shown) return false
 	setValueAttribute(input, value)
 	return true
-	/* v8 ignore stop */
 }
 
 function setValueAttribute(input: HTMLInputElement, value: string | null): void {
@@ -368,6 +371,7 @@ function setValueAttribute(input: HTMLInputElement, value: string | null): void 
 		input.setAttribute("value", value)
 	}
 }
+/* v8 ignore stop */
 
 // The browser turns carriage returns into line feeds in a textarea's `.value`.
 function isDirtyTextArea(textarea: HTMLTextAreaElement): boolean {
@@ -889,8 +893,7 @@ class Morph {
 			}
 
 			// Checkbox and radio values aren't user-editable, and assigning them writes the value attribute.
-			// The browser sanitizes both values, so compare with what the target's markup shows. A vetoed
-			// update to an attribute that sanitizes the value leaves them different on purpose.
+			// The browser sanitizes both values, so compare with what the target's markup shows.
 			const type = from.type
 			const value = to.getAttribute("value")
 			const target = to as HTMLInputElement
@@ -899,11 +902,10 @@ class Morph {
 				type !== "checkbox" &&
 				type !== "radio" &&
 				type === target.type &&
-				from.getAttribute("value") === value &&
-				SANITIZING_ATTRIBUTES.every((name) => from.getAttribute(name) === to.getAttribute(name))
+				from.getAttribute("value") === value
 			) {
 				const shown = isDirtyInput(target) ? (value ?? "") : target.value
-				if (from.value !== shown && !resanitizeValue(from, value, shown)) from.value = shown
+				if (from.value !== shown && !resanitizeValue(from, to, value, shown)) from.value = shown
 			}
 		} else if (isOptionElement(from)) {
 			const selected = to.hasAttribute("selected")

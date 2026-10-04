@@ -256,3 +256,16 @@ test("a vetoed max keeps an untouched range's value", () => {
 	expect(input.hasAttribute("max")).toBe(false)
 	expect(input.value).toBe(value)
 })
+
+test("a vetoed max doesn't keep what the user typed without preserveChanges", () => {
+	const from = dom(`<div><input id="t" value="a"></div>`)
+	const input = from.querySelector("input")!
+	input.value = "typed"
+
+	morph(from, `<div><input id="t" max="10" value="a"></div>`, {
+		beforeAttributeUpdated: (_element, name) => name !== "max",
+	})
+
+	expect(input.hasAttribute("max")).toBe(false)
+	expect(input.value).toBe("a")
+})
