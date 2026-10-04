@@ -581,7 +581,7 @@ class Morph {
 	// Whitespace left alone because it may not render differently. Whether it does depends on the
 	// parent's final style, which selectors like `:has()` tie to the finished tree, so it's checked
 	// when the morph settles.
-	#whitespaceToCheck: Array<[ChildNode, ChildNode]> | null = null
+	#whitespaceToCheck: Array<[ChildNode, ChildNode, ParentNode | null]> | null = null
 
 	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
 		this.#options = options
@@ -647,8 +647,6 @@ class Morph {
 			this.#deferredRemovals = null
 		}
 
-		this.#checkWhitespace()
-
 		// Option wrappers can move or go after a select was synced, which keeps the old selection, so sync it again.
 		const selects = this.#syncedSelects
 		if (selects) {
@@ -676,6 +674,9 @@ class Morph {
 			this.#radiosToSync = null
 			this.#syncRadioGroups(radios)
 		}
+
+		// Last, since a parent's style can depend on any of the above, such as with `:has(:checked)`.
+		this.#checkWhitespace()
 	}
 
 	// Completing a move morphs the element, which can claim more elements, so keep going until none are left.
@@ -735,7 +736,7 @@ class Morph {
 		const toValue = to.nodeValue!
 		if (!fromValue || !toValue || hasSegmentBreak(fromValue) !== hasSegmentBreak(toValue)) return false
 
-		;(this.#whitespaceToCheck ??= []).push([from, to])
+		;(this.#whitespaceToCheck ??= []).push([from, to, from.parentNode])
 		return true
 	}
 
@@ -747,14 +748,18 @@ class Morph {
 
 		const collapses: Map<Element, boolean> = new Map()
 		for (let i = 0; i < pairs.length; i++) {
-			const [from, to] = pairs[i]!
-			const parent = from.parentElement
-			let parentCollapses = parent ? collapses.get(parent) : false
-			if (parentCollapses === undefined) {
-				parentCollapses = collapsesWhitespace(parent!)
-				collapses.set(parent!, parentCollapses)
+			const [from, to, parent] = pairs[i]!
+			// A callback removed it after it was placed, as it can remove any node the morph has placed.
+			if (from.parentNode !== parent) continue
+
+			// Slotted text takes its style from the slot it's shown in.
+			const element = (from as Text).assignedSlot ?? from.parentElement
+			let elementCollapses = element ? collapses.get(element) : false
+			if (elementCollapses === undefined) {
+				elementCollapses = collapsesWhitespace(element!)
+				collapses.set(element!, elementCollapses)
 			}
-			if (!parentCollapses) this.#morphOtherNode(from, to)
+			if (!elementCollapses) this.#morphOtherNode(from, to)
 		}
 	}
 

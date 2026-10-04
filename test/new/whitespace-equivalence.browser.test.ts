@@ -172,3 +172,49 @@ test("whitespace is judged by the parent's style once the morph has finished", (
 	expect(from.childNodes[1]!.nodeValue).toBe(" ")
 	expect(visited).toContain(from.childNodes[1])
 })
+
+test("whitespace is judged by the parent's style after radios are synced", () => {
+	const style = document.createElement("style")
+	style.textContent = `.box { white-space: normal } .box:has(input:checked) { white-space: pre }`
+	document.body.append(style)
+	const from = attached(
+		`<div><form id="f1"><span id="s"><input type="radio" name="r" checked></span></form><form id="f2"><div class="box" id="box"><b>A</b>  <b>B</b></div></form></div>`,
+	)
+
+	morph(
+		from,
+		`<div><form id="f1"></form><form id="f2"><div class="box" id="box"><b>A</b> <b>B</b><span id="s"><input type="radio" name="r" checked></span></div></form></div>`,
+	)
+
+	const box = from.querySelector(".box")!
+	expect((box.querySelector("input") as HTMLInputElement).checked).toBe(true)
+	expect(box.childNodes[1]!.nodeValue).toBe(" ")
+})
+
+test("whitespace a callback removed after it was placed stays removed", () => {
+	const from = attached(`<div style="white-space: pre"><b>A</b>  <b>B</b>  <b>C</b></div>`)
+	const second = from.childNodes[3]!
+
+	morph(from, `<div style="white-space: pre"><b>A</b> <b>B</b> <b>C</b></div>`, {
+		beforeNodeVisited: (node) => {
+			if (node === from.childNodes[1]) second.remove()
+			return true
+		},
+	})
+
+	expect(from.childNodes[1]!.nodeValue).toBe(" ")
+	expect(second.nodeValue).toBe("  ")
+	expect(from.childNodes).toHaveLength(4)
+})
+
+test("slotted whitespace is judged by its slot's style", () => {
+	const host = attached(`<div style="white-space: normal"><b>A</b>  <b>B</b></div>`)
+	const shadow = host.attachShadow({ mode: "open" })
+	shadow.innerHTML = `<slot style="white-space: pre"></slot>`
+	// happy-dom doesn't implement `assignedSlot`, so give it the slot the browser would.
+	Object.defineProperty(host.childNodes[1]!, "assignedSlot", { value: shadow.firstChild })
+
+	morph(host, `<div style="white-space: normal"><b>A</b> <b>B</b></div>`)
+
+	expect(host.childNodes[1]!.nodeValue).toBe(" ")
+})
