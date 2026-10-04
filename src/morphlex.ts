@@ -1243,12 +1243,18 @@ class Morph {
 		}
 
 		let insertionPoint: ChildNode | null = parent.firstChild
-		let placed: ChildNode | null = null
+		const placed: Array<ChildNode> = []
 		for (let i = 0; i < toChildNodes.length; i++) {
 			// A callback can remove the insertion point, such as the whitespace after the node it visits.
-			// Then carry on after the last node placed, or at the end if that's gone too.
+			// Then carry on after the last node placed that's still here.
 			if (insertionPoint && insertionPoint.parentNode !== parent) {
-				insertionPoint = placed?.parentNode === parent ? placed.nextSibling : null
+				insertionPoint = parent.firstChild
+				for (let index = placed.length - 1; index >= 0; index--) {
+					if (placed[index]!.parentNode === parent) {
+						insertionPoint = placed[index]!.nextSibling
+						break
+					}
+				}
 			}
 
 			const node = toChildNodes[i]!
@@ -1256,7 +1262,7 @@ class Morph {
 			if (insertionPoint && liveWhitespace?.has(insertionPoint) && isWhitespaceTextNode(node)) {
 				const whitespace: ChildNode = insertionPoint
 				liveWhitespace.delete(whitespace)
-				placed = whitespace
+				placed.push(whitespace)
 				insertionPoint = whitespace.nextSibling
 				this.#morphOneToOne(whitespace, node)
 			} else if (matchInd !== undefined) {
@@ -1269,7 +1275,7 @@ class Morph {
 					if (outsideRadios) for (const radio of outsideRadios) radio.checked = true
 				}
 				// Read this before the morph, which can replace the match.
-				placed = match
+				placed.push(match)
 				insertionPoint = match.nextSibling
 
 				if (operation === Operation.EqualNode) {
@@ -1286,7 +1292,7 @@ class Morph {
 				}
 			} else {
 				if (this.#addNode(parent, node, insertionPoint)) {
-					placed = node
+					placed.push(node)
 					insertionPoint = node.nextSibling
 				}
 			}

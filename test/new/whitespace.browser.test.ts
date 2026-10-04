@@ -188,6 +188,20 @@ test("a callback that removes the node it visits and the whitespace after it doe
 		},
 	})
 
-	expect(from.querySelector("span")).not.toBe(null)
-	expect(from.querySelector("b")).not.toBe(null)
+	expect(from.outerHTML).toBe(`<div><span></span><b></b></div>`)
+})
+
+test("a callback that removes the whitespace after a node keeps later nodes after the earlier ones", () => {
+	const from = dom(`<div><i></i><p>1</p> <b></b></div>`)
+
+	morph(from, dom(`<div><i></i><p>2</p><span></span><b></b></div>`), {
+		afterNodeVisited: (node) => {
+			if (node.nodeName === "P") {
+				node.nextSibling?.remove()
+				;(node as Element).remove()
+			}
+		},
+	})
+
+	expect(from.outerHTML).toBe(`<div><i></i><span></span><b></b></div>`)
 })
