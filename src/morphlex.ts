@@ -1139,31 +1139,35 @@ class Morph {
 
 		// Under preserveChanges, match a checkbox, radio or option the user changed to a target with the same
 		// choice, and a wrapper without its own identity holding some to a target holding one of the same choices,
-		// so other elements can't take their targets and the user's choices keep their values.
+		// so other elements can't take their targets and the user's choices keep their values. Targets with the
+		// same attributes are tried first, so a form doesn't take another form's target for holding the same choice.
 		if (this.#preserveChanges && dirtyElements) {
-			for (let i = 0; i < unmatchedElementIndices.length; i++) {
-				const unmatchedIndex = unmatchedElementIndices[i]!
-				if (!unmatchedElementActive[unmatchedIndex]) continue
-				const element = toChildNodes[unmatchedIndex] as Element
+			for (const sameAttributes of [true, false]) {
+				for (let i = 0; i < unmatchedElementIndices.length; i++) {
+					const unmatchedIndex = unmatchedElementIndices[i]!
+					if (!unmatchedElementActive[unmatchedIndex]) continue
+					const element = toChildNodes[unmatchedIndex] as Element
 
-				for (let c = 0; c < candidateElementIndices.length; c++) {
-					const candidateIndex = candidateElementIndices[c]!
-					if (!candidateElementActive[candidateIndex]) continue
-					if (localNameMap[unmatchedIndex] !== candidateLocalNameMap[candidateIndex]) continue
-					if (namespaceURIMap[unmatchedIndex] !== candidateNamespaceURIMap[candidateIndex]) continue
-					const candidate = fromChildNodes[candidateIndex] as Element
-					const choices = this.#dirtyChoicesOf(candidate)
+					for (let c = 0; c < candidateElementIndices.length; c++) {
+						const candidateIndex = candidateElementIndices[c]!
+						if (!candidateElementActive[candidateIndex]) continue
+						if (localNameMap[unmatchedIndex] !== candidateLocalNameMap[candidateIndex]) continue
+						if (namespaceURIMap[unmatchedIndex] !== candidateNamespaceURIMap[candidateIndex]) continue
+						const candidate = fromChildNodes[candidateIndex] as Element
+						const choices = this.#dirtyChoicesOf(candidate)
 
-					if (
-						choices &&
-						(candidate.hasAttribute("morphlex-dirty") || canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) &&
-						this.#sharesChoice(choices, element)
-					) {
-						matches[unmatchedIndex] = candidateIndex
-						op[unmatchedIndex] = Operation.SameElement
-						candidateElementActive[candidateIndex] = 0
-						unmatchedElementActive[unmatchedIndex] = 0
-						break
+						if (
+							choices &&
+							(candidate.hasAttribute("morphlex-dirty") || canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) &&
+							this.#sharesChoice(choices, element) &&
+							(!sameAttributes || hasSameAttributes(candidate, element))
+						) {
+							matches[unmatchedIndex] = candidateIndex
+							op[unmatchedIndex] = Operation.SameElement
+							candidateElementActive[candidateIndex] = 0
+							unmatchedElementActive[unmatchedIndex] = 0
+							break
+						}
 					}
 				}
 			}
@@ -1963,17 +1967,23 @@ function choiceOf(element: Element): string | null {
 	return null
 }
 
-// Like `isEqualNode`, but ignores the `morphlex-dirty` flag on the elements in `dirtyElements`.
-function isEqualExceptDirty(from: Element, to: Element, dirtyElements: Set<Element>): boolean {
-	if (!dirtyElements.has(from)) return isEqualNode(from, to)
-	if (from.localName !== to.localName || from.namespaceURI !== to.namespaceURI) return false
-
+// Whether the elements have the same attributes, ignoring `morphlex-dirty`.
+function hasSameAttributes(from: Element, to: Element): boolean {
 	const attributes = to.attributes
 	if (from.attributes.length !== attributes.length + (from.hasAttribute("morphlex-dirty") ? 1 : 0)) return false
 	for (let i = 0; i < attributes.length; i++) {
 		const { namespaceURI, localName, value } = attributes[i]!
 		if (from.getAttributeNS(namespaceURI, localName) !== value) return false
 	}
+	return true
+}
+
+// Like `isEqualNode`, but ignores the `morphlex-dirty` flag on the elements in `dirtyElements`.
+function isEqualExceptDirty(from: Element, to: Element, dirtyElements: Set<Element>): boolean {
+	if (!dirtyElements.has(from)) return isEqualNode(from, to)
+	if (from.localName !== to.localName || from.namespaceURI !== to.namespaceURI) return false
+
+	if (!hasSameAttributes(from, to)) return false
 
 	const fromChildNodes = from.childNodes
 	const toChildNodes = to.childNodes

@@ -256,3 +256,18 @@ test("a radio whose name and value contain spaces keeps its own pick", () => {
 	expect(new FormData(from).get("a")).toBe("b c")
 	expect(new FormData(from).get("a b")).toBe(null)
 })
+
+test("a form with the user's tick isn't paired with another form holding the same choice", () => {
+	const checkbox = `<input type="checkbox" name="t" value="x">`
+	const from = dom(`<div><form action="/a">${checkbox}</form></div>`)
+	const input = from.querySelector("input")!
+	input.checked = true
+
+	morph(from, dom(`<div><form action="/b">${checkbox}</form><form action="/a">${checkbox}<p>New</p></form></div>`), {
+		preserveChanges: true,
+	})
+
+	expect(from.querySelector('[action="/a"] input')).toBe(input)
+	expect(input.checked).toBe(true)
+	expect(from.querySelector<HTMLInputElement>('[action="/b"] input')!.checked).toBe(false)
+})
