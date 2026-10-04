@@ -173,6 +173,7 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
 	try {
 		const morpher = new Morph(options, clobbered)
+		if (select) morpher.holdWhitespace()
 		morpher.morph(from, to)
 		if (select) morpher.syncEnclosingSelect(select, selection!)
 	} finally {
@@ -222,6 +223,7 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const selection = select && markupSelectionOf(select)
 		const flagged = flagDirtyInputs(fromElement)
 		const morpher = new Morph(options, clobbered)
+		if (select) morpher.holdWhitespace()
 		morpher.morphChildren(fromElement, toElement)
 		if (select) morpher.syncEnclosingSelect(select, selection!)
 		clearDirtyFlags(flagged)
@@ -582,6 +584,8 @@ class Morph {
 	// parent's final style, which selectors like `:has()` tie to the finished tree, so it's checked
 	// when the morph settles.
 	#whitespaceToCheck: Array<[ChildNode, ChildNode, ParentNode | null]> | null = null
+	// Set while a select sync still follows the settling, since a style can depend on the selection.
+	#whitespaceHeld = false
 
 	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
 		this.#options = options
@@ -676,7 +680,7 @@ class Morph {
 		}
 
 		// Last, since a parent's style can depend on any of the above, such as with `:has(:checked)`.
-		this.#checkWhitespace()
+		if (!this.#whitespaceHeld) this.#checkWhitespace()
 	}
 
 	// Completing a move morphs the element, which can claim more elements, so keep going until none are left.
@@ -1349,21 +1353,38 @@ class Morph {
 			}
 		}
 
-		this.#settleIfRoot(from)
-		if (isSelectElement(from)) this.#syncDefaultSelection(from)
+		if (isSelectElement(from)) {
+			const held = this.#whitespaceHeld
+			this.#whitespaceHeld = true
+			this.#settleIfRoot(from)
+			this.#syncDefaultSelection(from)
+			this.#whitespaceHeld = held
+			if (from === this.#root && !held) this.#checkWhitespace()
+		} else {
+			this.#settleIfRoot(from)
+		}
 
 		this.#options.afterChildrenVisited?.(from)
+	}
+
+	// The morph happens inside a select, which is synced afterwards, so whitespace waits for that.
+	holdWhitespace(): void {
+		this.#whitespaceHeld = true
 	}
 
 	// A morph inside a select never visits the select, so sync it afterwards if the morph
 	// changed what the markup selects. A vetoed morph changes nothing, so it leaves it alone.
 	syncEnclosingSelect(select: HTMLSelectElement, selection: Array<HTMLOptionElement | null>): void {
-		if (this.#preserveChanges) return
-
 		const newSelection = markupSelectionOf(select)
-		if (newSelection.length === selection.length && newSelection.every((option, i) => option === selection[i])) return
+		if (
+			!this.#preserveChanges &&
+			!(newSelection.length === selection.length && newSelection.every((option, i) => option === selection[i]))
+		) {
+			this.#syncDefaultSelection(select)
+		}
 
-		this.#syncDefaultSelection(select)
+		this.#whitespaceHeld = false
+		this.#checkWhitespace()
 	}
 
 	// The browser keeps its selection when options are added or moved, or when the select changes
