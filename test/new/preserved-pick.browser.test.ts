@@ -377,3 +377,28 @@ test("a label with the user's tick skips targets of another kind", () => {
 	expect(from.querySelector(".changed input")).toBe(input)
 	expect(input.checked).toBe(true)
 })
+
+test("a form with the user's ticks keeps them when another form holding all of them is prepended", () => {
+	const x = `<input type="checkbox" name="t" value="x">`
+	const y = `<input type="checkbox" name="t" value="y">`
+	const from = dom(`<div><form action="/a">${x}${y}</form></div>`)
+	const live = from.firstElementChild
+	for (const input of from.querySelectorAll("input")) input.checked = true
+
+	morph(from, dom(`<div><form action="/b">${x}${y}</form><form action="/a">${x}</form></div>`), { preserveChanges: true })
+
+	expect(from.querySelector('[action="/a"]')).toBe(live)
+	expect(new FormData(from.querySelector<HTMLFormElement>('[action="/a"]')!).getAll("t")).toEqual(["x"])
+	expect(new FormData(from.querySelector<HTMLFormElement>('[action="/b"]')!).getAll("t")).toEqual([])
+})
+
+test("a label with the user's tick keeps it when the label gains an id", () => {
+	const checkbox = `<input type="checkbox" name="t" value="a">`
+	const from = form(`<label>${checkbox}</label>`)
+	const input = check(from, "a")
+
+	morph(from, form(`<label id="new">${checkbox}</label>`), { preserveChanges: true })
+
+	expect(from.querySelector("#new input")).toBe(input)
+	expect(input.checked).toBe(true)
+})

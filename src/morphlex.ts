@@ -21,13 +21,20 @@ const IS_PARENT_NODE_TYPE = [
 	0, // 12: Notation (deprecated)
 ]
 
-// The passes matching by choice, as [same attributes, all choices], from strictest to loosest.
+// The passes matching wrappers by choice, as [targets with their own identity, same attributes, all choices],
+// from strictest to loosest.
 const CHOICE_PASSES = [
-	[true, true],
-	[false, true],
-	[true, false],
-	[false, false],
+	[false, true, true],
+	[false, true, false],
+	[false, false, true],
+	[false, false, false],
+	[true, true, true],
+	[true, true, false],
+	[true, false, true],
+	[true, false, false],
 ] as const
+
+const STYLING_ATTRIBUTES = ["class", "style"]
 
 const Operation = {
 	EqualNode: 0,
@@ -1149,10 +1156,10 @@ class Morph {
 
 		// Under preserveChanges, match a checkbox, radio or option the user changed to a target with the same
 		// choice, and a wrapper without its own identity holding some to a target holding one of the same choices,
-		// so other elements can't take their targets and the user's choices keep their values. A wrapper never takes
-		// a target with its own identity. Targets holding all of the wrapper's choices are tried first, then those
-		// holding some, and in each, targets with the same attributes first, so a form doesn't take another form's
-		// target for holding the same choice.
+		// so other elements can't take their targets and the user's choices keep their values. A wrapper tries targets
+		// without their own identity first, so a new label with an id can't take its place, but can still take its own
+		// target when it gains an id. Then targets with the same attributes apart from class and style, so a form doesn't
+		// take another form's target for holding the same choice, and then targets holding all of its choices.
 		if (this.#preserveChanges && dirtyElements) {
 			// Candidates holding more choices go first, so one holding fewer can't take the only target holding them all.
 			const choiceCandidates: Array<[number, Array<string>]> = []
@@ -1167,7 +1174,7 @@ class Morph {
 			}
 			choiceCandidates.sort((a, b) => b[1].length - a[1].length)
 
-			for (const [sameAttributes, allChoices] of CHOICE_PASSES) {
+			for (const [identified, sameAttributes, allChoices] of CHOICE_PASSES) {
 				for (const [candidateIndex, choices] of choiceCandidates) {
 					if (!candidateElementActive[candidateIndex]) continue
 					const candidate = fromChildNodes[candidateIndex] as Element
@@ -1180,9 +1187,9 @@ class Morph {
 						const element = toChildNodes[unmatchedIndex] as Element
 
 						if (
-							(this.#flagged.has(candidate) || canSoftMatchByTagName(element, this.#idArrayMap.has(element))) &&
+							(this.#flagged.has(candidate) || identified !== canSoftMatchByTagName(element, this.#idArrayMap.has(element))) &&
 							this.#holdsChoices(choices, element, allChoices) &&
-							(!sameAttributes || hasSameAttributes(candidate, element))
+							(!sameAttributes || hasSameAttributes(candidate, element, STYLING_ATTRIBUTES))
 						) {
 							matches[unmatchedIndex] = candidateIndex
 							op[unmatchedIndex] = Operation.SameElement
@@ -1997,15 +2004,20 @@ function countChoices(items: Array<string | Element>): Map<string, number> {
 	return counts
 }
 
-// Whether the elements have the same attributes, ignoring `morphlex-dirty`.
-function hasSameAttributes(from: Element, to: Element): boolean {
+// Whether the elements have the same attributes, ignoring `morphlex-dirty` and any `ignored` names.
+function hasSameAttributes(from: Element, to: Element, ignored: ReadonlyArray<string> = []): boolean {
+	let count = 0
 	const attributes = to.attributes
-	if (from.attributes.length !== attributes.length + (from.hasAttribute("morphlex-dirty") ? 1 : 0)) return false
 	for (let i = 0; i < attributes.length; i++) {
-		const { namespaceURI, localName, value } = attributes[i]!
+		const { namespaceURI, name, localName, value } = attributes[i]!
+		if (namespaceURI === null && ignored.includes(name)) continue
 		if (from.getAttributeNS(namespaceURI, localName) !== value) return false
+		count++
 	}
-	return true
+	for (const { namespaceURI, name } of from.attributes) {
+		if (namespaceURI !== null || (name !== "morphlex-dirty" && !ignored.includes(name))) count--
+	}
+	return count === 0
 }
 
 // Like `isEqualNode`, but ignores the `morphlex-dirty` flag on the elements in `dirtyElements`.
