@@ -1242,9 +1242,9 @@ class Morph {
 
 		let insertionPoint: ChildNode | null = parent.firstChild
 		for (let i = 0; i < toChildNodes.length; i++) {
-			// A callback can move or remove the insertion point. Then the next node goes after everything placed so far.
+			// A callback can move or remove the insertion point. Then the next node goes before the next live node that stays put.
 			if (insertionPoint && insertionPoint.parentNode !== parent) {
-				insertionPoint = insertionPointAfterPlaced(parent, fromChildNodes, matches, i)
+				insertionPoint = nextUnmovedNode(parent, fromChildNodes, matches, shouldNotMove, i)
 			}
 
 			const node = toChildNodes[i]!
@@ -2019,33 +2019,26 @@ function isNodeList(value: ChildNode | NodeListOf<ChildNode>): value is NodeList
 	return Object.prototype.toString.call(value) === "[object NodeList]"
 }
 
-// Find longest increasing subsequence to minimize moves during reordering
-// Returns the indices in the sequence that form the LIS
-// The live nodes at the end of the parent that the morph hasn't reached yet come after everything it
-// placed, whatever callbacks did to the parent. Returns the first of them, or `null` to append.
-function insertionPointAfterPlaced(
+// The next unmoved live node the morph hasn't reached yet, which everything still to be placed goes
+// before, whatever callbacks did to the parent. Returns `null` to append when there's none left.
+function nextUnmovedNode(
 	parent: ParentNode,
 	fromChildNodes: Array<ChildNode>,
 	matches: Array<number>,
+	shouldNotMove: Array<boolean>,
 	index: number,
 ): ChildNode | null {
-	const reached = new Set<ChildNode>()
-	for (let i = 0; i < index; i++) {
+	for (let i = index; i < matches.length; i++) {
 		const match = matches[i]
-		if (match !== undefined) reached.add(fromChildNodes[match]!)
+		if (match === undefined || !shouldNotMove[match]) continue
+		const node = fromChildNodes[match]!
+		if (node.parentNode === parent) return node
 	}
-
-	let insertionPoint: ChildNode | null = null
-	for (
-		let child = parent.lastChild;
-		child && !reached.has(child) && fromChildNodes.includes(child);
-		child = child.previousSibling
-	) {
-		insertionPoint = child
-	}
-	return insertionPoint
+	return null
 }
 
+// Find longest increasing subsequence to minimize moves during reordering
+// Returns the indices in the sequence that form the LIS
 function longestIncreasingSubsequence(sequence: Array<number | undefined>): Array<number> {
 	const n = sequence.length
 	if (n === 0) return []

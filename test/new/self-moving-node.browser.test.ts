@@ -177,3 +177,22 @@ test("nodes stay after earlier siblings when a callback removes the last placed 
 	host.remove()
 	elsewhere.remove()
 })
+
+test("nodes stay before a later sibling when a callback also appends a node of its own", () => {
+	const elsewhere = mount("")
+	const host = mount(`<div><a></a><p></p><b></b><s></s></div>`)
+	const root = host.firstElementChild!
+
+	morph(root, `<div><a></a><i></i><em>x</em><b></b><s></s><p></p></div>`, {
+		afterNodeAdded: (node) => {
+			if (node.nodeName !== "I") return
+			elsewhere.append(node)
+			root.querySelector("p")!.remove()
+			root.append(document.createElement("u"))
+		},
+	})
+
+	expect(host.innerHTML).toBe(`<div><a></a><em>x</em><b></b><s></s><p></p><u></u></div>`)
+	host.remove()
+	elsewhere.remove()
+})
