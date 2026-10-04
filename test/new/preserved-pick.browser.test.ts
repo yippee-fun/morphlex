@@ -790,3 +790,21 @@ test("a drop-down whose size the browser ignores keeps the user's pick when a se
 	expect(from.querySelectorAll("select")[1]).toBe(select)
 	expect(select.value).toBe("b")
 })
+
+test("a multiple select pairs with the target holding the option the user selected, not one they deselected", () => {
+	const from = form(`<select name="s" multiple><option value="a" selected>a</option><option value="b">b</option></select>`)
+	const select = from.querySelector("select")!
+	select.options[0]!.selected = false
+	select.options[1]!.selected = true
+
+	morph(
+		from,
+		form(
+			`<select name="s" multiple><option value="a" selected>a</option></select><select name="s" multiple><option value="b">b</option></select>`,
+		),
+		{ preserveChanges: true },
+	)
+
+	expect(from.querySelectorAll("select")[1]).toBe(select)
+	expect(select.options[0]!.selected).toBe(true)
+})

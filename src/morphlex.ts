@@ -2285,10 +2285,10 @@ function hasSameAttributes(from: Element, to: Element, ignored: ReadonlyArray<st
 	return count === 0
 }
 
-// An option the user moved a single select away from, or a radio they moved their group away from. What holds it
-// is matched by the picked one first, though the option or radio itself still keeps its own target.
+// An option the user deselected or moved a select away from, or a radio they moved their group away from. What holds
+// it is matched by the picked one first, though the option or radio itself still keeps its own target.
 function isLeftChoice(element: Element): boolean {
-	if (isOptionElement(element)) return !element.selected && !selectOf(element)?.multiple
+	if (isOptionElement(element)) return !element.selected
 	return isInputElement(element) && element.type === "radio" && !element.checked
 }
 
