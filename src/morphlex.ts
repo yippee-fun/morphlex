@@ -554,6 +554,8 @@ interface PendingMove {
 	preserveChanges: boolean
 	// A replacement asks `beforeNodeAdded` before it claims, so its target isn't asked again.
 	approved: boolean
+	// The live select the target ends up in.
+	select: HTMLSelectElement | null
 }
 
 class Morph {
@@ -586,6 +588,9 @@ class Morph {
 	// Moves wait for the morph to settle, because a later veto can still pin the element where it is.
 	#pendingMoves: Array<PendingMove> | null = null
 	readonly #claimedElements: Map<Element, PendingMove> = new Map()
+	readonly #movesInProgress: Set<PendingMove> = new Set()
+	// The latest pending move whose target holds each id.
+	readonly #movesByTargetId: Map<string, PendingMove> = new Map()
 	// Pending moves and removals are settled when the root's children have been visited, or when
 	// the root is replaced, so the root's own callbacks see the finished DOM.
 	#root: Node | null = null
@@ -1333,12 +1338,14 @@ class Morph {
 	}
 
 	// A checked radio that's added unchecks the rest of its group, even radios the markup checks later on.
+	// It can arrive unchecked too, when the form it adds takes over the group of a checked radio outside.
 	// The morph never removes a node it added, so noting the radio is enough.
 	#noteAddedRadios(element: Element): void {
 		const inputs = isInputElement(element) ? [element] : element.getElementsByTagName("input")
 		for (let i = 0; i < inputs.length; i++) {
 			const input = inputs[i]!
-			if (input.type === "radio" && input.checked) (this.#radiosToSync ??= new Set()).add(input)
+			if (input.type === "radio" && (input.checked || input.hasAttribute("checked")))
+				(this.#radiosToSync ??= new Set()).add(input)
 		}
 	}
 
@@ -1461,18 +1468,28 @@ class Morph {
 
 	// Put the live element where its placeholder is and morph it into the target, unless a veto
 	// pinned it in the meantime. Then the target is added as a new node instead.
-	#completeMove({ live, target, placeholder, preserveChanges, approved }: PendingMove): void {
+	#completeMove(move: PendingMove): void {
+		const { live, target, placeholder, preserveChanges, approved } = move
 		// A move completes once, even when another move completed it first.
-		if (!this.#claimedElements.has(live)) return
+		if (!this.#claimedElements.has(live) || this.#movesInProgress.has(move)) return
 
-		// A claimed element inside another claimed element waits for that one, whose morph can still pin it.
-		for (let ancestor = live.parentElement; ancestor; ancestor = ancestor.parentElement) {
-			const move = this.#claimedElements.get(ancestor)
-			if (move) {
-				this.#completeMove(move)
-				break
+		// An element doesn't move out of an ancestor whose visit can still be vetoed: one that's claimed,
+		// or one that a pending move will reach. Those moves complete first. A move that's already waiting
+		// on this one is a cycle, which this move breaks by adding its target as a new node instead.
+		this.#movesInProgress.add(move)
+		let inCycle = false
+		for (let ancestor = live.parentElement; ancestor && !inCycle;) {
+			const first = this.#claimedElements.get(ancestor) ?? this.#moveReaching(ancestor)
+			if (!first) {
+				ancestor = ancestor.parentElement
+			} else if (this.#movesInProgress.has(first)) {
+				inCycle = true
+			} else {
+				this.#completeMove(first)
+				ancestor = live.parentElement
 			}
 		}
+		this.#movesInProgress.delete(move)
 		this.#claimedElements.delete(live)
 
 		// A custom element's `connectedCallback` can replace its children, placeholder included.
@@ -1482,7 +1499,7 @@ class Morph {
 		const saved = this.#preserveChanges
 		this.#preserveChanges = preserveChanges
 
-		if (this.#liveElementsById.get(target.id) === live && !live.contains(parent)) {
+		if (!inCycle && this.#liveElementsById.get(target.id) === live && !live.contains(parent)) {
 			this.#liveElementsById.delete(target.id)
 			const outsideRadios = this.#uncheckRadiosForMove(live, parent)
 			moveInto(parent, live, placeholder)
@@ -1584,29 +1601,59 @@ class Morph {
 	// Whether the live element with the target's id can be morphed into the target where the target goes.
 	// `select` is the live select the target ends up in, since a new node's targets are still in their
 	// parsed select. It's found from `parent` when not given.
-	#canClaim(target: Element, parent: ParentNode, select?: HTMLSelectElement | null): boolean {
+	#canClaim(target: Element, parent: ParentNode, select: HTMLSelectElement | null = selectAt(parent)): boolean {
 		const live = this.#movableElement(target.id)
 		// Claiming takes the target out of its parent, so an element holding options is only claimed where it can move.
 		return (
 			live !== null &&
 			canMorphElementInPlace(live, target) &&
 			!live.contains(parent) &&
-			!movesOptionsBetweenSelects(live, select === undefined ? selectAt(parent) : select)
+			!this.#wrapsMovableAncestor(live, target, select) &&
+			!movesOptionsBetweenSelects(live, select)
 		)
+	}
+
+	// Whether the target puts a movable ancestor of the live element inside the element, where that
+	// ancestor can be morphed into its own target. Moving the element out would come before that
+	// ancestor's visit, so a veto there couldn't keep it.
+	#wrapsMovableAncestor(live: Element, target: Element, select: HTMLSelectElement | null): boolean {
+		const ids = this.#idArrayMap.get(target)
+		if (!ids) return false
+
+		for (let ancestor = live.parentElement; ancestor; ancestor = ancestor.parentElement) {
+			const id = ancestor.id
+			if (id !== "" && this.#movableElement(id) === ancestor && ids.includes(id) && canMoveInto(ancestor, target, select))
+				return true
+		}
+		return false
 	}
 
 	// Claim the live element with the target's id, if it can be. Returns a placeholder for the target's
 	// place, where the move completes when the morph settles.
-	#claimMovableElement(target: Element, parent: ParentNode, select?: HTMLSelectElement | null, approved = false): Comment | null {
+	#claimMovableElement(
+		target: Element,
+		parent: ParentNode,
+		select: HTMLSelectElement | null = selectAt(parent),
+		approved = false,
+	): Comment | null {
 		if (!this.#canClaim(target, parent, select)) return null
 		const live = this.#liveElementsById.get(target.id)!
 
 		const placeholder = live.ownerDocument.createComment("")
 		const preserveChanges = this.#preserveChanges && !this.#clobbered?.has(target)
-		const move = { live, target, placeholder, preserveChanges, approved }
+		const move = { live, target, placeholder, preserveChanges, approved, select }
 		;(this.#pendingMoves ??= []).push(move)
 		this.#claimedElements.set(live, move)
+		const ids = this.#idArrayMap.get(target)
+		if (ids) for (const id of ids) this.#movesByTargetId.set(id, move)
 		return placeholder
+	}
+
+	// The pending move whose target holds the target of this live element, if it's still to be placed there.
+	#moveReaching(element: Element): PendingMove | undefined {
+		if (this.#movableElement(element.id) !== element) return undefined
+		const move = this.#movesByTargetId.get(element.id)
+		return move && this.#claimedElements.has(move.live) && canMoveInto(element, move.target, move.select) ? move : undefined
 	}
 
 	// A new node can hold targets for live elements elsewhere. Claim each live element, leaving a
@@ -1715,6 +1762,17 @@ class Morph {
 			}
 		})
 	}
+}
+
+// Whether the live element can be morphed into the element with its id inside `target`, which holds one,
+// and moved there. `select` is the live select that `target` ends up in. A select inside `target` is a new one.
+function canMoveInto(live: Element, target: Element, select: HTMLSelectElement | null): boolean {
+	const element = Array.from(target.querySelectorAll("[id]")).find((element) => element.id === live.id)!
+	const innerSelect = selectOf(element)
+	return (
+		canMorphElementInPlace(live, element) &&
+		!movesOptionsBetweenSelects(live, innerSelect && target.contains(innerSelect) ? innerSelect : select)
+	)
 }
 
 function forEachDescendantElementWithId(node: ParentNode, callback: (element: Element) => void): void {

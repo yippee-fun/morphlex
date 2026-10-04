@@ -344,6 +344,173 @@ test("elements inside a subtree whose visit is vetoed don't move", () => {
 	}
 })
 
+test("a vetoed element keeps a descendant that the target wraps around it", () => {
+	for (const veto of ["beforeNodeVisited", "beforeChildrenVisited"]) {
+		const host = mount(`<div><section id="a"><span id="b"><i>x</i></span></section></div>`)
+		const a = host.querySelector("#a")!
+		const b = host.querySelector("#b")!
+
+		morph(host.firstElementChild!, parse(`<div><span id="b"><section id="a"><i>y</i></section></span></div>`), {
+			[veto]: (node: Node) => node !== a,
+		})
+
+		expect(b.parentElement).toBe(a)
+		expect(a.innerHTML).toBe(`<span id="b"><i>x</i></span>`)
+		host.remove()
+	}
+})
+
+test("a vetoed element keeps a descendant when another move is what reaches it", () => {
+	for (const veto of ["beforeNodeVisited", "beforeChildrenVisited"]) {
+		const host = mount(`<div><div id="w"><section id="a"><b id="b">x</b></section></div><div><span id="c"></span></div></div>`)
+		const a = host.querySelector("#a")!
+		const b = host.querySelector("#b")!
+
+		morph(host.firstElementChild!, parse(`<div><b id="b">x</b><span id="c"><section id="a"></section></span></div>`), {
+			[veto]: (node: Node) => node !== a,
+		})
+
+		expect(b.parentElement).toBe(a)
+		expect(a.innerHTML).toBe(`<b id="b">x</b>`)
+		host.remove()
+	}
+})
+
+test("an element wrapped in its own descendant keeps its node, and the descendant is recreated", () => {
+	const host = mount(`<div><section id="a"><span id="b"><input id="c"></span></section></div>`)
+	const a = host.querySelector("#a")!
+	const b = host.querySelector("#b")!
+	const c = host.querySelector("#c")!
+
+	morph(host.firstElementChild!, parse(`<div><span id="b"><section id="a"></section><input id="c"></span></div>`))
+
+	expect(host.innerHTML).toBe(`<div><span id="b"><section id="a"></section><input id="c"></span></div>`)
+	expect(host.querySelector("#a")).toBe(a)
+	expect(host.querySelector("#b")).not.toBe(b)
+	expect(host.querySelector("#c")).toBe(c)
+	host.remove()
+})
+
+test("an element of the same tag as the ancestor it wraps is recreated, and the ancestor keeps its node", () => {
+	const host = mount(`<div><div id="a"><div id="b"></div></div></div>`)
+	const a = host.querySelector("#a")!
+	const b = host.querySelector("#b")!
+
+	morph(host.firstElementChild!, parse(`<div><div id="b"><div id="a"></div></div></div>`))
+
+	expect(host.innerHTML).toBe(`<div><div id="b"><div id="a"></div></div></div>`)
+	expect(host.querySelector("#a")).toBe(a)
+	expect(host.querySelector("#b")).not.toBe(b)
+	host.remove()
+})
+
+test("an element keeps its node when the ancestor it wraps can't move", () => {
+	const host = mount(`<div><section id="a"><div id="b"></div></section></div>`)
+	const b = host.querySelector("#b")!
+
+	morph(host.firstElementChild!, parse(`<div><div id="b"><article id="a"></article></div></div>`))
+
+	expect(host.innerHTML).toBe(`<div><div id="b"><article id="a"></article></div></div>`)
+	expect(host.querySelector("#b")).toBe(b)
+	host.remove()
+})
+
+test("vetoed elements keep their descendants when moves wait on each other in a cycle", () => {
+	const from = `<div><section id="a"><span id="b"></span></section><article id="c"><i id="d"></i></article></div>`
+	const to = `<div><span id="b"><article id="c"></article></span><i id="d"><section id="a"></section></i></div>`
+	for (const [vetoed, child] of [
+		["a", "b"],
+		["c", "d"],
+	]) {
+		for (const veto of ["beforeNodeVisited", "beforeChildrenVisited"]) {
+			const host = mount(from)
+			const element = host.querySelector(`#${vetoed}`)!
+			const descendant = host.querySelector(`#${child}`)!
+
+			morph(host.firstElementChild!, parse(to), { [veto]: (node: Node) => node !== element })
+
+			expect(descendant.parentElement).toBe(element)
+			host.remove()
+		}
+	}
+
+	const host = mount(from)
+	morph(host.firstElementChild!, parse(to))
+	expect(host.innerHTML).toBe(to)
+	host.remove()
+})
+
+test("a move doesn't wait on an ancestor whose id appears twice in the target", () => {
+	const host = mount(`<div><section id="x"><b id="b"></b></section><article id="y"><i id="d"></i></article></div>`)
+	const b = host.querySelector("#b")!
+	const d = host.querySelector("#d")!
+
+	const to = `<div><b id="b"><article id="y"></article></b><i id="d"><section id="x"></section></i><p id="x"></p><p id="y"></p></div>`
+	morph(host.firstElementChild!, parse(to))
+
+	expect(host.innerHTML).toBe(to)
+	expect(host.querySelector("#b")).toBe(b)
+	expect(host.querySelector("#d")).toBe(d)
+	host.remove()
+})
+
+test.skipIf(!supportsOptionWrappers())(
+	"an element keeps its node when the ancestor it wraps holds options for another select",
+	() => {
+		const host = mount(
+			`<div><select id="s"><div id="a"><option>x</option><div id="b"></div></div></select><select id="t"></select></div>`,
+		)
+		const b = host.querySelector("#b")!
+
+		const to = `<div><select id="s"></select><select id="t"><div id="b"><div id="a"><option>x</option></div></div></select></div>`
+		morph(host.firstElementChild!, parse(to))
+
+		expect(host.querySelector("#b")).toBe(b)
+		expect(b.querySelector("#a > option")).not.toBe(null)
+		host.remove()
+	},
+)
+
+test("an element wrapped in its own descendant moves into a select inside it", () => {
+	const host = mount(`<div><div id="a"><span id="b"></span></div></div>`)
+	const a = host.querySelector("#a")!
+
+	morph(host.firstElementChild!, parse(`<div><span id="b"><select><div id="a"></div></select></span></div>`))
+
+	expect(host.querySelector("#a")).toBe(a)
+	expect(host.querySelector("#b")!.contains(a)).toBe(true)
+	host.remove()
+})
+
+test.skipIf(!groupsRadiosByForm())("a recreated form checks the radio its markup checks over one outside it", () => {
+	const host = mount(`<div><span id="a"><form id="f"><input type="radio" name="r" checked></form></span></div>`)
+	host.insertAdjacentHTML("beforebegin", `<input type="radio" name="r" form="f" checked>`)
+	const outside = host.previousElementSibling as HTMLInputElement
+
+	morph(
+		host.firstElementChild!,
+		parse(`<div><form id="f"><span id="a"></span><input type="radio" name="r" checked></form></div>`),
+	)
+
+	expect(host.querySelector("input")!.checked).toBe(true)
+	expect(outside.checked).toBe(false)
+	outside.remove()
+	host.remove()
+})
+
+test("an added radio shows the checked state its markup says, even when it arrives unchecked", () => {
+	const host = mount(`<div><input type="radio" name="r" class="a" checked></div>`)
+	const target = parse(`<div><input type="radio" name="r" class="a"><input type="radio" name="r" checked></div>`)
+	const added = target.lastElementChild as HTMLInputElement
+	added.checked = false
+
+	morph(host.firstElementChild!, target)
+
+	expect(added.checked).toBe(true)
+	expect(host.querySelector("input")!.checked).toBe(false)
+	host.remove()
+})
+
 test("an element can be recreated while another moves in the same morph", () => {
 	const host = mount(`<div><input id="d" type="text"><p><input id="e"></p></div>`)
 	const e = host.querySelector("#e")!
