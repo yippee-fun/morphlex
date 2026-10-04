@@ -450,3 +450,38 @@ test("an item outside a document is opened when another item in its group closes
 	morph(host, `<div><details id="x" name="a"></details><details id="y" name="a" open></details></div>`)
 	expect(openIds(host)).toBe("y")
 })
+
+test("a namespaced attribute named open doesn't count as open", () => {
+	const host = mount(`<div><details id="n1"></details></div>`)
+	const live = host.querySelector("details")!
+	live.setAttributeNS("urn:x", "open", "1")
+	const to = document.createElement("div")
+	const target = to.appendChild(document.createElement("details"))
+	target.id = "n1"
+	target.setAttribute("open", "")
+	target.setAttributeNS("urn:x", "open", "1")
+
+	morph(host.firstElementChild!, to, { preserveChanges: true })
+
+	expect(live.hasAttributeNS(null, "open")).toBe(false)
+	expect(live.getAttributeNS("urn:x", "open")).toBe("1")
+	host.remove()
+})
+
+test("vetoing a namespaced attribute named open leaves the real one to the morph", () => {
+	const host = mount(`<div><details id="n2" open></details></div>`)
+	const live = host.querySelector("details")!
+	live.setAttributeNS("urn:x", "open", "1")
+	const to = document.createElement("div")
+	const target = to.appendChild(document.createElement("details"))
+	target.id = "n2"
+	target.setAttributeNS("urn:x", "open", "2")
+
+	morph(host.firstElementChild!, to, {
+		beforeAttributeUpdated: (_element, name, value) => !(name === "open" && value === "2"),
+	})
+
+	expect(live.hasAttributeNS(null, "open")).toBe(false)
+	expect(live.getAttributeNS("urn:x", "open")).toBe("1")
+	host.remove()
+})

@@ -776,12 +776,12 @@ class Morph {
 	#reopenDetails(openDetails: Map<Element, string>): void {
 		const closed: Array<Element> = []
 		for (const details of openDetails.keys()) {
-			if (!details.hasAttribute("open") && this.#inScope(details)) closed.push(details)
+			if (!details.hasAttributeNS(null, "open") && this.#inScope(details)) closed.push(details)
 		}
 		closed.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
 
 		for (const details of closed) {
-			if (openDetailsInGroup(details).length === 0) details.setAttribute("open", openDetails.get(details)!)
+			if (openDetailsInGroup(details).length === 0) details.setAttributeNS(null, "open", openDetails.get(details)!)
 		}
 	}
 
@@ -934,7 +934,7 @@ class Morph {
 		from.removeAttribute(DIRTY_ATTRIBUTE)
 
 		const details = isDetailsElement(from)
-		const open = details ? from.getAttribute("open") : null
+		const open = details ? from.getAttributeNS(null, "open") : null
 
 		// First pass: update/add attributes from reference (iterate forwards)
 		const toAttributes = to.attributes
@@ -942,7 +942,13 @@ class Morph {
 			const attribute = toAttributes[i]!
 			const { name, localName, value, namespaceURI } = attribute
 			// Adding `open` would open it, but changing the value of an existing one is fine.
-			if (name === "open" && namespaceURI === null && this.#preserveChanges && hasOpenState(from) && !from.hasAttribute("open")) {
+			if (
+				name === "open" &&
+				namespaceURI === null &&
+				this.#preserveChanges &&
+				hasOpenState(from) &&
+				!from.hasAttributeNS(null, "open")
+			) {
 				continue
 			}
 			const oldValue = from.getAttributeNS(namespaceURI, localName)
@@ -963,7 +969,7 @@ class Morph {
 				this.#checkRadios(radios)
 				this.#options.afterAttributeUpdated?.(from, name, oldValue)
 			} else {
-				this.#noteVetoedAttribute(from, name)
+				this.#noteVetoedAttribute(from, name, namespaceURI)
 			}
 		}
 
@@ -986,7 +992,7 @@ class Morph {
 						}
 						this.#options.afterAttributeUpdated?.(from, name, value)
 					} else {
-						this.#noteVetoedAttribute(from, name)
+						this.#noteVetoedAttribute(from, name, namespaceURI)
 					}
 				}
 			}
@@ -1003,7 +1009,7 @@ class Morph {
 	// the target's, unless the update was vetoed, or `preserveChanges` keeps the item open or closed.
 	#noteIntendedOpen(details: Element, to: Element, open: string | null): void {
 		const vetoed = this.#vetoedControls?.has(details) ?? false
-		let intended = to.getAttribute("open")
+		let intended = to.getAttributeNS(null, "open")
 		if (vetoed) intended = open
 		else if (this.#preserveChanges) intended = open === null ? null : (intended ?? open)
 
@@ -1017,13 +1023,13 @@ class Morph {
 	// its group, and rejoining the group closes it instead. It's opened again when the morph settles, if
 	// nothing else in its group is open by then.
 	#openDetailsItem(details: Element, value: string): void {
-		const name = details.getAttribute("name")
+		const name = details.getAttributeNS(null, "name")
 		if (name && openDetailsInGroup(details).length > 0) {
-			details.setAttribute("name", "")
-			details.setAttribute("open", value)
-			details.setAttribute("name", name)
+			details.setAttributeNS(null, "name", "")
+			details.setAttributeNS(null, "open", value)
+			details.setAttributeNS(null, "name", name)
 		} else {
-			details.setAttribute("open", value)
+			details.setAttributeNS(null, "open", value)
 		}
 	}
 
@@ -1031,12 +1037,12 @@ class Morph {
 	// another item in their group is open.
 	#noteAddedDetails(element: Element): void {
 		const openDetails = (this.#openDetails ??= new Map())
-		const open = isDetailsElement(element) ? element.getAttribute("open") : null
+		const open = isDetailsElement(element) ? element.getAttributeNS(null, "open") : null
 		if (open !== null) openDetails.set(element, open)
 		const items = element.getElementsByTagName("details")
 		for (let i = 0; i < items.length; i++) {
 			const item = items[i]!
-			const value = item.getAttribute("open")
+			const value = item.getAttributeNS(null, "open")
 			if (value !== null && isDetailsElement(item)) openDetails.set(item, value)
 		}
 	}
@@ -1819,7 +1825,9 @@ class Morph {
 
 	// A vetoed `selected` or `checked` update leaves the selection alone, like other vetoed form attributes,
 	// and a vetoed `open` update leaves an accordion item as it was.
-	#noteVetoedAttribute(element: Element, name: string): void {
+	#noteVetoedAttribute(element: Element, name: string, namespaceURI: string | null): void {
+		// Only the attributes in no namespace are the control's state.
+		if (namespaceURI !== null) return
 		if (
 			(name === "selected" && isOptionElement(element)) ||
 			(name === "checked" && isInputElement(element)) ||
@@ -2117,7 +2125,8 @@ class Morph {
 		}
 		if (!this.#targetOpensDetails) {
 			this.#targetOpensDetails =
-				(isElement(node) && isDetailsElement(node) && node.hasAttribute("open")) || node.querySelector("details[open]") !== null
+				(isElement(node) && isDetailsElement(node) && node.hasAttributeNS(null, "open")) ||
+				node.querySelector("details[open]") !== null
 		}
 
 		// An inner morph leaves the target's own element out of the result, so its id doesn't count.
@@ -2451,7 +2460,7 @@ function hasOpenState(element: Element): boolean {
 
 // The other open items in the same exclusive accordion as this one: same name, in the same tree.
 function openDetailsInGroup(details: Element): Array<Element> {
-	const name = details.getAttribute("name")
+	const name = details.getAttributeNS(null, "name")
 	if (!name) return []
 
 	// A document finds elements by name without looking through the rest, so only other roots are searched.
@@ -2460,7 +2469,11 @@ function openDetailsInGroup(details: Element): Array<Element> {
 		? root.getElementsByName(name)
 		: (root as ParentNode).querySelectorAll("details[open][name]")
 	return [...candidates].filter(
-		(other) => other !== details && other.getAttribute("name") === name && other.hasAttribute("open") && isDetailsElement(other),
+		(other) =>
+			other !== details &&
+			other.getAttributeNS(null, "name") === name &&
+			other.hasAttributeNS(null, "open") &&
+			isDetailsElement(other),
 	)
 }
 
@@ -2475,9 +2488,9 @@ function closeLaterOpenDetails(nodes: ArrayLike<Node>): void {
 		const items = [...node.querySelectorAll("details[open]")]
 		if (node.matches("details[open]")) items.unshift(node)
 		for (const item of items) {
-			const name = item.getAttribute("name")
+			const name = item.getAttributeNS(null, "name")
 			if (!name || !isDetailsElement(item)) continue
-			if (names.has(name)) item.removeAttribute("open")
+			if (names.has(name)) item.removeAttributeNS(null, "open")
 			else names.add(name)
 		}
 	}
