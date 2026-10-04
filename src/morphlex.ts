@@ -1243,12 +1243,20 @@ class Morph {
 		}
 
 		let insertionPoint: ChildNode | null = parent.firstChild
+		let placed: ChildNode | null = null
 		for (let i = 0; i < toChildNodes.length; i++) {
+			// A callback can remove the insertion point, such as the whitespace after the node it visits.
+			// Then carry on after the last node placed, or at the end if that's gone too.
+			if (insertionPoint && insertionPoint.parentNode !== parent) {
+				insertionPoint = placed?.parentNode === parent ? placed.nextSibling : null
+			}
+
 			const node = toChildNodes[i]!
 			const matchInd = matches[i]
 			if (insertionPoint && liveWhitespace?.has(insertionPoint) && isWhitespaceTextNode(node)) {
 				const whitespace: ChildNode = insertionPoint
 				liveWhitespace.delete(whitespace)
+				placed = whitespace
 				insertionPoint = whitespace.nextSibling
 				this.#morphOneToOne(whitespace, node)
 			} else if (matchInd !== undefined) {
@@ -1261,6 +1269,7 @@ class Morph {
 					if (outsideRadios) for (const radio of outsideRadios) radio.checked = true
 				}
 				// Read this before the morph, which can replace the match.
+				placed = match
 				insertionPoint = match.nextSibling
 
 				if (operation === Operation.EqualNode) {
@@ -1276,7 +1285,10 @@ class Morph {
 					this.#morphOneToOne(match, node)
 				}
 			} else {
-				if (this.#addNode(parent, node, insertionPoint)) insertionPoint = node.nextSibling
+				if (this.#addNode(parent, node, insertionPoint)) {
+					placed = node
+					insertionPoint = node.nextSibling
+				}
 			}
 		}
 

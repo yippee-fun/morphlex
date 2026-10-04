@@ -163,3 +163,31 @@ test("whitespace a callback already removed isn't removed again", () => {
 	expect(from.outerHTML).toBe(`<div><p>2</p></div>`)
 	expect(removed).toEqual([])
 })
+
+test("a callback that removes the whitespace after the node it visits doesn't stop the morph", () => {
+	const from = dom(`<div><p>1</p> </div>`)
+
+	morph(from, dom(`<div><p>2</p><span></span></div>`), {
+		afterNodeVisited: (node) => {
+			if (node.nodeName === "P") node.nextSibling?.remove()
+		},
+	})
+
+	expect(from.outerHTML).toBe(`<div><p>2</p><span></span></div>`)
+})
+
+test("a callback that removes the node it visits and the whitespace after it doesn't stop the morph", () => {
+	const from = dom(`<div><p>1</p> <b></b></div>`)
+
+	morph(from, dom(`<div><p>2</p><span></span><b></b></div>`), {
+		afterNodeVisited: (node) => {
+			if (node.nodeName === "P") {
+				node.nextSibling?.remove()
+				;(node as Element).remove()
+			}
+		},
+	})
+
+	expect(from.querySelector("span")).not.toBe(null)
+	expect(from.querySelector("b")).not.toBe(null)
+})
