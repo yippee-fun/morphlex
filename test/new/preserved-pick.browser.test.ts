@@ -824,3 +824,21 @@ test("a label holding several ticked boxes pairs with the first target holding a
 	expect(label.querySelector("input")).toBe(y)
 	expect(y.checked).toBe(true)
 })
+
+test("an option wrapper with the user's pick skips a target whose matching option is in a datalist", () => {
+	const options = `<option value="a" selected>a</option><option value="b">b</option>`
+	const from = form(`<select name="s"><div>${options}</div></select>`)
+	const select = from.querySelector("select")!
+	const wrapper = from.querySelector("div")!
+	select.value = "b"
+	const picked = select.selectedOptions[0]!
+
+	const to = form(`<select name="s"><div data-x></div><div data-x>${options}</div></select>`)
+	const datalist = document.createElement("datalist")
+	datalist.innerHTML = `<option value="b">b</option>`
+	to.querySelector("div")!.append(datalist)
+	morph(from, to, { preserveChanges: true })
+
+	expect(select.querySelectorAll("div")[1]).toBe(wrapper)
+	expect(select.selectedOptions[0]).toBe(picked)
+})

@@ -1782,9 +1782,18 @@ class Morph {
 		return false
 	}
 
+	// An option is keyed by the enclosing select, or else the nearest one around it, unless it's in a datalist the
+	// select doesn't own.
 	#choiceOf(element: Element): string | null {
 		if (!isOptionElement(element)) return choiceOf(element, null)
-		const select = this.#enclosingSelect ?? selectOf(element)
+		let select = this.#enclosingSelect
+		for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+			if (isSelectElement(parent)) {
+				select ??= parent
+				break
+			}
+			if (parent.localName === "datalist" && parent.namespaceURI === HTML_NAMESPACE) return null
+		}
 		return choiceOf(element, (select && this.#liveSelects.get(select)) ?? select)
 	}
 
