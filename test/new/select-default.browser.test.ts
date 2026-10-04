@@ -53,6 +53,27 @@ test("a drop-down whose first options are disabled is untouched", () => {
 	host.remove()
 })
 
+test("a drop-down whose options are all disabled is untouched", () => {
+	const html = `<div><select id="s"><option disabled>a</option><optgroup disabled><option>b</option></optgroup></select></div>`
+	const host = mount(html)
+
+	expect(countMutations(host, html)).toBe(0)
+	expect(countMutations(host, html, true)).toBe(0)
+	host.remove()
+})
+
+test("a new drop-down whose options are all disabled is untouched by the next morph", () => {
+	const html = `<div><select id="s"><option disabled>a</option></select></div>`
+	const host = mount(`<div></div>`)
+	const selectedIndex = parse(html).querySelector("select")!.selectedIndex
+
+	morph(host.firstElementChild!, parse(html))
+
+	expect(host.querySelector("select")!.selectedIndex).toBe(selectedIndex)
+	expect(countMutations(host, html)).toBe(0)
+	host.remove()
+})
+
 test("a select with two selected attributes is untouched", () => {
 	const html = `<div><select id="s"><option selected>a</option><option selected>b</option></select></div>`
 	const host = mount(html)

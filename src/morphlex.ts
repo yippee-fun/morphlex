@@ -401,6 +401,7 @@ function isDirtyOption(
 
 // The last option with a `selected` attribute wins. Without one, a drop-down
 // (display size 1) selects its first enabled option and a list box selects nothing.
+// When every option is disabled, some browsers select the first one anyway.
 function defaultOptionOf(select: HTMLSelectElement): HTMLOptionElement | null {
 	const options = select.options
 	let firstEnabled: HTMLOptionElement | null = null
@@ -411,7 +412,22 @@ function defaultOptionOf(select: HTMLSelectElement): HTMLOptionElement | null {
 		if (!isDisabledOption(option)) firstEnabled = option
 	}
 
-	return displaySizeOf(select) > 1 ? null : firstEnabled
+	if (displaySizeOf(select) > 1) return null
+	/* v8 ignore next -- only WebKit selects a disabled option */
+	return firstEnabled ?? (selectsDisabledOption(select.ownerDocument) ? (options[0] ?? null) : null)
+}
+
+let disabledOptionSelected: boolean | undefined
+
+function selectsDisabledOption(document: Document): boolean {
+	if (disabledOptionSelected === undefined) {
+		const select = document.createElement("select")
+		const option = document.createElement("option")
+		option.disabled = true
+		select.append(option)
+		disabledOptionSelected = select.selectedIndex === 0
+	}
+	return disabledOptionSelected
 }
 
 // HTML integer parsing skips only ASCII whitespace, where `parseInt` skips any whitespace.
