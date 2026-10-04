@@ -780,3 +780,20 @@ for (const [from, to] of movingForms) {
 		host.remove()
 	})
 }
+
+test("a radio outside the morph gives way to the radio the markup checks in the group it joins", () => {
+	const host = mount(
+		`<div><section id="s"><form id="f"><textarea id="t"></textarea></form></section><form><input id="i8" type="radio" name="r" checked></form></div>`,
+	)
+	host.insertAdjacentHTML("afterbegin", `<input id="y" type="radio" name="r" form="f" checked>`)
+
+	morphInner(
+		host.querySelector("div")!,
+		parse(
+			`<div><form id="f"><textarea id="t"></textarea><section id="s"></section><input id="i8" type="radio" name="r" checked></form><form></form></div>`,
+		),
+	)
+
+	expect(radio(host, "i8").checked).toBe(true)
+	host.remove()
+})

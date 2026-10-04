@@ -1425,14 +1425,27 @@ class Morph {
 		if (!radios) return
 		for (let i = 0; i < radios.length; i++) {
 			const radio = radios[i]!
+			if (this.#defersRadio(radio) && !uncheckedByAttribute.has(radio)) {
+				;(this.#radiosUncheckedForMove ??= new Set()).add(radio)
+				continue
+			}
+
+			// A radio outside the morph that joins a group with a checked radio inside it leaves that one
+			// checked, as when the page is parsed with the radio from the markup coming later.
+			const checkedInMorph = this.#inScope(radio)
+				? undefined
+				: radioGroupOf(radio, new Map()).find((member) => member.checked && this.#inScope(member))
+
 			const value = uncheckedByAttribute.get(radio)
 			if (value !== undefined) {
 				uncheckedByAttribute.delete(radio)
 				radio.setAttribute("checked", value)
 				/* v8 ignore next -- Firefox can stop a radio following the attribute while it changes form */
 				if (!radio.checked) radio.checked = true
-			} else if (!this.#defersRadio(radio)) radio.checked = true
-			else (this.#radiosUncheckedForMove ??= new Set()).add(radio)
+			} else {
+				radio.checked = true
+			}
+			if (checkedInMorph) checkedInMorph.checked = true
 		}
 	}
 
