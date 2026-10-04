@@ -2089,9 +2089,8 @@ function openDetailsInGroup(details: Element): Array<Element> {
 	const name = details.getAttribute("name")
 	if (!name) return []
 
-	const selector = `details[open][name="${name.replace(/["\\]/g, "\\$&")}"]`
-	const candidates = [...(details.getRootNode() as ParentNode).querySelectorAll(selector)]
-	return candidates.filter((other) => other !== details && isDetailsElement(other))
+	const candidates = [...(details.getRootNode() as ParentNode).querySelectorAll("details[open][name]")]
+	return candidates.filter((other) => other !== details && other.getAttribute("name") === name && isDetailsElement(other))
 }
 
 // A document keeps only the first open item of an accordion, but WebKit's parser keeps them all, so

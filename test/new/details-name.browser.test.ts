@@ -419,3 +419,17 @@ test("only the first open item of a group in a target element is opened", () => 
 	expect(openIds(host)).toBe("a")
 	host.remove()
 })
+
+test("an item whose name has a line break is reopened", () => {
+	const host = mount(`<div><details id="q1" name="a&#10;b" open></details></div>`)
+	morph(
+		host.firstElementChild!,
+		`<div><details id="q2" name="a&#10;b"></details><details id="b" name="a&#10;b"></details><span id="q1"></span></div>`,
+	)
+	morph(
+		host.firstElementChild!,
+		`<div><details id="q2" name="a&#10;b" open></details><details id="b" name="a&#10;b" open></details></div>`,
+	)
+	expect(openIds(host)).toBe("q2")
+	host.remove()
+})
