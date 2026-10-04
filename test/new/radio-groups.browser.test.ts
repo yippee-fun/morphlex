@@ -734,3 +734,25 @@ test("a radio outside the morph keeps the value of its checked attribute when it
 	expect(radio(host, "y").checked).toBe(true)
 	host.remove()
 })
+
+// Found by the move fuzzer in Firefox: the target wraps a form around its own ancestor, so a new form
+// with the same id is added while the old one is still there.
+test.skipIf(!groupsRadiosByForm())(
+	"a form recreated around its own ancestor leaves the group of radios without a form alone",
+	() => {
+		const host = mount(
+			`<div><div><b id="i0"><input id="i1" type="radio" name="r"><form id="i2"><input id="i3" type="text"></form></b></div><input id="i8" type="radio" name="r" checked></div>`,
+		)
+		host.insertAdjacentHTML("afterbegin", `<input id="y" type="radio" name="r" form="i2" checked>`)
+
+		morph(
+			host.querySelector("div")!,
+			parse(
+				`<div><div><form id="i2"><input id="i3" type="text"><span id="i10"><b id="i0"></b></span></form></div><input id="i8" type="radio" name="r" checked></div>`,
+			),
+		)
+
+		expect(checkedIds(host)).toBe("y i8")
+		host.remove()
+	},
+)
