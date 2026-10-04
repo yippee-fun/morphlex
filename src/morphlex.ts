@@ -21,6 +21,14 @@ const IS_PARENT_NODE_TYPE = [
 	0, // 12: Notation (deprecated)
 ]
 
+// The passes matching by choice, as [same attributes, all choices], from strictest to loosest.
+const CHOICE_PASSES = [
+	[true, true],
+	[false, true],
+	[true, false],
+	[false, false],
+] as const
+
 const Operation = {
 	EqualNode: 0,
 	SameElement: 1,
@@ -580,6 +588,8 @@ class Morph {
 	#targetChecksInputs = false
 	// Elements flagged `morphlex-dirty` and their ancestors. These can't equal their targets, so they're compared without the flag.
 	readonly #dirtyElements: Set<Element> | null = null
+	// The flagged elements themselves. A nested morph from a callback can clear their flags, so they're kept here.
+	readonly #flagged: Set<Element> = new Set()
 	readonly #dirtyChoices: Map<Element, Array<string>> = new Map()
 	readonly #targetChoices: Map<Element, Set<string>> = new Map()
 
@@ -590,6 +600,7 @@ class Morph {
 		if (flagged?.length) {
 			const dirtyElements = new Set<Element>()
 			for (const element of flagged) {
+				this.#flagged.add(element)
 				for (let node: Element | null = element; node && !dirtyElements.has(node); node = node.parentElement) {
 					dirtyElements.add(node)
 				}
@@ -1139,14 +1150,17 @@ class Morph {
 
 		// Under preserveChanges, match a checkbox, radio or option the user changed to a target with the same
 		// choice, and a wrapper without its own identity holding some to a target holding one of the same choices,
-		// so other elements can't take their targets and the user's choices keep their values. Targets with the
-		// same attributes are tried first, so a form doesn't take another form's target for holding the same choice.
+		// so other elements can't take their targets and the user's choices keep their values. A wrapper never takes
+		// a target with its own identity. Targets holding all of the wrapper's choices are tried first, then those
+		// holding some, and in each, targets with the same attributes first, so a form doesn't take another form's
+		// target for holding the same choice.
 		if (this.#preserveChanges && dirtyElements) {
-			for (const sameAttributes of [true, false]) {
+			for (const [sameAttributes, allChoices] of CHOICE_PASSES) {
 				for (let i = 0; i < unmatchedElementIndices.length; i++) {
 					const unmatchedIndex = unmatchedElementIndices[i]!
 					if (!unmatchedElementActive[unmatchedIndex]) continue
 					const element = toChildNodes[unmatchedIndex] as Element
+					const anonymous = canSoftMatchByTagName(element, this.#idArrayMap.has(element))
 
 					for (let c = 0; c < candidateElementIndices.length; c++) {
 						const candidateIndex = candidateElementIndices[c]!
@@ -1158,8 +1172,8 @@ class Morph {
 
 						if (
 							choices &&
-							(candidate.hasAttribute("morphlex-dirty") || canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) &&
-							this.#sharesChoice(choices, element) &&
+							(this.#flagged.has(candidate) || (anonymous && canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate)))) &&
+							this.#holdsChoices(choices, element, allChoices) &&
 							(!sameAttributes || hasSameAttributes(candidate, element))
 						) {
 							matches[unmatchedIndex] = candidateIndex
@@ -1493,10 +1507,11 @@ class Morph {
 	// A checkbox, radio or option the user changed holds their choice of its value, so under
 	// preserveChanges it must not be matched to a target with another value.
 	#holdsOtherChoice(candidate: Element, element: Element): boolean {
-		return this.#preserveChanges && candidate.hasAttribute("morphlex-dirty") && choiceOf(candidate) !== choiceOf(element)
+		return this.#preserveChanges && this.#flagged.has(candidate) && choiceOf(candidate) !== choiceOf(element)
 	}
 
-	#sharesChoice(choices: Array<string>, element: Element): boolean {
+	// Whether the target holds all of the choices, or with `all` false, any of them.
+	#holdsChoices(choices: Array<string>, element: Element, all: boolean): boolean {
 		let targetChoices = this.#targetChoices.get(element)
 		if (!targetChoices) {
 			targetChoices = new Set()
@@ -1507,8 +1522,8 @@ class Morph {
 			this.#targetChoices.set(element, targetChoices)
 		}
 
-		for (const choice of choices) if (targetChoices.has(choice)) return true
-		return false
+		for (const choice of choices) if (targetChoices.has(choice) !== all) return !all
+		return all
 	}
 
 	// The choices of the checkboxes, radios and options the user changed in this element, or null when there are none.
@@ -1517,8 +1532,8 @@ class Morph {
 		let choices = this.#dirtyChoices.get(element)
 		if (choices === undefined) {
 			choices = []
-			for (const control of [element, ...element.querySelectorAll("[morphlex-dirty]")]) {
-				const choice = control.hasAttribute("morphlex-dirty") ? choiceOf(control) : null
+			for (const control of this.#flagged) {
+				const choice = element.contains(control) ? choiceOf(control) : null
 				if (choice !== null) choices.push(choice)
 			}
 			this.#dirtyChoices.set(element, choices)

@@ -271,3 +271,55 @@ test("a form with the user's tick isn't paired with another form holding the sam
 	expect(input.checked).toBe(true)
 	expect(from.querySelector<HTMLInputElement>('[action="/b"] input')!.checked).toBe(false)
 })
+
+test("a label with the user's tick doesn't take a new label's target that has an id", () => {
+	const checkbox = `<input type="checkbox" name="t" value="a">`
+	const from = form(`<label>${checkbox}</label>`)
+	const input = check(from, "a")
+
+	morph(from, form(`<label id="new">${checkbox}</label><label class="changed">${checkbox}</label>`), { preserveChanges: true })
+
+	expect(from.querySelector(".changed input")).toBe(input)
+	expect(input.checked).toBe(true)
+	expect(from.querySelector<HTMLInputElement>("#new input")!.checked).toBe(false)
+})
+
+test("a wrapper with several of the user's ticks takes the target holding all of them", () => {
+	const a = `<input type="checkbox" name="t" value="a">`
+	const b = `<input type="checkbox" name="t" value="b">`
+	const from = form(`<div>${a}${b}</div>`)
+	check(from, "a")
+	check(from, "b")
+
+	morph(from, form(`<div>${a}</div><div class="changed">${a}${b}</div>`), { preserveChanges: true })
+
+	expect(Array.from(from.querySelectorAll<HTMLInputElement>(".changed input"), (input) => input.checked)).toEqual([true, true])
+	expect(from.querySelector<HTMLInputElement>("div:not(.changed) input")!.checked).toBe(false)
+})
+
+test("a nested morph from a callback doesn't make the outer morph forget the user's pick", () => {
+	const from = form(`<input type="radio" name="g" value="a"><input type="radio" name="g" value="b">`)
+	const b = check(from, "b")
+	let nested = false
+
+	morph(
+		from,
+		form(
+			`<input type="radio" name="g" value="c"><input type="radio" name="g" value="a"><input type="radio" name="g" value="b" class="new">`,
+		),
+		{
+			preserveChanges: true,
+			beforeChildrenVisited(element) {
+				if (element === from && !nested) {
+					nested = true
+					morph(from, from.cloneNode(true) as Element, { preserveChanges: true })
+				}
+				return true
+			},
+		},
+	)
+
+	expect(nested).toBe(true)
+	expect(new FormData(from).get("g")).toBe("b")
+	expect(from.querySelector('[value="b"]')).toBe(b)
+})
