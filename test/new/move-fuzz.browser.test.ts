@@ -39,7 +39,7 @@ test("the result matches the target, and every element that can move keeps its n
 
 		run(host, scenario)
 
-		const target = parse(scenario.toHtml)
+		const target = closeLaterAccordionItems(parse(scenario.toHtml))
 		if (scenario.shape === "one" ? !isSameTree(host.firstChild!, target) : !isSameChildren(host.firstChild!, target)) {
 			fail(host, "result differs from target")
 		}
@@ -694,6 +694,18 @@ function parse(html: string): HTMLElement {
 	const template = document.createElement("template")
 	template.innerHTML = html
 	return template.content.firstChild as HTMLElement
+}
+
+// WebKit lets a parsed template keep several open items in one accordion. In a document only the
+// first stays open, as Chromium's parser does, so close the later ones to get what the morph shows.
+function closeLaterAccordionItems<T extends Element>(root: T): T {
+	const open = new Set<string>()
+	for (const details of root.querySelectorAll(`details[open]:not([name=""])[name]`)) {
+		const name = details.getAttribute("name")!
+		if (open.has(name)) details.removeAttribute("open")
+		else open.add(name)
+	}
+	return root
 }
 
 function mount(html: string): HTMLElement {

@@ -239,8 +239,15 @@ test.skipIf(!closesOtherDetails())("items the user opened stay open, and other i
 
 		morph(host.firstElementChild!, toHtml, { preserveChanges })
 
+		// WebKit lets a detached tree keep several open items in one accordion, but only the first stays open in a document.
 		const expected = document.createElement("div")
 		expected.innerHTML = toHtml
+		const openNames = new Set<string>()
+		for (const details of expected.querySelectorAll(`details[open]:not([name=""])[name]`)) {
+			const name = details.getAttribute("name")!
+			if (openNames.has(name)) details.removeAttribute("open")
+			else openNames.add(name)
+		}
 		const describe = `seed ${seed}${preserveChanges ? " (preserveChanges)" : ""}: ${fromHtml} -> ${toHtml}, got ${host.innerHTML}`
 		if (preserveChanges) {
 			for (const details of stillOpen) {
