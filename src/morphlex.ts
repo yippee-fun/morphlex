@@ -221,10 +221,13 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const select = selectOf(fromElement)
 		const selection = select && markupSelectionOf(select)
 		const flagged = flagDirtyInputs(fromElement)
-		const morpher = new Morph(options, clobbered)
-		if (select) morpher.setEnclosingSelect(select, selection!)
-		morpher.morphChildren(fromElement, toElement)
-		clearDirtyFlags(flagged)
+		try {
+			const morpher = new Morph(options, clobbered)
+			if (select) morpher.setEnclosingSelect(select, selection!)
+			morpher.morphChildren(fromElement, toElement)
+		} finally {
+			clearDirtyFlags(flagged)
+		}
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
 	}
@@ -831,7 +834,8 @@ class Morph {
 		// First pass: update/add attributes from reference (iterate forwards)
 		const toAttributes = to.attributes
 		for (let i = 0; i < toAttributes.length; i++) {
-			const { name, localName, value, namespaceURI } = toAttributes[i]!
+			const attribute = toAttributes[i]!
+			const { name, localName, value, namespaceURI } = attribute
 			// Adding `open` would open it, but changing the value of an existing one is fine.
 			if (name === "open" && namespaceURI === null && this.#preserveChanges && hasOpenState(from) && !from.hasAttribute("open")) {
 				continue
@@ -840,10 +844,13 @@ class Morph {
 
 			if (oldValue === value) continue
 			if (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true) {
-				if (namespaceURI) {
-					from.setAttributeNS(namespaceURI, name, value)
+				// Go through `Attr` nodes, because `setAttribute` rejects names the parser accepts, like `@click`.
+				// Look the attribute up after the callback, which may have removed or replaced it.
+				const existing = from.getAttributeNodeNS(namespaceURI, localName)
+				if (existing) {
+					existing.value = value
 				} else {
-					from.setAttribute(name, value)
+					from.setAttributeNodeNS(attribute.cloneNode() as Attr)
 				}
 				this.#options.afterAttributeUpdated?.(from, name, oldValue)
 			} else {
