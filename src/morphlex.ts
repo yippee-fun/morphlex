@@ -175,8 +175,8 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
 	try {
 		const morpher = new Morph(options, clobbered)
+		if (select) morpher.setEnclosingSelect(select, selection!)
 		morpher.morph(from, to)
-		if (select) morpher.syncEnclosingSelect(select, selection!)
 	} finally {
 		if (flagged) clearDirtyFlags(flagged)
 	}
@@ -225,8 +225,8 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const flagged = flagDirtyInputs(fromElement)
 		try {
 			const morpher = new Morph(options, clobbered)
+			if (select) morpher.setEnclosingSelect(select, selection!)
 			morpher.morphChildren(fromElement, toElement)
-			if (select) morpher.syncEnclosingSelect(select, selection!)
 		} finally {
 			clearDirtyFlags(flagged)
 		}
@@ -280,7 +280,7 @@ function flagDirtyInputs(node: Element): Array<Element> {
 			flagDirty(node, flagged)
 		}
 	} else if (isTextAreaElement(node)) {
-		if (node.value !== node.defaultValue) {
+		if (isDirtyTextArea(node)) {
 			flagDirty(node, flagged)
 		}
 	}
@@ -301,7 +301,7 @@ function flagDirtyInputs(node: Element): Array<Element> {
 	}
 
 	for (const element of node.querySelectorAll("textarea")) {
-		if (isTextAreaElement(element) && element.value !== element.defaultValue) {
+		if (isTextAreaElement(element) && isDirtyTextArea(element)) {
 			flagDirty(element, flagged)
 		}
 	}
@@ -322,7 +322,65 @@ function isDirtyInput(input: HTMLInputElement): boolean {
 		return input.checked !== input.defaultChecked
 	}
 
-	return input.value !== input.defaultValue
+	return input.value !== input.defaultValue && hasDirtyValue(input)
+}
+
+let probeDocument: Document | null = null
+
+// A clone keeps an input's value and dirty value flag. Cloning into a document without
+// custom elements keeps a customized built-in from upgrading.
+function probeClone(input: HTMLInputElement): HTMLInputElement {
+	probeDocument ??= input.ownerDocument.implementation.createHTMLDocument("")
+	return probeDocument.importNode(input) as HTMLInputElement
+}
+
+// The browser sanitizes `.value` for many input types, so it can differ from the `value`
+// attribute when the user changed nothing: a range with no value reads "50", and email
+// inputs trim spaces. Only the browser knows if the user changed it. A clone keeps that
+// dirty flag, and while it's unset a text input's value follows its `value` attribute.
+// A file input ignores its `value` attribute and has a value only once the user picks a file.
+function hasDirtyValue(input: HTMLInputElement): boolean {
+	if (input.type === "file") return input.value !== ""
+	const clone = probeClone(input)
+	clone.type = "text"
+	const probe = clone.value === "a" ? "b" : "a"
+	clone.defaultValue = probe
+	return clone.value !== probe
+}
+
+// The attributes besides `type` and `value` that the browser sanitizes an input's value with.
+const SANITIZING_ATTRIBUTES = ["min", "max", "step", "multiple"]
+
+// An untouched input can still differ from its target, because the browser sanitizes its value
+// as attributes change: a range that gains `max="10"` clamps 50 to 10, while the parsed target
+// shows 5. Setting the `value` attribute again sanitizes it afresh, without marking it as changed
+// the way assigning `.value` would. Try it on a clone first, so it only happens when it helps.
+// Returns whether it dealt with the input, so assigning `.value` isn't needed. An untouched input
+// whose sanitizing attribute update was vetoed is left alone on purpose.
+function resanitizeValue(input: HTMLInputElement, target: Element, value: string | null, shown: string): boolean {
+	/* v8 ignore start -- happy-dom doesn't sanitize values, so an untouched input always matches its target there */
+	if (hasDirtyValue(input)) return false
+	if (SANITIZING_ATTRIBUTES.some((name) => input.getAttribute(name) !== target.getAttribute(name))) return true
+	const clone = probeClone(input)
+	setValueAttribute(clone, value)
+	if (clone.value !== shown) return false
+	setValueAttribute(input, value)
+	return true
+}
+
+function setValueAttribute(input: HTMLInputElement, value: string | null): void {
+	if (value === null) {
+		input.setAttribute("value", "")
+		input.removeAttribute("value")
+	} else {
+		input.setAttribute("value", value)
+	}
+}
+/* v8 ignore stop */
+
+// The browser turns carriage returns into line feeds in a textarea's `.value`.
+function isDirtyTextArea(textarea: HTMLTextAreaElement): boolean {
+	return textarea.value !== textarea.defaultValue.replace(/\r\n?/g, "\n")
 }
 
 // A single select shows one option as selected even when no option has a `selected`
@@ -345,6 +403,7 @@ function isDirtyOption(
 
 // The last option with a `selected` attribute wins. Without one, a drop-down
 // (display size 1) selects its first enabled option and a list box selects nothing.
+// When every option is disabled, some browsers select the first one anyway.
 function defaultOptionOf(select: HTMLSelectElement): HTMLOptionElement | null {
 	const options = select.options
 	let firstEnabled: HTMLOptionElement | null = null
@@ -355,7 +414,22 @@ function defaultOptionOf(select: HTMLSelectElement): HTMLOptionElement | null {
 		if (!isDisabledOption(option)) firstEnabled = option
 	}
 
-	return displaySizeOf(select) > 1 ? null : firstEnabled
+	if (displaySizeOf(select) > 1) return null
+	/* v8 ignore next -- only WebKit selects a disabled option */
+	return firstEnabled ?? (selectsDisabledOption(select.ownerDocument) ? (options[0] ?? null) : null)
+}
+
+let disabledOptionSelected: boolean | undefined
+
+function selectsDisabledOption(document: Document): boolean {
+	if (disabledOptionSelected === undefined) {
+		const select = document.createElement("select")
+		const option = document.createElement("option")
+		option.disabled = true
+		select.append(option)
+		disabledOptionSelected = select.selectedIndex === 0
+	}
+	return disabledOptionSelected
 }
 
 // HTML integer parsing skips only ASCII whitespace, where `parseInt` skips any whitespace.
@@ -574,6 +648,14 @@ class Morph {
 	#openDetails: Map<Element, string> | null = null
 	// Only a target with an open `details` can add one, so other morphs skip looking for one.
 	#targetOpensDetails = false
+	// Whitespace left alone because it may not render differently. Whether it does depends on the
+	// parent's final style, which selectors like `:has()` tie to the finished tree, so it's checked
+	// when the morph settles.
+	#whitespaceToCheck: Array<[ChildNode, ChildNode, ParentNode | null]> | null = null
+	// Set while the root select's sync still follows the settling, since a style can depend on the selection.
+	#whitespaceHeld = false
+	// The select around a morph rooted inside it, and what its markup selected before the morph.
+	#enclosingSelect: [HTMLSelectElement, Array<HTMLOptionElement | null>] | null = null
 
 	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
 		this.#options = options
@@ -681,6 +763,11 @@ class Morph {
 			this.#openDetails = null
 			this.#reopenDetails(openDetails)
 		}
+
+		this.#syncEnclosingSelect()
+
+		// Last, since a parent's style can depend on any of the above, such as with `:has(:checked)`.
+		if (!this.#whitespaceHeld) this.#checkWhitespace()
 	}
 
 	// Open each item the morph wants open but the browser closed, in document order, so the first one wins
@@ -733,6 +820,7 @@ class Morph {
 		// Fast path: if nodes are exactly the same object, skip morphing
 		if (from === to) return
 		if (isEqualNode(from, to)) return
+		if (this.#isInterchangeableWhitespace(from, to)) return
 
 		if (from.nodeType === ELEMENT_NODE_TYPE && to.nodeType === ELEMENT_NODE_TYPE) {
 			if (canMorphElementInPlace(from as Element, to as Element)) {
@@ -742,6 +830,43 @@ class Morph {
 			}
 		} else {
 			this.#morphOtherNode(from, to)
+		}
+	}
+
+	// Whitespace the browser collapses looks the same whatever it holds. Spaces and line breaks aren't
+	// interchangeable, since some browsers drop a line break between CJK characters.
+	#isInterchangeableWhitespace(from: ChildNode, to: ChildNode): boolean {
+		if (from.nodeType !== TEXT_NODE_TYPE || to.nodeType !== TEXT_NODE_TYPE) return false
+
+		const fromValue = from.nodeValue!
+		const toValue = to.nodeValue!
+		if (!isCollapsibleSpace(fromValue) || !isCollapsibleSpace(toValue)) return false
+		if (hasSegmentBreak(fromValue) !== hasSegmentBreak(toValue)) return false
+
+		;(this.#whitespaceToCheck ??= []).push([from, to, from.parentNode])
+		return true
+	}
+
+	// Update the whitespace left alone where its parent keeps whitespace after all.
+	#checkWhitespace(): void {
+		const pairs = this.#whitespaceToCheck
+		if (!pairs) return
+		this.#whitespaceToCheck = null
+
+		const collapses: Map<Element, boolean> = new Map()
+		for (let i = 0; i < pairs.length; i++) {
+			const [from, to, parent] = pairs[i]!
+			// A callback removed it after it was placed, as it can remove any node the morph has placed.
+			if (from.parentNode !== parent) continue
+
+			// Slotted text takes its style from the slot it's shown in.
+			const element = (from as Text).assignedSlot ?? from.parentElement
+			let elementCollapses = element ? collapses.get(element) : false
+			if (elementCollapses === undefined) {
+				elementCollapses = collapsesWhitespace(element!)
+				collapses.set(element!, elementCollapses)
+			}
+			if (!elementCollapses) this.#morphOtherNode(from, to)
 		}
 	}
 
@@ -932,16 +1057,19 @@ class Morph {
 			}
 
 			// Checkbox and radio values aren't user-editable, and assigning them writes the value attribute.
+			// The browser sanitizes both values, so compare with what the target's markup shows.
 			const type = from.type
 			const value = to.getAttribute("value")
+			const target = to as HTMLInputElement
 			if (
 				type !== "file" &&
 				type !== "checkbox" &&
 				type !== "radio" &&
-				from.value !== (value ?? "") &&
+				type === target.type &&
 				from.getAttribute("value") === value
 			) {
-				from.value = value ?? ""
+				const shown = isDirtyInput(target) ? (value ?? "") : target.value
+				if (from.value !== shown && !resanitizeValue(from, to, value, shown)) from.value = shown
 			}
 		} else if (isOptionElement(from)) {
 			const selected = to.hasAttribute("selected")
@@ -963,7 +1091,7 @@ class Morph {
 		if (this.#preserveChanges) return
 
 		// Assigning `.value` marks it dirty, so only do it when it has actually diverged.
-		if (from.value !== from.defaultValue) {
+		if (isDirtyTextArea(from)) {
 			from.value = from.defaultValue
 		}
 	}
@@ -1366,8 +1494,9 @@ class Morph {
 					moveBefore(parent, match, insertionPoint)
 					this.#checkRadios(outsideRadios)
 				}
-				// Read this before the morph, which can replace the match.
-				insertionPoint = match.nextSibling
+				// Read this before the morph, which can replace the match. A match that moved itself
+				// elsewhere when it reconnected leaves the insertion point where it was.
+				if (match.parentNode === parent) insertionPoint = match.nextSibling
 
 				if (operation === Operation.EqualNode) {
 				} else if (operation === Operation.SameElement) {
@@ -1386,7 +1515,8 @@ class Morph {
 			} else {
 				const added = this.#addNode(parent, node, insertionPoint)
 				if (added) placed.push(added)
-				if (added === node) insertionPoint = node.nextSibling
+				// A new node can move or remove itself when it's added, and then the insertion point stays.
+				if (added === node && node.parentNode === parent) insertionPoint = node.nextSibling
 			}
 		}
 
@@ -1396,15 +1526,32 @@ class Morph {
 			}
 		}
 
-		this.#settleIfRoot(from)
-		if (isSelectElement(from)) this.#syncDefaultSelection(from)
+		if (isSelectElement(from)) {
+			const held = this.#whitespaceHeld
+			this.#whitespaceHeld = true
+			this.#settleIfRoot(from)
+			this.#syncDefaultSelection(from)
+			this.#whitespaceHeld = held
+			if (from === this.#root && !held) this.#checkWhitespace()
+		} else {
+			this.#settleIfRoot(from)
+		}
 
 		this.#options.afterChildrenVisited?.(from)
 	}
 
-	// A morph inside a select never visits the select, so sync it afterwards if the morph
+	// A morph inside a select never visits the select, so sync it when the morph settles if the morph
 	// changed what the markup selects. A vetoed morph changes nothing, so it leaves it alone.
-	syncEnclosingSelect(select: HTMLSelectElement, selection: Array<HTMLOptionElement | null>): void {
+	setEnclosingSelect(select: HTMLSelectElement, selection: Array<HTMLOptionElement | null>): void {
+		this.#enclosingSelect = [select, selection]
+	}
+
+	#syncEnclosingSelect(): void {
+		const enclosing = this.#enclosingSelect
+		if (!enclosing) return
+		this.#enclosingSelect = null
+
+		const [select, selection] = enclosing
 		if (this.#preserveChanges) return
 
 		const newSelection = markupSelectionOf(select)
@@ -2084,6 +2231,34 @@ function isWhitespaceTextNode(node: Node): boolean {
 	}
 
 	return true
+}
+
+// Only spaces, tabs and line breaks collapse in CSS. A form feed is shown as a glyph.
+function isCollapsibleSpace(string: string): boolean {
+	if (!string) return false
+
+	for (let i = 0; i < string.length; i++) {
+		const code = string.charCodeAt(i)
+		if (code !== 32 && code !== 9 && code !== 10 && code !== 13) return false
+	}
+
+	return true
+}
+
+function hasSegmentBreak(string: string): boolean {
+	return string.includes("\n") || string.includes("\r")
+}
+
+// Only a connected element has computed styles, so a detached one is treated as preserving whitespace,
+// as is an unknown value. So is a custom element, including a customized built-in, without an open
+// shadow root, since a closed one hides the slot the text is shown in.
+function collapsesWhitespace(element: Element): boolean {
+	const view = element.ownerDocument.defaultView
+	if (!view || !element.isConnected) return false
+	if ((element.localName.includes("-") || element.hasAttribute("is")) && !element.shadowRoot) return false
+
+	const whiteSpace = view.getComputedStyle(element).whiteSpace
+	return whiteSpace === "normal" || whiteSpace === "nowrap"
 }
 
 // HTML's ASCII whitespace: tab, LF, FF, CR and space. Unlike `String.prototype.trim`, this excludes

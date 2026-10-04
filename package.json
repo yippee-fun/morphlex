@@ -29,6 +29,7 @@
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:ui": "vitest --ui",
+		"test:mutation": "stryker run",
 		"test:browser": "vitest run -c vitest.config.browser.ts",
 		"test:browser:fuzz": "VITE_MORPHLEX_FUZZ_MATCHING_SEEDS=5000 VITE_MORPHLEX_FUZZ_PRESERVE_SEEDS=2000 VITE_MORPHLEX_FUZZ_TREE_SEEDS=5000 VITE_MORPHLEX_FUZZ_MOVE_SEEDS=3000 vitest run -c vitest.config.browser.ts test/new/fuzz.browser.test.ts test/new/tree-fuzz.browser.test.ts test/new/move-fuzz.browser.test.ts",
 		"test:browser:watch": "vitest -c vitest.config.browser.ts",
@@ -36,6 +37,8 @@
 		"serve": "vite --open /benchmark/"
 	},
 	"devDependencies": {
+		"@stryker-mutator/core": "^10.0.0",
+		"@stryker-mutator/vitest-runner": "^10.0.0",
 		"@types/node": "^26.6.4",
 		"@vitest/browser": "^4.1.11",
 		"@vitest/browser-playwright": "^4.1.11",
