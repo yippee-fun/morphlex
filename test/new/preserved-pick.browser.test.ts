@@ -1,4 +1,4 @@
-import { expect, test } from "vitest"
+import { expect, test, vi } from "vitest"
 import { morph, morphInner } from "../../src/morphlex"
 import { dom } from "./utils"
 
@@ -1032,4 +1032,44 @@ test("a ticked label doesn't take a target whose checkbox moves in from elsewher
 	expect(from.querySelectorAll("label")[1]!.lastElementChild).toBe(input)
 	expect(input.checked).toBe(true)
 	expect(new FormData(from).getAll("t")).toEqual(["a"])
+})
+
+test("a ticked label takes the target holding its checkbox at the same depth", () => {
+	const box = `<input type="checkbox" name="t" value="a">`
+	const from = form(`<label>${box}</label>`)
+	const input = check(from, "a")
+
+	morph(from, form(`<label><span>${box}</span></label><label class="z">${box}</label>`), { preserveChanges: true })
+
+	expect(from.querySelector("label.z input")).toBe(input)
+	expect(input.checked).toBe(true)
+})
+
+test("a ticked checkbox keeps a target whose id belongs to an element that can't become it", () => {
+	const from = form(`<div id="x"></div><input type="checkbox">`)
+	const input = from.querySelector("input")!
+	input.checked = true
+
+	morph(from, form(`<input type="checkbox" id="x">`), { preserveChanges: true })
+
+	expect(from.querySelector("input")).toBe(input)
+	expect(input.checked).toBe(true)
+})
+
+test("ticked labels aren't compared pair by pair with their targets", () => {
+	const label = `<label><input type="checkbox" name="t" value="a">x</label>`
+	const from = form(label.repeat(100))
+	for (const input of from.querySelectorAll("input")) input.checked = true
+	const isEqualNode = vi.spyOn(Node.prototype, "isEqualNode")
+	let comparisons = 0
+
+	try {
+		morph(from, form(`<b></b>${label.repeat(100)}`), { preserveChanges: true })
+	} finally {
+		comparisons = isEqualNode.mock.calls.length
+		isEqualNode.mockRestore()
+	}
+
+	expect(comparisons).toBeLessThan(1000)
+	expect(new FormData(from).getAll("t").length).toBe(100)
 })

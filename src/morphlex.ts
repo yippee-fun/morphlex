@@ -593,6 +593,7 @@ class Morph {
 	// once in each tree is moved to wherever the target puts that id, even under another parent.
 	readonly #liveElementsById: Map<string, Element | null> = new Map()
 	readonly #targetIdCounts: Map<string, number> = new Map()
+	readonly #targetElementsById: Map<string, Element> = new Map()
 	// Movable elements left where they were, to be removed at the end unless they moved.
 	#unplacedElements: Array<Element> | null = null
 	// Approved removals put off until the end, because the node holds an element that may move out.
@@ -1042,7 +1043,9 @@ class Morph {
 		}
 
 		// Match elements by isEqualNode. Equal nodes have equal text content, so with many siblings,
-		// bucket the candidates by it rather than comparing every pair.
+		// bucket the candidates by it rather than comparing every pair. An element holding the user's changes can't
+		// equal its target, so it's left for the pass after this one.
+		const dirtyElements = this.#dirtyElements
 		const candidatesByText =
 			candidateElementIndices.length * unmatchedElementIndices.length > 1024
 				? bucketByTextContent(fromChildNodes, candidateElementIndices)
@@ -1066,6 +1069,7 @@ class Morph {
 				if (localName !== candidateLocalNameMap[candidateIndex]) continue
 				if (namespaceURIMap[unmatchedIndex] !== candidateNamespaceURIMap[candidateIndex]) continue
 				const candidate = fromChildNodes[candidateIndex] as Element
+				if (dirtyElements?.has(candidate)) continue
 
 				if (isEqualNode(candidate, element)) {
 					matches[unmatchedIndex] = candidateIndex
@@ -1079,7 +1083,6 @@ class Morph {
 
 		// Match elements that only differ by the user's changes, so a changed control keeps its own target.
 		// Such elements share their shape, so the candidates are bucketed by it rather than comparing every pair.
-		const dirtyElements = this.#dirtyElements
 		let candidatesByShape: Map<string, Array<number>> | null = null
 		if (dirtyElements) {
 			candidatesByShape = new Map()
@@ -1834,20 +1837,29 @@ class Morph {
 	}
 
 	// How often each choice appears in the target, and how many choices it holds. A control with a movable id
-	// keeps its live element wherever it goes, so it isn't a choice the target can keep for a wrapper.
+	// keeps its live element wherever it goes, so it isn't a choice the target can keep for a wrapper. Each choice
+	// is keyed with the path down to its control too, which the live control's path has to match to be kept.
 	#targetChoicesOf(element: Element): { counts: Map<string, number>; size: number } {
 		let targetChoices = this.#targetChoices.get(element)
 		if (!targetChoices) {
 			const choices: Array<string> = []
 			for (const control of [element, ...element.querySelectorAll("input, option")]) {
-				if (this.#isClobberedWithin(control, element) || this.#movableElement(control.id)) continue
+				if (this.#isClobberedWithin(control, element) || this.#movesById(control)) continue
 				const choice = this.#choiceOf(control)
-				if (choice !== null) choices.push(choice)
+				if (choice !== null) choices.push(pathTo(control, element) + choice)
 			}
 			targetChoices = { counts: countChoices(choices), size: choices.length }
 			this.#targetChoices.set(element, targetChoices)
 		}
 		return targetChoices
+	}
+
+	// Whether the control's id pairs a live element with a target it can be morphed into, so the live element
+	// moves there, wherever the control's wrapper goes.
+	#movesById(control: Element): boolean {
+		const live = this.#movableElement(control.id)
+		const target = live && this.#targetElementsById.get(control.id)
+		return !!target && canMorphElementInPlace(live, target)
 	}
 
 	// Whether the target is, or holds, a `morphlex-clobber` element.
@@ -1903,10 +1915,11 @@ class Morph {
 		const choices: Array<string> = []
 		const picked: Array<string> = []
 		for (const control of [element, ...element.querySelectorAll("input, option")]) {
-			const choice = this.#flagged.has(control) && !this.#movableElement(control.id) ? this.#choiceOf(control) : null
+			const choice = this.#flagged.has(control) && !this.#movesById(control) ? this.#choiceOf(control) : null
 			if (choice === null) continue
-			choices.push(choice)
-			if (control === element || !isLeftChoice(control)) picked.push(choice)
+			const key = pathTo(control, element) + choice
+			choices.push(key)
+			if (control === element || !isLeftChoice(control)) picked.push(key)
 		}
 		return choices.length ? { choices, picked } : null
 	}
@@ -2201,6 +2214,7 @@ class Morph {
 		forEachDescendantElementWithId(node, (element) => {
 			const id = element.id
 			targetIdCounts.set(id, (targetIdCounts.get(id) ?? 0) + 1)
+			this.#targetElementsById.set(id, element)
 
 			let currentElement: Element | null = element
 
@@ -2366,6 +2380,17 @@ function choiceOf(element: Element, select: HTMLSelectElement | null): string | 
 function formOf(control: Element): string | null {
 	const form = control.getAttribute("form")
 	return form && form === control.closest("form")?.id ? null : form
+}
+
+// The names and `is` of the elements between the wrapper and the control. The wrapper's morph only keeps a
+// control whose path matches, since an element with another name or `is` is replaced along with what it holds.
+function pathTo(control: Element, wrapper: Element): string {
+	const path: Array<[string, string | null]> = []
+	for (let node = control; node !== wrapper;) {
+		node = node.parentElement!
+		if (node !== wrapper) path.push([node.localName, node.getAttribute("is")])
+	}
+	return JSON.stringify(path)
 }
 
 // How often each choice appears.
