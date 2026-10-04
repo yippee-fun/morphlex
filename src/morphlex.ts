@@ -279,7 +279,7 @@ function flagDirtyInputs(node: Element): Array<Element> {
 			flagDirty(node, flagged)
 		}
 	} else if (isTextAreaElement(node)) {
-		if (node.value !== node.defaultValue) {
+		if (isDirtyTextArea(node)) {
 			flagDirty(node, flagged)
 		}
 	}
@@ -300,7 +300,7 @@ function flagDirtyInputs(node: Element): Array<Element> {
 	}
 
 	for (const element of node.querySelectorAll("textarea")) {
-		if (isTextAreaElement(element) && element.value !== element.defaultValue) {
+		if (isTextAreaElement(element) && isDirtyTextArea(element)) {
 			flagDirty(element, flagged)
 		}
 	}
@@ -321,7 +321,65 @@ function isDirtyInput(input: HTMLInputElement): boolean {
 		return input.checked !== input.defaultChecked
 	}
 
-	return input.value !== input.defaultValue
+	return input.value !== input.defaultValue && hasDirtyValue(input)
+}
+
+let probeDocument: Document | null = null
+
+// A clone keeps an input's value and dirty value flag. Cloning into a document without
+// custom elements keeps a customized built-in from upgrading.
+function probeClone(input: HTMLInputElement): HTMLInputElement {
+	probeDocument ??= input.ownerDocument.implementation.createHTMLDocument("")
+	return probeDocument.importNode(input) as HTMLInputElement
+}
+
+// The browser sanitizes `.value` for many input types, so it can differ from the `value`
+// attribute when the user changed nothing: a range with no value reads "50", and email
+// inputs trim spaces. Only the browser knows if the user changed it. A clone keeps that
+// dirty flag, and while it's unset a text input's value follows its `value` attribute.
+// A file input ignores its `value` attribute and has a value only once the user picks a file.
+function hasDirtyValue(input: HTMLInputElement): boolean {
+	if (input.type === "file") return input.value !== ""
+	const clone = probeClone(input)
+	clone.type = "text"
+	const probe = clone.value === "a" ? "b" : "a"
+	clone.defaultValue = probe
+	return clone.value !== probe
+}
+
+// The attributes besides `type` and `value` that the browser sanitizes an input's value with.
+const SANITIZING_ATTRIBUTES = ["min", "max", "step", "multiple"]
+
+// An untouched input can still differ from its target, because the browser sanitizes its value
+// as attributes change: a range that gains `max="10"` clamps 50 to 10, while the parsed target
+// shows 5. Setting the `value` attribute again sanitizes it afresh, without marking it as changed
+// the way assigning `.value` would. Try it on a clone first, so it only happens when it helps.
+// Returns whether it dealt with the input, so assigning `.value` isn't needed. An untouched input
+// whose sanitizing attribute update was vetoed is left alone on purpose.
+function resanitizeValue(input: HTMLInputElement, target: Element, value: string | null, shown: string): boolean {
+	/* v8 ignore start -- happy-dom doesn't sanitize values, so an untouched input always matches its target there */
+	if (hasDirtyValue(input)) return false
+	if (SANITIZING_ATTRIBUTES.some((name) => input.getAttribute(name) !== target.getAttribute(name))) return true
+	const clone = probeClone(input)
+	setValueAttribute(clone, value)
+	if (clone.value !== shown) return false
+	setValueAttribute(input, value)
+	return true
+}
+
+function setValueAttribute(input: HTMLInputElement, value: string | null): void {
+	if (value === null) {
+		input.setAttribute("value", "")
+		input.removeAttribute("value")
+	} else {
+		input.setAttribute("value", value)
+	}
+}
+/* v8 ignore stop */
+
+// The browser turns carriage returns into line feeds in a textarea's `.value`.
+function isDirtyTextArea(textarea: HTMLTextAreaElement): boolean {
+	return textarea.value !== textarea.defaultValue.replace(/\r\n?/g, "\n")
 }
 
 // A single select shows one option as selected even when no option has a `selected`
@@ -344,6 +402,7 @@ function isDirtyOption(
 
 // The last option with a `selected` attribute wins. Without one, a drop-down
 // (display size 1) selects its first enabled option and a list box selects nothing.
+// When every option is disabled, some browsers select the first one anyway.
 function defaultOptionOf(select: HTMLSelectElement): HTMLOptionElement | null {
 	const options = select.options
 	let firstEnabled: HTMLOptionElement | null = null
@@ -354,7 +413,22 @@ function defaultOptionOf(select: HTMLSelectElement): HTMLOptionElement | null {
 		if (!isDisabledOption(option)) firstEnabled = option
 	}
 
-	return displaySizeOf(select) > 1 ? null : firstEnabled
+	if (displaySizeOf(select) > 1) return null
+	/* v8 ignore next -- only WebKit selects a disabled option */
+	return firstEnabled ?? (selectsDisabledOption(select.ownerDocument) ? (options[0] ?? null) : null)
+}
+
+let disabledOptionSelected: boolean | undefined
+
+function selectsDisabledOption(document: Document): boolean {
+	if (disabledOptionSelected === undefined) {
+		const select = document.createElement("select")
+		const option = document.createElement("option")
+		option.disabled = true
+		select.append(option)
+		disabledOptionSelected = select.selectedIndex === 0
+	}
+	return disabledOptionSelected
 }
 
 // HTML integer parsing skips only ASCII whitespace, where `parseInt` skips any whitespace.
@@ -852,16 +926,19 @@ class Morph {
 			}
 
 			// Checkbox and radio values aren't user-editable, and assigning them writes the value attribute.
+			// The browser sanitizes both values, so compare with what the target's markup shows.
 			const type = from.type
 			const value = to.getAttribute("value")
+			const target = to as HTMLInputElement
 			if (
 				type !== "file" &&
 				type !== "checkbox" &&
 				type !== "radio" &&
-				from.value !== (value ?? "") &&
+				type === target.type &&
 				from.getAttribute("value") === value
 			) {
-				from.value = value ?? ""
+				const shown = isDirtyInput(target) ? (value ?? "") : target.value
+				if (from.value !== shown && !resanitizeValue(from, to, value, shown)) from.value = shown
 			}
 		} else if (isOptionElement(from)) {
 			const selected = to.hasAttribute("selected")
@@ -883,7 +960,7 @@ class Morph {
 		if (this.#preserveChanges) return
 
 		// Assigning `.value` marks it dirty, so only do it when it has actually diverged.
-		if (from.value !== from.defaultValue) {
+		if (isDirtyTextArea(from)) {
 			from.value = from.defaultValue
 		}
 	}
