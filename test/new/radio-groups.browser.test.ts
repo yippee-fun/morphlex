@@ -605,3 +605,30 @@ test("a checked radio naming a form whose id changes or goes stays checked", () 
 	expect(radio(host, "y").checked).toBe(true)
 	host.remove()
 })
+
+test.skipIf(!groupsRadiosByForm())(
+	"a checked radio whose form changes and whose markup unchecks it leaves its new group alone",
+	() => {
+		const host = mount(
+			`<form id="f"></form><form id="g"></form><input id="y" type="radio" name="r" form="g"><div><input id="b" type="radio" name="r" form="f"></div>`,
+		)
+		radio(host, "y").checked = true
+		radio(host, "b").checked = true
+
+		morph(host.querySelector("div")!, parse(`<div><input id="b" type="radio" name="r" form="g"></div>`))
+
+		expect(checkedIds(host)).toBe("y")
+		host.remove()
+	},
+)
+
+test.skipIf(!groupsRadiosByForm())("a radio inside a form whose id changes leaves the group it joins alone", () => {
+	const host = mount(`<form id="f"><input id="b" type="radio" name="r" form="f"></form><input id="a" type="radio" name="r">`)
+	radio(host, "b").checked = true
+	radio(host, "a").checked = true
+
+	morph(host.querySelector("form")!, parse(`<form id="g"><input id="b" type="radio" name="r" form="f"></form>`))
+
+	expect(checkedIds(host)).toBe("a")
+	host.remove()
+})
