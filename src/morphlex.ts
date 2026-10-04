@@ -1345,7 +1345,9 @@ class Morph {
 							break
 						}
 					}
-					if (allChoices && lists.length) lists = [lists.reduce((a, b) => (b.length < a.length ? b : a))]
+					// A target the candidate can take is in its lists, so without any it has none.
+					if (!lists.length) continue
+					if (allChoices) lists = [lists.reduce((a, b) => (b.length < a.length ? b : a))]
 					const heads: Array<number> = []
 					for (const list of lists) {
 						let head = untried.get(list) ?? 0
