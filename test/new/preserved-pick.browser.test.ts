@@ -1073,3 +1073,53 @@ test("ticked labels aren't compared pair by pair with their targets", () => {
 	expect(comparisons).toBeLessThan(1000)
 	expect(new FormData(from).getAll("t").length).toBe(100)
 })
+
+test("a ticked label doesn't take a target whose element around the checkbox moves in from elsewhere", () => {
+	const from = form(`<span id="s"></span><label><span><input type="checkbox" name="t" value="a"></span></label>`)
+	const input = check(from, "a")
+
+	morph(
+		from,
+		form(
+			`<label><span id="s"><input type="checkbox" name="t" value="a"></span></label>` +
+				`<label class="z"><b id="b"></b><span><input type="checkbox" name="t" value="a"></span></label>`,
+		),
+		{ preserveChanges: true },
+	)
+
+	expect(from.querySelector("label.z input")).toBe(input)
+	expect(input.checked).toBe(true)
+})
+
+test("a ticked label doesn't take a target whose element around the checkbox is in another namespace", () => {
+	const from = form(`<label><span><input type="checkbox" name="t" value="a"></span></label>`)
+	const input = check(from, "a")
+	const to = document.createElement("form")
+	for (const namespace of ["http://www.w3.org/2000/svg", "http://www.w3.org/1999/xhtml"]) {
+		const label = to.appendChild(document.createElement("label"))
+		const span = label.appendChild(document.createElementNS(namespace, "span"))
+		const box = span.appendChild(document.createElement("input"))
+		box.type = "checkbox"
+		box.name = "t"
+		box.value = "a"
+	}
+	to.lastElementChild!.className = "z"
+
+	morph(from, to, { preserveChanges: true })
+
+	expect(from.querySelector("label.z input")).toBe(input)
+	expect(input.checked).toBe(true)
+})
+
+test("a ticked checkbox takes a target without an id before one that gained an id", () => {
+	const from = form(`<input type="checkbox" name="t" value="a">`)
+	const input = check(from, "a")
+
+	morph(from, form(`<input type="checkbox" name="t" value="a" id="new"><input type="checkbox" name="t" value="a" data-x="1">`), {
+		preserveChanges: true,
+	})
+
+	expect(from.querySelectorAll("input")[1]).toBe(input)
+	expect(input.checked).toBe(true)
+	expect((from.querySelector("#new") as HTMLInputElement).checked).toBe(false)
+})

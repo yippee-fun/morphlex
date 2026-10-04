@@ -1214,7 +1214,8 @@ class Morph {
 		// choice, and a wrapper without its own identity holding some to a target holding one of the same choices,
 		// so other elements can't take their targets and the user's choices keep their values. A wrapper tries targets
 		// without their own identity first, so a new label with an id can't take its place, but can still take its own
-		// target when it gains an id. Then targets with the same attributes apart from class and style, so a form doesn't
+		// target when it gains an id. A changed control, or a select, tries targets without an id first in the same way.
+		// Then targets with the same attributes apart from class and style, so a form doesn't
 		// take another form's target for holding the same choice, and then targets holding all of its choices.
 		if (this.#preserveChanges && dirtyElements) {
 			// Candidates holding more choices go first, so one holding fewer can't take the only target holding them all.
@@ -1256,7 +1257,10 @@ class Morph {
 					const element = toChildNodes[target] as Element
 					return (
 						hasSameIs(candidate, element) &&
-						(this.#holdsOwnChoices(candidate) || identified !== canSoftMatchByTagName(element, this.#idArrayMap.has(element))) &&
+						identified ===
+							(this.#holdsOwnChoices(candidate)
+								? this.#idArrayMap.has(element)
+								: !canSoftMatchByTagName(element, this.#idArrayMap.has(element))) &&
 						this.#holdsChoices(choices, element, allChoices)
 					)
 				}
@@ -1844,7 +1848,7 @@ class Morph {
 		if (!targetChoices) {
 			const choices: Array<string> = []
 			for (const control of [element, ...element.querySelectorAll("input, option")]) {
-				if (this.#isClobberedWithin(control, element) || this.#movesById(control)) continue
+				if (this.#isClobberedWithin(control, element) || this.#movesWithin(control, element)) continue
 				const choice = this.#choiceOf(control)
 				if (choice !== null) choices.push(pathTo(control, element) + choice)
 			}
@@ -1854,12 +1858,15 @@ class Morph {
 		return targetChoices
 	}
 
-	// Whether the control's id pairs a live element with a target it can be morphed into, so the live element
-	// moves there, wherever the control's wrapper goes.
-	#movesById(control: Element): boolean {
-		const live = this.#movableElement(control.id)
-		const target = live && this.#targetElementsById.get(control.id)
-		return !!target && canMorphElementInPlace(live, target)
+	// Whether the control, or an element between it and the wrapper, has an id pairing a live element with a target
+	// it can be morphed into, so the control moves with that element, wherever the wrapper goes.
+	#movesWithin(control: Element, wrapper: Element): boolean {
+		for (let node: Element = control; node !== wrapper; node = node.parentElement!) {
+			const live = this.#movableElement(node.id)
+			const target = live && this.#targetElementsById.get(node.id)
+			if (target && canMorphElementInPlace(live, target)) return true
+		}
+		return false
 	}
 
 	// Whether the target is, or holds, a `morphlex-clobber` element.
@@ -1915,7 +1922,7 @@ class Morph {
 		const choices: Array<string> = []
 		const picked: Array<string> = []
 		for (const control of [element, ...element.querySelectorAll("input, option")]) {
-			const choice = this.#flagged.has(control) && !this.#movesById(control) ? this.#choiceOf(control) : null
+			const choice = this.#flagged.has(control) && !this.#movesWithin(control, element) ? this.#choiceOf(control) : null
 			if (choice === null) continue
 			const key = pathTo(control, element) + choice
 			choices.push(key)
@@ -2382,13 +2389,13 @@ function formOf(control: Element): string | null {
 	return form && form === control.closest("form")?.id ? null : form
 }
 
-// The names and `is` of the elements between the wrapper and the control. The wrapper's morph only keeps a
+// The namespaces, names and `is` of the elements between the wrapper and the control. The wrapper's morph only keeps a
 // control whose path matches, since an element with another name or `is` is replaced along with what it holds.
 function pathTo(control: Element, wrapper: Element): string {
-	const path: Array<[string, string | null]> = []
+	const path: Array<[string | null, string, string | null]> = []
 	for (let node = control; node !== wrapper;) {
 		node = node.parentElement!
-		if (node !== wrapper) path.push([node.localName, node.getAttribute("is")])
+		if (node !== wrapper) path.push([node.namespaceURI, node.localName, node.getAttribute("is")])
 	}
 	return JSON.stringify(path)
 }
