@@ -700,5 +700,5 @@ test("a list box the user cleared stays cleared when another select with its nam
 	)
 
 	expect(from.querySelectorAll("select")[1]).toBe(select)
-	expect(new FormData(from).getAll("s")).toEqual([])
+	expect(select.selectedOptions.length).toBe(0)
 })
