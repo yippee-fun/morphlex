@@ -360,6 +360,22 @@ test("a vetoed element keeps a descendant that the target wraps around it", () =
 	}
 })
 
+test("a vetoed element keeps a descendant when another move is what reaches it", () => {
+	for (const veto of ["beforeNodeVisited", "beforeChildrenVisited"]) {
+		const host = mount(`<div><div id="w"><section id="a"><b id="b">x</b></section></div><div><span id="c"></span></div></div>`)
+		const a = host.querySelector("#a")!
+		const b = host.querySelector("#b")!
+
+		morph(host.firstElementChild!, parse(`<div><b id="b">x</b><span id="c"><section id="a"></section></span></div>`), {
+			[veto]: (node: Node) => node !== a,
+		})
+
+		expect(b.parentElement).toBe(a)
+		expect(a.innerHTML).toBe(`<b id="b">x</b>`)
+		host.remove()
+	}
+})
+
 test("an element wrapped in its own descendant keeps its node, and the descendant is recreated", () => {
 	const host = mount(`<div><section id="a"><span id="b"><input id="c"></span></section></div>`)
 	const a = host.querySelector("#a")!

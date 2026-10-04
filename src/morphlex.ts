@@ -567,6 +567,9 @@ class Morph {
 	// Moves wait for the morph to settle, because a later veto can still pin the element where it is.
 	#pendingMoves: Array<PendingMove> | null = null
 	readonly #claimedElements: Map<Element, PendingMove> = new Map()
+	readonly #movesInProgress: Set<PendingMove> = new Set()
+	// The latest pending move whose target holds each id.
+	readonly #movesByTargetId: Map<string, PendingMove> = new Map()
 	// Pending moves and removals are settled when the root's children have been visited, or when
 	// the root is replaced, so the root's own callbacks see the finished DOM.
 	#root: Node | null = null
@@ -1440,18 +1443,24 @@ class Morph {
 
 	// Put the live element where its placeholder is and morph it into the target, unless a veto
 	// pinned it in the meantime. Then the target is added as a new node instead.
-	#completeMove({ live, target, placeholder, preserveChanges, approved }: PendingMove): void {
+	#completeMove(move: PendingMove): void {
+		const { live, target, placeholder, preserveChanges, approved } = move
 		// A move completes once, even when another move completed it first.
-		if (!this.#claimedElements.has(live)) return
+		if (!this.#claimedElements.has(live) || this.#movesInProgress.has(move)) return
 
-		// A claimed element inside another claimed element waits for that one, whose morph can still pin it.
-		for (let ancestor = live.parentElement; ancestor; ancestor = ancestor.parentElement) {
-			const move = this.#claimedElements.get(ancestor)
-			if (move) {
-				this.#completeMove(move)
-				break
+		// An element doesn't move out of an ancestor whose visit can still be vetoed: one that's claimed,
+		// or one that a pending move will reach. Those moves complete first. A cycle of moves goes in order.
+		this.#movesInProgress.add(move)
+		for (let ancestor = live.parentElement; ancestor; ) {
+			const first = this.#claimedElements.get(ancestor) ?? this.#moveReaching(ancestor)
+			if (first && !this.#movesInProgress.has(first)) {
+				this.#completeMove(first)
+				ancestor = live.parentElement
+			} else {
+				ancestor = ancestor.parentElement
 			}
 		}
+		this.#movesInProgress.delete(move)
 		this.#claimedElements.delete(live)
 
 		// A custom element's `connectedCallback` can replace its children, placeholder included.
@@ -1596,7 +1605,16 @@ class Morph {
 		const move = { live, target, placeholder, preserveChanges, approved }
 		;(this.#pendingMoves ??= []).push(move)
 		this.#claimedElements.set(live, move)
+		const ids = this.#idArrayMap.get(target)
+		if (ids) for (const id of ids) this.#movesByTargetId.set(id, move)
 		return placeholder
+	}
+
+	// The pending move whose target holds the target of this live element, if it's still to be placed.
+	#moveReaching(element: Element): PendingMove | undefined {
+		if (element.id === "" || this.#liveElementsById.get(element.id) !== element) return undefined
+		const move = this.#movesByTargetId.get(element.id)
+		return move && this.#claimedElements.has(move.live) ? move : undefined
 	}
 
 	// A new node can hold targets for live elements elsewhere. Claim each live element, leaving a
