@@ -277,7 +277,7 @@ function flagDirtyInputs(node: Element): Array<Element> {
 			flagged.push(node)
 		}
 	} else if (isTextAreaElement(node)) {
-		if (node.value !== node.defaultValue) {
+		if (isDirtyTextArea(node)) {
 			node.setAttribute("morphlex-dirty", "")
 			flagged.push(node)
 		}
@@ -301,7 +301,7 @@ function flagDirtyInputs(node: Element): Array<Element> {
 	}
 
 	for (const element of node.querySelectorAll("textarea")) {
-		if (isTextAreaElement(element) && element.value !== element.defaultValue) {
+		if (isTextAreaElement(element) && isDirtyTextArea(element)) {
 			element.setAttribute("morphlex-dirty", "")
 			flagged.push(element)
 		}
@@ -317,7 +317,26 @@ function isDirtyInput(input: HTMLInputElement): boolean {
 		return input.checked !== input.defaultChecked
 	}
 
-	return input.value !== input.defaultValue
+	return input.value !== input.defaultValue && hasDirtyValue(input)
+}
+
+// The browser sanitizes `.value` for many input types, so it can differ from the `value`
+// attribute when the user changed nothing: a range with no value reads "50", and email
+// inputs trim spaces. Only the browser knows if the user changed it. A clone keeps that
+// dirty flag, and while it's unset a text input's value follows its `value` attribute.
+// A file input ignores its `value` attribute and has a value only once the user picks a file.
+function hasDirtyValue(input: HTMLInputElement): boolean {
+	if (input.type === "file") return input.value !== ""
+	const clone = input.cloneNode(false) as HTMLInputElement
+	clone.type = "text"
+	const probe = clone.value === "a" ? "b" : "a"
+	clone.defaultValue = probe
+	return clone.value !== probe
+}
+
+// The browser turns carriage returns into line feeds in a textarea's `.value`.
+function isDirtyTextArea(textarea: HTMLTextAreaElement): boolean {
+	return textarea.value !== textarea.defaultValue.replace(/\r\n?/g, "\n")
 }
 
 // A single select shows one option as selected even when no option has a `selected`
@@ -835,6 +854,7 @@ class Morph {
 			}
 
 			// Checkbox and radio values aren't user-editable, and assigning them writes the value attribute.
+			// An input the user didn't change already follows its attribute, and assigning would mark it changed.
 			const type = from.type
 			const value = to.getAttribute("value")
 			if (
@@ -842,7 +862,8 @@ class Morph {
 				type !== "checkbox" &&
 				type !== "radio" &&
 				from.value !== (value ?? "") &&
-				from.getAttribute("value") === value
+				from.getAttribute("value") === value &&
+				hasDirtyValue(from)
 			) {
 				from.value = value ?? ""
 			}
@@ -866,7 +887,7 @@ class Morph {
 		if (this.#preserveChanges) return
 
 		// Assigning `.value` marks it dirty, so only do it when it has actually diverged.
-		if (from.value !== from.defaultValue) {
+		if (isDirtyTextArea(from)) {
 			from.value = from.defaultValue
 		}
 	}

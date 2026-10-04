@@ -41,9 +41,24 @@ const TAGS = [
 const SVG_TAGS = ["g", "circle", "text", "title", "a", "rect"] as const
 const VOID_TAGS = ["input", "img"]
 const IDS = ["a", "b", "c", "d", "e", "f"]
-const ATTRIBUTES = ["class", "data-x", "title", "name", "href", "value", "type", "checked", "selected", "open", "disabled"]
-const INPUT_TYPES = ["text", "checkbox", "radio", "hidden"]
-const ATTRIBUTE_VALUES = ["", "1", "2", "on"]
+const ATTRIBUTES = [
+	"class",
+	"data-x",
+	"title",
+	"name",
+	"href",
+	"value",
+	"type",
+	"checked",
+	"selected",
+	"open",
+	"disabled",
+	"min",
+	"max",
+]
+// Most of these sanitize their value, so an untouched one can read differently from its `value` attribute.
+const INPUT_TYPES = ["text", "checkbox", "radio", "hidden", "range", "color", "email", "number", "date", "file"]
+const ATTRIBUTE_VALUES = ["", "1", "2", "on", " 3 ", "200", "a\nb", "#ABCDEF"]
 const TEXTS = ["", " ", "\n  ", "hello", "world", " ", "x y", "123"]
 
 test("the result matches the target", () => {
@@ -255,7 +270,11 @@ function changeControls(host: HTMLElement, seed: number): Array<Change> {
 
 		if (control instanceof HTMLInputElement && (control.type === "checkbox" || control.type === "radio")) {
 			control.checked = !control.checked
-		} else if (control instanceof HTMLTextAreaElement || control.type !== "hidden") {
+		} else if (control instanceof HTMLTextAreaElement) {
+			control.value = `typed-${seed}`
+		} else if (control.type in TYPED_VALUES) {
+			control.value = TYPED_VALUES[control.type]!
+		} else if (control.type !== "hidden" && control.type !== "file") {
 			control.value = `typed-${seed}`
 		} else {
 			continue
@@ -266,6 +285,9 @@ function changeControls(host: HTMLElement, seed: number): Array<Change> {
 
 	return changes
 }
+
+// Values each type keeps as typed, so the change is real.
+const TYPED_VALUES: Record<string, string> = { range: "7", color: "#123456", number: "42", date: "2020-01-02" }
 
 // A control whose type changed (which morphlex allows for id-matched inputs) has a different kind of state.
 function isKept(host: HTMLElement, change: Change): boolean {
@@ -283,7 +305,8 @@ function readDefault(control: HTMLInputElement | HTMLTextAreaElement): string | 
 	if (control instanceof HTMLInputElement && (control.type === "checkbox" || control.type === "radio")) {
 		return control.defaultChecked
 	}
-	return control.defaultValue
+	// The browser sanitizes some types' values, so read what a fresh control with the same markup shows.
+	return (parse(control.outerHTML) as HTMLInputElement | HTMLTextAreaElement).value
 }
 
 function toHtml(nodes: Array<TreeNode>): string {

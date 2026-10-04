@@ -27,7 +27,7 @@ vi.setConfig({ testTimeout: Math.max(30_000, SEED_COUNT * 100) })
 const CONTAINERS = ["div", "span", "section", "b", "label", "form", "details"] as const
 const LEAVES = ["input", "textarea", "button", "img", "select"] as const
 const VOID_TAGS = ["input", "img"]
-const INPUT_TYPES = ["text", "checkbox", "radio", "hidden"]
+const INPUT_TYPES = ["text", "checkbox", "radio", "hidden", "range", "color"]
 const TEXTS = ["hello", "x y", "123", " "]
 const IS_VALUES = ["x-a", "x-b"]
 
