@@ -176,19 +176,7 @@ export function morphDocument(from: Document, to: Document | string, options?: O
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
 	if (typeof to === "string") to = parseFragment(to).childNodes
 
-	const clobbered = takeClobbered(to)
-	const select = selectOf(from)
-	const selection = select && markupSelectionOf(select)
-	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
-	// A root select's options are keyed by the live select, even if the target renames it and the rename is vetoed.
-	const keySelect = from.nodeType === ELEMENT_NODE_TYPE && isSelectElement(from as Element) ? (from as HTMLSelectElement) : select
-	try {
-		const morpher = new Morph(options, clobbered, flagged, keySelect)
-		if (select) morpher.setEnclosingSelect(select, selection!)
-		morpher.morph(from, to)
-	} finally {
-		if (flagged) clearDirtyFlags(flagged)
-	}
+	run(from, takeClobbered(to), options, (morpher) => morpher.morph(from, to))
 }
 
 /**
@@ -229,20 +217,25 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const toElement = to as Element
 		const clobbered = takeClobbered(toElement)
 		if (clobbered?.has(toElement)) options = { ...options, preserveChanges: false }
-		const select = selectOf(fromElement)
-		const selection = select && markupSelectionOf(select)
-		const flagged = flagDirtyInputs(fromElement)
-		// The target's options belong to the live select, whatever the target select is called.
-		const keySelect = isSelectElement(fromElement) ? fromElement : select
-		try {
-			const morpher = new Morph(options, clobbered, flagged, keySelect)
-			if (select) morpher.setEnclosingSelect(select, selection!)
-			morpher.morphChildren(fromElement, toElement)
-		} finally {
-			clearDirtyFlags(flagged)
-		}
+		run(fromElement, clobbered, options, (morpher) => morpher.morphChildren(fromElement, toElement))
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
+	}
+}
+
+// Flag the controls the user changed, note the select around the root and what its markup selects, and
+// run the morph. A root select's options are keyed by the live select, even if the target renames it and the
+// rename is vetoed.
+function run(from: ChildNode, clobbered: Set<Element> | null, options: Options, morph: (morpher: Morph) => void): void {
+	const select = selectOf(from)
+	const flagged = isElement(from) ? flagDirtyInputs(from) : null
+	const keySelect = isElement(from) && isSelectElement(from) ? from : select
+	try {
+		const morpher = new Morph(options, clobbered, flagged, keySelect)
+		if (select) morpher.setEnclosingSelect(select, markupSelectionOf(select))
+		morph(morpher)
+	} finally {
+		if (flagged) clearDirtyFlags(flagged)
 	}
 }
 
