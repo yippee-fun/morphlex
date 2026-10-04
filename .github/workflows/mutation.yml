@@ -1,0 +1,59 @@
+name: Mutation Testing
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    name: Stryker
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3
+
+      - name: Setup mise
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+
+      - name: Install dependencies
+        run: aube ci
+
+      # Pushes and pull requests only test the mutants their changes affect, starting from the last result on main.
+      # Stryker can't see changes to dependencies, config or test helpers, so those start a full run.
+      # It also reuses static mutants' results when tests change; the nightly full run catches those.
+      - name: Name incremental results
+        id: cache
+        run: echo "prefix=stryker-incremental-${{ hashFiles('package-lock.json', 'stryker.config.mjs', 'vitest.config.ts', 'test/**', '!test/**/*.test.ts') }}-" >> "$GITHUB_OUTPUT"
+
+      - name: Restore incremental results
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: reports/stryker-incremental.json
+          key: ${{ steps.cache.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.cache.outputs.prefix }}
+
+      - name: Run Stryker
+        run: aube run test:mutation ${{ github.event_name == 'schedule' && '--force' || '' }}
+
+      # Stryker writes its results before checking the threshold, so save them even when the score is too low.
+      - name: Save incremental results
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && hashFiles('reports/stryker-incremental.json') != '' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: reports/stryker-incremental.json
+          key: ${{ steps.cache.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stryker-report
+          path: reports/mutation/
