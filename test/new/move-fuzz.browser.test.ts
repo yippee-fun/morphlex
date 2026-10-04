@@ -40,7 +40,7 @@ test("the result matches the target, and every element that can move keeps its n
 
 		run(host, scenario)
 
-		const target = parse(scenario.toHtml)
+		const target = closeLaterAccordionItems(parse(scenario.toHtml))
 		if (scenario.shape === "one" ? !isSameTree(host.firstChild!, target) : !isSameChildren(host.firstChild!, target)) {
 			fail(host, "result differs from target")
 		}
@@ -453,6 +453,10 @@ function createNode(random: Random, depth: number, ids: { next: number }): TreeN
 	}
 	if (random() < 0.3) attributes.push(["class", pick(random, ["a", "b"])])
 	if (tag === "button" && random() < 0.4) attributes.push(["is", pick(random, IS_VALUES)])
+	if (tag === "details") {
+		if (random() < 0.6) attributes.push(["name", pick(random, ["g", "h"])])
+		if (random() < 0.5) attributes.push(["open", ""])
+	}
 
 	const children: Array<TreeNode> = []
 	if (tag === "select") {
@@ -549,6 +553,14 @@ function mutate(random: Random, nodes: Array<TreeNode>, ids: { next: number }): 
 		else parent.children.splice(index, 0, createNode(random, 2, ids))
 	} else if (node.kind === "element" && isCheckable(node) && random() < 0.5) {
 		toggleAttribute(node, "checked")
+	} else if (node.kind === "element" && node.tag === "details" && random() < 0.7) {
+		// Opening an item closes the rest of its group, and so does giving an open item a name.
+		if (random() < 0.5) {
+			toggleAttribute(node, "open")
+		} else {
+			node.attributes = node.attributes.filter(([name]) => name !== "name")
+			if (random() < 0.7) node.attributes.push(["name", pick(random, ["g", "h"])])
+		}
 	} else if (node.kind === "element" && node.tag === "button" && random() < 0.5) {
 		node.attributes = node.attributes.filter(([name]) => name !== "is")
 		if (random() < 0.7) node.attributes.push(["is", pick(random, IS_VALUES)])
@@ -683,6 +695,20 @@ function parse(html: string): HTMLElement {
 	const template = document.createElement("template")
 	template.innerHTML = html
 	return template.content.firstChild as HTMLElement
+}
+
+// WebKit lets a parsed template keep several open items in one accordion. In a document only the
+// first stays open, as Chromium's parser does, so close the later ones to get what the morph shows.
+function closeLaterAccordionItems<T extends Element>(root: T): T {
+	const open = new Set<string>()
+	const items = [...root.querySelectorAll(`details[open]:not([name=""])[name]`)]
+	if (root.matches(`details[open]:not([name=""])[name]`)) items.unshift(root)
+	for (const details of items) {
+		const name = details.getAttribute("name")!
+		if (open.has(name)) details.removeAttribute("open")
+		else open.add(name)
+	}
+	return root
 }
 
 function mount(html: string): HTMLElement {
