@@ -1,0 +1,271 @@
+import { expect, test } from "vitest"
+import { morph, morphInner } from "../../src/morphlex"
+
+// Opening a `details` closes the others with the same name, and inserting an open one, or giving an
+// open one a name, closes it when another in that group is open. happy-dom doesn't do this, so the
+// tests that need it to happen mid-morph close the item themselves in a callback.
+
+function mount(html: string): HTMLElement {
+	// A host a failed test left behind would hold open items in the same groups.
+	document.body.replaceChildren()
+	const host = document.createElement("div")
+	host.innerHTML = html
+	document.body.append(host)
+	return host
+}
+
+// happy-dom lets every item in a group be open at once.
+function closesOtherDetails(): boolean {
+	const host = mount(`<details name="probe" open></details><details name="probe"></details>`)
+	host.lastElementChild!.setAttribute("open", "")
+	const closed = !host.firstElementChild!.hasAttribute("open")
+	host.remove()
+	return closed
+}
+
+function openIds(host: Element): string {
+	return [...host.querySelectorAll("details")]
+		.filter((details) => details.hasAttribute("open"))
+		.map((details) => details.id)
+		.join(" ")
+}
+
+test("an open item replaced by a new open one stays open", () => {
+	const host = mount(`<div><details name="faq" id="q1" open><summary>Q1</summary></details></div>`)
+	morph(
+		host.firstElementChild!,
+		`<div><details name="faq" id="q2" open><summary>Q2</summary></details><span id="q1"></span></div>`,
+	)
+	expect(openIds(host)).toBe("q2")
+	host.remove()
+})
+
+test("an item that joins a group with open set before name stays open", () => {
+	const host = mount(`<div><details id="a" name="g" open></details><details id="b" name="x"></details></div>`)
+	morph(host.firstElementChild!, `<div><details id="b" open name="g"></details><details id="a" name="g"></details></div>`)
+	expect(openIds(host)).toBe("b")
+	host.remove()
+})
+
+test("an open item that the morph left alone stays open when another item leaves its group", () => {
+	const host = mount(`<div><details id="a" name="g" open></details><details id="b" name="g"></details></div>`)
+	morph(host.firstElementChild!, `<div><details id="a" name="g" open></details><details id="b" open name="x"></details></div>`)
+	expect(openIds(host)).toBe("a b")
+	host.remove()
+})
+
+test("an item opened before an earlier one leaves its group stays open", () => {
+	const host = mount(`<div><details id="a" name="g" open></details><details id="b" name="g"></details></div>`)
+	morph(host.firstElementChild!, `<div><details id="a" open name="h"></details><details id="b" name="g" open></details></div>`)
+	expect(openIds(host)).toBe("a b")
+	host.remove()
+})
+
+test("an item the user opened stays open when it is renamed into an empty group", () => {
+	const host = mount(`<div><details id="a" name="x"></details><details id="b" name="g"></details></div>`)
+	host.querySelector("#a")!.setAttribute("open", "")
+	morph(host.firstElementChild!, `<div><details id="a" name="g"></details><details id="b" name="g"></details></div>`, {
+		preserveChanges: true,
+	})
+	expect(openIds(host)).toBe("a")
+	host.remove()
+})
+
+test.skipIf(!closesOtherDetails())("an item renamed into a group where another is open stays closed", () => {
+	const host = mount(`<div><details id="a" name="g" open></details><details id="b" name="x" open></details></div>`)
+	morph(host.firstElementChild!, `<div><details id="a" name="g" open></details><details id="b" name="g" open></details></div>`, {
+		preserveChanges: true,
+	})
+	expect(openIds(host)).toBe("a")
+	host.remove()
+})
+
+test.skipIf(!closesOtherDetails())("the first of two new open items in a group is the one left open", () => {
+	const host = mount(`<div><details id="a" name="g" open></details></div>`)
+	morph(
+		host.firstElementChild!,
+		`<div><span id="a"></span><details id="b" name="g" open></details><details id="c" name="g" open></details></div>`,
+	)
+	expect(openIds(host)).toBe("b")
+	host.remove()
+})
+
+test.skipIf(!closesOtherDetails())("a new open item stays closed when an item outside the morph is open", () => {
+	const host = mount(`<details id="outside" name="g" open></details><div><details id="a" name="g"></details></div>`)
+	morph(host.lastElementChild!, `<div><details id="b" name="g" open></details></div>`)
+	expect(openIds(host)).toBe("outside")
+	host.remove()
+})
+
+test("a closed item the browser closed stays closed when the morph closes it too", () => {
+	const host = mount(`<div><details id="a" name="g" open></details></div>`)
+	morph(host.firstElementChild!, `<div><details id="a" name="g"></details><details id="b" name="g"></details></div>`)
+	expect(openIds(host)).toBe("")
+	host.remove()
+})
+
+test("an item keeps the value of its open attribute when it is reopened", () => {
+	const host = mount(`<div><details id="q1" name="g" open></details></div>`)
+	morph(host.firstElementChild!, `<div><details id="q2" name="g" open="yes"></details><span id="q1"></span></div>`, {
+		afterNodeAdded(node) {
+			if (node instanceof Element && node.id === "q2") node.removeAttribute("open")
+		},
+	})
+	expect(host.querySelector("#q2")!.getAttribute("open")).toBe("yes")
+	host.remove()
+})
+
+test("an item inside a new node is reopened", () => {
+	const host = mount(`<div><details id="q1" name="g" open></details></div>`)
+	morph(host.firstElementChild!, `<div><section><details id="q2" name="g" open></details></section><span id="q1"></span></div>`, {
+		afterNodeAdded(node) {
+			if (node instanceof Element) node.querySelector("details")?.removeAttribute("open")
+		},
+	})
+	expect(openIds(host)).toBe("q2")
+	host.remove()
+})
+
+test("an item without a name is reopened", () => {
+	const host = mount(`<div><details id="a" name="g"></details></div>`)
+	morph(host.firstElementChild!, `<div><details id="a" open></details></div>`, {
+		afterAttributeUpdated(element, name) {
+			if (name === "open") element.removeAttribute("open")
+		},
+	})
+	expect(openIds(host)).toBe("a")
+	host.remove()
+})
+
+test("an item whose closing is vetoed stays open when another item opens", () => {
+	const host = mount(`<div><details id="a" name="g" open></details><details id="b" name="g"></details></div>`)
+	morph(host.firstElementChild!, `<div><details id="a" name="g"></details><details id="b" name="g" open></details></div>`, {
+		beforeAttributeUpdated: (element, name) => !(element.id === "a" && name === "open"),
+	})
+	expect(host.querySelector("#a")!.hasAttribute("open")).toBe(true)
+	host.remove()
+})
+
+test("an item in a vetoed subtree stays open when another item opens", () => {
+	const host = mount(`<div><section><details name="g" open></details></section><details id="b" name="g"></details></div>`)
+	morph(host.firstElementChild!, `<div><section></section><details id="b" name="g" open></details></div>`, {
+		beforeNodeVisited: (node) => !(node instanceof Element && node.localName === "section"),
+	})
+	expect(host.querySelector("section details")!.hasAttribute("open")).toBe(true)
+	host.remove()
+})
+
+test("an item added by morphInner is reopened", () => {
+	const host = mount(`<div><details id="q1" name="g" open></details></div>`)
+	morphInner(host.firstElementChild!, `<div><details id="q2" name="g" open></details><span id="q1"></span></div>`)
+	expect(openIds(host)).toBe("q2")
+	host.remove()
+})
+
+test("items closed in any order are reopened", () => {
+	const host = mount(`<div><details id="a" name="g"></details></div>`)
+	morph(
+		host.firstElementChild!,
+		`<details id="a" name="g" open></details><details id="b" name="h" open></details><details id="c" name="i" open></details>`,
+		{
+			afterNodeAdded(node) {
+				if (node instanceof Element) node.removeAttribute("open")
+			},
+			afterAttributeUpdated(element, name) {
+				if (name === "open") element.removeAttribute("open")
+			},
+		},
+	)
+	expect(openIds(host)).toBe("a b c")
+	host.remove()
+})
+
+test("an item closed while another in its group is open stays closed", () => {
+	const host = mount(`<details id="outside" name="g" open></details><div><details id="a" name="g"></details></div>`)
+	morph(host.lastElementChild!, `<div><details id="b" name="g" open></details></div>`, {
+		afterNodeAdded(node) {
+			if (node instanceof Element) node.removeAttribute("open")
+		},
+	})
+	expect(openIds(host)).toBe("outside")
+	host.remove()
+})
+
+test("a closed item in a new node stays closed", () => {
+	const host = mount(`<div><p></p></div>`)
+	morph(
+		host.firstElementChild!,
+		`<div><section><details id="a" name="g"></details><details id="b" name="h" open></details></section></div>`,
+	)
+	expect(openIds(host)).toBe("b")
+	host.remove()
+})
+
+test("an item inside a new item is reopened", () => {
+	const host = mount(`<div><details id="q1" name="g" open></details></div>`)
+	morph(
+		host.firstElementChild!,
+		`<div><details id="outer"><details id="q2" name="g" open></details></details><span id="q1"></span></div>`,
+		{
+			afterNodeAdded(node) {
+				if (node instanceof Element) node.querySelector("#q2")?.removeAttribute("open")
+			},
+		},
+	)
+	expect(openIds(host)).toBe("q2")
+	host.remove()
+})
+
+// Random accordions, morphed into a shuffled copy where items are renamed, opened, closed, added and removed.
+test.skipIf(!closesOtherDetails())("items the user opened stay open, and other items show what the target says", () => {
+	const failures: Array<string> = []
+	for (let seed = 1; seed <= 300; seed++) {
+		const random = createRandom(seed)
+		const names = ["", "g", "h"]
+		const item = (id: number, open: boolean) =>
+			`<details id="d${id}"${pick(random, names) ? ` name="${pick(random, ["g", "h"])}"` : ""}${open ? " open" : ""}></details>`
+		const fromIds = [1, 2, 3, 4, 5].filter(() => random() < 0.8)
+		const fromHtml = `<div>${fromIds.map((id) => item(id, random() < 0.4)).join("")}</div>`
+		const toIds = [...fromIds.filter(() => random() < 0.8), 6, 7].filter((id) => id < 6 || random() < 0.5)
+		toIds.sort(() => random() - 0.5)
+		const toHtml = `<div>${toIds.map((id) => item(id, random() < 0.4)).join("")}</div>`
+		const preserveChanges = random() < 0.5
+
+		const host = mount(fromHtml)
+		const userOpened = preserveChanges ? [...host.querySelectorAll("details")].filter(() => random() < 0.3) : []
+		for (const details of userOpened) details.setAttribute("open", "")
+		const stillOpen = userOpened.filter((details) => details.hasAttribute("open"))
+		const names_ = new Map(stillOpen.map((details) => [details, details.getAttribute("name")]))
+
+		morph(host.firstElementChild!, toHtml, { preserveChanges })
+
+		const expected = document.createElement("div")
+		expected.innerHTML = toHtml
+		const describe = `seed ${seed}${preserveChanges ? " (preserveChanges)" : ""}: ${fromHtml} -> ${toHtml}, got ${host.innerHTML}`
+		if (preserveChanges) {
+			for (const details of stillOpen) {
+				if (host.contains(details) && details.getAttribute("name") === names_.get(details) && !details.hasAttribute("open")) {
+					failures.push(`${describe}, #${details.id} was closed`)
+				}
+			}
+		} else if (openIds(host) !== openIds(expected)) {
+			failures.push(describe)
+		}
+		host.remove()
+	}
+	expect(failures).toEqual([])
+})
+
+function pick<T>(random: () => number, values: ReadonlyArray<T>): T {
+	return values[Math.floor(random() * values.length)]!
+}
+
+function createRandom(seed: number): () => number {
+	let state = seed >>> 0
+	return () => {
+		state = (state + 0x6d2b79f5) >>> 0
+		let next = Math.imul(state ^ (state >>> 15), 1 | state)
+		next ^= next + Math.imul(next ^ (next >>> 7), 61 | next)
+		return ((next ^ (next >>> 14)) >>> 0) / 4294967296
+	}
+}

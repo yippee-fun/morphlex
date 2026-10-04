@@ -578,6 +578,12 @@ class Morph {
 	#preserveChanges: boolean
 	// Only a target with a checked input can add a checked radio, so other morphs skip looking for one.
 	#targetChecksInputs = false
+	// Items of exclusive accordions (`details` with a name) the morph wants open, with their `open` value.
+	// Inserting an open item, or giving one a name, closes it while another in its group is open, so the
+	// ones left closed are opened again when the morph settles.
+	#openDetails: Map<Element, string> | null = null
+	// Only a target with an open `details` can add one, so other morphs skip looking for one.
+	#targetOpensDetails = false
 
 	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
 		this.#options = options
@@ -669,6 +675,27 @@ class Morph {
 		if (radios) {
 			this.#radiosToSync = null
 			this.#syncRadioGroups(radios)
+		}
+
+		const openDetails = this.#openDetails
+		if (openDetails) {
+			this.#openDetails = null
+			this.#reopenDetails(openDetails)
+		}
+	}
+
+	// Open each item the morph wants open but the browser closed, in document order, so the first one wins
+	// as when parsing. An item stays closed while another in its group is open, since opening it would
+	// close that one, which is either wanted open too, outside the morph, vetoed or kept open by the user.
+	#reopenDetails(openDetails: Map<Element, string>): void {
+		const closed: Array<Element> = []
+		for (const details of openDetails.keys()) {
+			if (!details.hasAttribute("open") && this.#inScope(details)) closed.push(details)
+		}
+		closed.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+
+		for (const details of closed) {
+			if (openDetailsInGroup(details).length === 0) details.setAttribute("open", openDetails.get(details)!)
 		}
 	}
 
@@ -777,6 +804,9 @@ class Morph {
 			from.removeAttribute("morphlex-dirty")
 		}
 
+		const details = isDetailsElement(from)
+		const open = details ? from.getAttribute("open") : null
+
 		// First pass: update/add attributes from reference (iterate forwards)
 		const toAttributes = to.attributes
 		for (let i = 0; i < toAttributes.length; i++) {
@@ -789,7 +819,9 @@ class Morph {
 
 			if (oldValue === value) continue
 			if (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true) {
-				if (namespaceURI) {
+				if (details && name === "open" && namespaceURI === null && oldValue === null) {
+					this.#openDetailsItem(from, value)
+				} else if (namespaceURI) {
 					from.setAttributeNS(namespaceURI, name, value)
 				} else {
 					from.setAttribute(name, value)
@@ -821,8 +853,53 @@ class Morph {
 			}
 		}
 
+		if (details) this.#noteIntendedOpen(from, to, open)
+
 		if (!this.#preserveChanges) {
 			this.#resetFormProperties(from, to)
+		}
+	}
+
+	// Note the `open` value the morph means an accordion item to have, whatever the browser does to it:
+	// the target's, unless the update was vetoed, or `preserveChanges` keeps the item open or closed.
+	#noteIntendedOpen(details: Element, to: Element, open: string | null): void {
+		let intended = to.getAttribute("open")
+		if (this.#vetoedControls?.has(details)) intended = open
+		else if (this.#preserveChanges) intended = open === null ? null : (intended ?? open)
+
+		if (intended === null) {
+			this.#openDetails?.delete(details)
+		} else {
+			;(this.#openDetails ??= new Map()).set(details, intended)
+		}
+	}
+
+	// Opening an accordion item closes the open one in its group, which may be vetoed, kept by the user,
+	// or wanted open by the target, since the morph may not have reached it yet. So the item opens outside
+	// its group, and rejoining the group closes it instead. It's opened again when the morph settles, if
+	// nothing else in its group is open by then.
+	#openDetailsItem(details: Element, value: string): void {
+		const name = details.getAttribute("name")
+		if (name && openDetailsInGroup(details).length > 0) {
+			details.setAttribute("name", "")
+			details.setAttribute("open", value)
+			details.setAttribute("name", name)
+		} else {
+			details.setAttribute("open", value)
+		}
+	}
+
+	// Note the open accordion items in a new node, since the browser closes them on insertion while
+	// another item in their group is open.
+	#noteAddedDetails(element: Element): void {
+		const openDetails = (this.#openDetails ??= new Map())
+		const open = isDetailsElement(element) ? element.getAttribute("open") : null
+		if (open !== null) openDetails.set(element, open)
+		const items = element.getElementsByTagName("details")
+		for (let i = 0; i < items.length; i++) {
+			const item = items[i]!
+			const value = item.getAttribute("open")
+			if (value !== null) openDetails.set(item, value)
 		}
 	}
 
@@ -1410,9 +1487,14 @@ class Morph {
 		return false
 	}
 
-	// A vetoed `selected` or `checked` update leaves the selection alone, like other vetoed form attributes.
+	// A vetoed `selected` or `checked` update leaves the selection alone, like other vetoed form attributes,
+	// and a vetoed `open` update leaves an accordion item as it was.
 	#noteVetoedAttribute(element: Element, name: string): void {
-		if ((name === "selected" && isOptionElement(element)) || (name === "checked" && isInputElement(element))) {
+		if (
+			(name === "selected" && isOptionElement(element)) ||
+			(name === "checked" && isInputElement(element)) ||
+			(name === "open" && isDetailsElement(element))
+		) {
 			;(this.#vetoedControls ??= new Set()).add(element)
 		}
 	}
@@ -1439,6 +1521,7 @@ class Morph {
 
 		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, parent)
+		if (this.#targetOpensDetails && isElement(node)) this.#noteAddedDetails(node)
 		parent.insertBefore(node, insertionPoint)
 		if (this.#targetChecksInputs && !this.#preserveChanges && isElement(node)) this.#noteAddedRadios(node)
 		this.#options.afterNodeAdded?.(node)
@@ -1690,6 +1773,10 @@ class Morph {
 		if (!this.#targetChecksInputs) {
 			this.#targetChecksInputs =
 				isElement(node) && isInputElement(node) ? node.hasAttribute("checked") : node.querySelector("input[checked]") !== null
+		}
+		if (!this.#targetOpensDetails) {
+			this.#targetOpensDetails =
+				(isElement(node) && isDetailsElement(node) && node.hasAttribute("open")) || node.querySelector("details[open]") !== null
 		}
 
 		// An inner morph leaves the target's own element out of the result, so its id doesn't count.
@@ -1984,9 +2071,22 @@ function isDialogElement(element: Element): element is HTMLDialogElement {
 	return element.localName === "dialog" && element.namespaceURI === HTML_NAMESPACE
 }
 
+function isDetailsElement(element: Element): element is HTMLDetailsElement {
+	return element.localName === "details" && element.namespaceURI === HTML_NAMESPACE
+}
+
 // The `open` attribute on these elements is the live state the user toggles, not a default.
 function hasOpenState(element: Element): boolean {
-	return isDialogElement(element) || (element.localName === "details" && element.namespaceURI === HTML_NAMESPACE)
+	return isDialogElement(element) || isDetailsElement(element)
+}
+
+// The other open items in the same exclusive accordion as this one: same name, in the same tree.
+function openDetailsInGroup(details: Element): Array<Element> {
+	const name = details.getAttribute("name")
+	if (!name) return []
+
+	const candidates = [...(details.getRootNode() as ParentNode).querySelectorAll("details[open]")]
+	return candidates.filter((other) => other !== details && isDetailsElement(other) && other.getAttribute("name") === name)
 }
 
 function isSelectElement(element: Element): element is HTMLSelectElement {

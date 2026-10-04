@@ -452,6 +452,10 @@ function createNode(random: Random, depth: number, ids: { next: number }): TreeN
 	}
 	if (random() < 0.3) attributes.push(["class", pick(random, ["a", "b"])])
 	if (tag === "button" && random() < 0.4) attributes.push(["is", pick(random, IS_VALUES)])
+	if (tag === "details") {
+		if (random() < 0.6) attributes.push(["name", pick(random, ["g", "h"])])
+		if (random() < 0.5) attributes.push(["open", ""])
+	}
 
 	const children: Array<TreeNode> = []
 	if (tag === "select") {
@@ -548,6 +552,14 @@ function mutate(random: Random, nodes: Array<TreeNode>, ids: { next: number }): 
 		else parent.children.splice(index, 0, createNode(random, 2, ids))
 	} else if (node.kind === "element" && isCheckable(node) && random() < 0.5) {
 		toggleAttribute(node, "checked")
+	} else if (node.kind === "element" && node.tag === "details" && random() < 0.7) {
+		// Opening an item closes the rest of its group, and so does giving an open item a name.
+		if (random() < 0.5) {
+			toggleAttribute(node, "open")
+		} else {
+			node.attributes = node.attributes.filter(([name]) => name !== "name")
+			if (random() < 0.7) node.attributes.push(["name", pick(random, ["g", "h"])])
+		}
 	} else if (node.kind === "element" && node.tag === "button" && random() < 0.5) {
 		node.attributes = node.attributes.filter(([name]) => name !== "is")
 		if (random() < 0.7) node.attributes.push(["is", pick(random, IS_VALUES)])
