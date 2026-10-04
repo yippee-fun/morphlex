@@ -282,40 +282,18 @@ function flagDirtyInputs(node: Element): Array<Element> {
 	const defaultOptions: DefaultOptionMap = new Map()
 	let optionSelects: Map<Element, HTMLSelectElement> | null = null
 
-	if (isInputElement(node)) {
-		if (isDirtyInput(node)) {
-			flagDirty(node, flagged)
+	// The selector also matches elements with these names in other namespaces, like SVG.
+	for (const element of [node, ...node.querySelectorAll("input, option, textarea")]) {
+		let dirty = false
+		if (isInputElement(element)) {
+			dirty = isDirtyInput(element)
+		} else if (isOptionElement(element)) {
+			optionSelects ??= optionSelectsOf(node)
+			dirty = isDirtyOption(element, optionSelects.get(element), defaultOptions)
+		} else if (isTextAreaElement(element)) {
+			dirty = isDirtyTextArea(element)
 		}
-	} else if (isOptionElement(node)) {
-		optionSelects = optionSelectsOf(node)
-		if (isDirtyOption(node, optionSelects.get(node), defaultOptions)) {
-			flagDirty(node, flagged)
-		}
-	} else if (isTextAreaElement(node)) {
-		if (isDirtyTextArea(node)) {
-			flagDirty(node, flagged)
-		}
-	}
-
-	// The selectors also match elements with these names in other namespaces, like SVG.
-	for (const input of node.querySelectorAll("input")) {
-		if (isInputElement(input) && isDirtyInput(input)) {
-			flagDirty(input, flagged)
-		}
-	}
-
-	for (const element of node.querySelectorAll("option")) {
-		if (!isOptionElement(element)) continue
-		optionSelects ??= optionSelectsOf(node)
-		if (isDirtyOption(element, optionSelects.get(element), defaultOptions)) {
-			flagDirty(element, flagged)
-		}
-	}
-
-	for (const element of node.querySelectorAll("textarea")) {
-		if (isTextAreaElement(element) && isDirtyTextArea(element)) {
-			flagDirty(element, flagged)
-		}
+		if (dirty) flagDirty(element, flagged)
 	}
 
 	return flagged
