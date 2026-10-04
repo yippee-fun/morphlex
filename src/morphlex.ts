@@ -236,7 +236,9 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const select = selectOf(fromElement)
 		const selection = select && markupSelectionOf(select)
 		const flagged = flagDirtyInputs(fromElement)
-		const morpher = new Morph(options, clobbered, flagged, select)
+		// The target's options belong to the live select, whatever the target select is called.
+		const enclosingSelect = isSelectElement(fromElement) ? fromElement : select
+		const morpher = new Morph(options, clobbered, flagged, enclosingSelect)
 		morpher.morphChildren(fromElement, toElement)
 		if (select) morpher.syncEnclosingSelect(select, selection!)
 		clearDirtyFlags(flagged)
@@ -1227,10 +1229,16 @@ class Morph {
 					const reachedFrom: Map<number, number> = new Map()
 					const ownedTarget: Map<number, number> = new Map()
 					const queue = [start]
+					// Each target is only reached once, so later candidates in the queue skip the ones already reached.
+					let unreached = targets
 					for (let q = 0; q < queue.length; q++) {
 						const k = queue[q]!
-						for (const target of targets) {
-							if (reachedFrom.has(target) || !takes(k, target)) continue
+						const stillUnreached: Array<number> = []
+						for (const target of unreached) {
+							if (!takes(k, target)) {
+								stillUnreached.push(target)
+								continue
+							}
 							reachedFrom.set(target, k)
 							const owner = owners.get(target)
 							if (owner !== undefined) {
@@ -1245,16 +1253,26 @@ class Morph {
 							}
 							return
 						}
+						unreached = stillUnreached
 					}
 				}
 
 				// Give each candidate a free target first, so augmenting paths are only searched for the rest.
+				// The targets before `firstFree` are all taken, so candidates don't scan them again.
 				const unassigned: Array<number> = []
+				let firstFree = 0
 				for (let k = 0; k < choiceCandidates.length; k++) {
 					if (!candidateElementActive[choiceCandidates[k]![0]]) continue
-					const target = targets.find((target) => !owners.has(target) && takes(k, target))
-					if (target === undefined) unassigned.push(k)
-					else owners.set(target, k)
+					while (firstFree < targets.length && owners.has(targets[firstFree]!)) firstFree++
+					let assigned = false
+					for (let t = firstFree; t < targets.length; t++) {
+						const target = targets[t]!
+						if (owners.has(target) || !takes(k, target)) continue
+						owners.set(target, k)
+						assigned = true
+						break
+					}
+					if (!assigned) unassigned.push(k)
 				}
 				for (const k of unassigned) {
 					if (owners.size === targets.length) break

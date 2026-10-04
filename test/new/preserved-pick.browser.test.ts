@@ -583,3 +583,17 @@ test("many labels with the same tick keep them when one label is removed", () =>
 
 	expect(new FormData(from).getAll("t").length).toBe(count - 1)
 })
+
+test("morphing a select's options keeps the user's pick when the target select has another name", () => {
+	const select = dom(`<select name="x"><option value="a">a</option><option value="b">b</option></select>`) as HTMLSelectElement
+	select.value = "b"
+
+	morphInner(
+		select,
+		`<select name="y"><option value="c">c</option><option value="a">a</option><option value="b">B!</option></select>`,
+		{ preserveChanges: true },
+	)
+
+	expect(select.value).toBe("b")
+	expect(select.selectedOptions[0]!.text).toBe("B!")
+})
