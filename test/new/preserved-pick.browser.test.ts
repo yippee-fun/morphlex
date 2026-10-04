@@ -488,3 +488,14 @@ test("when two labels with the user's tick want one target, the first keeps it",
 	expect(from.querySelector("input")).toBe(first)
 	expect(new FormData(from).getAll("t")).toEqual(["a"])
 })
+
+test("a changed checkbox is morphed into a clobbered target with another value", () => {
+	const from = form(`<input type="checkbox" name="t" value="a">`)
+	const input = check(from, "a")
+
+	morph(from, form(`<input type="checkbox" name="t" value="b" morphlex-clobber>`), { preserveChanges: true })
+
+	expect(from.querySelector("input")).toBe(input)
+	expect(input.value).toBe("b")
+	expect(input.checked).toBe(false)
+})

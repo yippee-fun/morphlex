@@ -1559,9 +1559,15 @@ class Morph {
 	}
 
 	// A checkbox, radio or option the user changed holds their choice of its value, so under
-	// preserveChanges it must not be matched to a target with another value.
+	// preserveChanges it must not be matched to a target with another value, unless the target
+	// discards user changes with `morphlex-clobber`.
 	#holdsOtherChoice(candidate: Element, element: Element): boolean {
-		return this.#preserveChanges && this.#flagged.has(candidate) && this.#choiceOf(candidate) !== this.#choiceOf(element)
+		return (
+			this.#preserveChanges &&
+			this.#flagged.has(candidate) &&
+			!this.#clobbered?.has(element) &&
+			this.#choiceOf(candidate) !== this.#choiceOf(element)
+		)
 	}
 
 	// Whether the target holds all of the choices, or with `all` false, any of them.
