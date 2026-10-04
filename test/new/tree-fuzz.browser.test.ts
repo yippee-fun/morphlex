@@ -211,7 +211,9 @@ test("nodes that move themselves out when they connect leave the rest in target 
 			portal.replaceChildren()
 		}
 
-		if (!isSameTree(withoutTeleports(host.firstChild!), withoutTeleports(parse(scenario.toHtml)))) fail(host)
+		// Whitespace only counts as interchangeable in the document, so compare the cleaned tree there.
+		host.replaceChildren(withoutTeleports(host.firstChild!))
+		if (!isSameTree(host.firstChild!, withoutTeleports(parse(scenario.toHtml)))) fail(host)
 	})
 })
 
