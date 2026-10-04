@@ -702,3 +702,74 @@ test("a list box the user cleared stays cleared when another select with its nam
 	expect(from.querySelectorAll("select")[1]).toBe(select)
 	expect(select.selectedOptions.length).toBe(0)
 })
+
+test("a select matched by id keeps the user's pick when its rename is vetoed and its option changes", () => {
+	const from = form(`<select id="s" name="x"><option value="a">a</option><option value="b">b</option></select>`)
+	const select = from.querySelector("select")!
+	select.value = "b"
+
+	morph(from, form(`<p></p><select id="s" name="y"><option value="a">a</option><option value="b">B!</option></select>`), {
+		preserveChanges: true,
+		beforeAttributeUpdated: (_element, name) => name !== "name",
+	})
+
+	expect(from.querySelector("select")).toBe(select)
+	expect(select.value).toBe("b")
+	expect(select.selectedOptions[0]!.text).toBe("B!")
+})
+
+test("a ticked checkbox keeps its tick when it names the form it's already in", () => {
+	const from = dom(`<div><form id="f"><input type="checkbox" name="t" value="a"></form></div>`)
+	const input = check(from, "a")
+
+	morph(from, dom(`<div><form id="f"><input type="checkbox" name="t" value="a" form="f" class="x"></form></div>`), {
+		preserveChanges: true,
+	})
+
+	expect(from.querySelector("input")).toBe(input)
+	expect(input.checked).toBe(true)
+})
+
+test("a list box with the user's pick isn't paired with a drop-down of the same name", () => {
+	const options = `<option value="a">a</option><option value="b">b</option>`
+	const from = form(`<select name="s">${options}</select><select name="s" size="2">${options}</select>`)
+	const listBox = from.querySelectorAll("select")[1]!
+	listBox.value = "b"
+
+	morph(from, form(`<select name="s" data-x>${options}</select><select name="s" size="2" data-x>${options}</select>`), {
+		preserveChanges: true,
+	})
+
+	expect(from.querySelectorAll("select")[1]).toBe(listBox)
+	expect(listBox.value).toBe("b")
+})
+
+test("a label with the user's tick skips a target whose matching checkbox is clobbered", () => {
+	const checkbox = `<input type="checkbox" name="t" value="a">`
+	const from = form(`<label>${checkbox}</label>`)
+	const input = check(from, "a")
+
+	morph(from, form(`<label class="x"><span morphlex-clobber>${checkbox}</span></label><label class="x">${checkbox}</label>`), {
+		preserveChanges: true,
+	})
+
+	expect(from.querySelectorAll("label")[1]!.querySelector("input")).toBe(input)
+	expect(input.checked).toBe(true)
+})
+
+test("a select with the user's pick keeps it when a select of the same name is prepended", () => {
+	const from = form(`<select name="s"><option value="a" selected>a</option><option value="b">b</option></select>`)
+	const select = from.querySelector("select")!
+	select.value = "b"
+
+	morph(
+		from,
+		form(
+			`<select name="s"><option value="a">a</option><option value="b">b</option></select><select name="s"><option value="b">b</option></select>`,
+		),
+		{ preserveChanges: true },
+	)
+
+	expect(from.querySelectorAll("select")[1]).toBe(select)
+	expect(new FormData(from).getAll("s")).toEqual(["a", "b"])
+})

@@ -24,15 +24,19 @@ const IS_PARENT_NODE_TYPE = [
 // The passes matching wrappers by choice, as [targets with their own identity, same attributes, all choices,
 // only the choices the user picked], from strictest to loosest.
 const CHOICE_PASSES = [
+	[false, true, true, true],
 	[false, true, true, false],
 	[false, true, false, true],
 	[false, true, false, false],
+	[false, false, true, true],
 	[false, false, true, false],
 	[false, false, false, true],
 	[false, false, false, false],
+	[true, true, true, true],
 	[true, true, true, false],
 	[true, true, false, true],
 	[true, true, false, false],
+	[true, false, true, true],
 	[true, false, true, false],
 	[true, false, false, true],
 	[true, false, false, false],
@@ -608,6 +612,9 @@ class Morph {
 	readonly #flagged: Set<Element> = new Set()
 	// The select around a morph inside a select, which the target's options don't have.
 	readonly #enclosingSelect: HTMLSelectElement | null
+	// The live select each target select is morphed into, so the target's options are keyed by the live select,
+	// whose attributes a veto can keep.
+	readonly #liveSelects: Map<Element, HTMLSelectElement> = new Map()
 	readonly #targetChoices: Map<Element, { counts: Map<string, number>; size: number }> = new Map()
 
 	constructor(
@@ -937,6 +944,8 @@ class Morph {
 			return
 		}
 
+		if (isSelectElement(from) && isSelectElement(to)) this.#liveSelects.set(to, from)
+
 		const parent = from
 
 		const fromChildNodes = nodeListToArray(from.childNodes)
@@ -1211,6 +1220,15 @@ class Morph {
 			}
 			choiceCandidates.sort((a, b) => b[1].length - a[1].length)
 
+			// Passes needing the same attributes index targets by their attributes too, so candidates skip the others.
+			const attributeKeys: Map<Element, string> = new Map()
+			const indexKey = (element: Element, choice: string, sameAttributes: boolean): string => {
+				if (!sameAttributes) return choice
+				let key = attributeKeys.get(element)
+				if (key === undefined) attributeKeys.set(element, (key = attributesKeyOf(element, STYLING_ATTRIBUTES)))
+				return `${key}\n${choice}`
+			}
+
 			for (const [identified, sameAttributes, allChoices, pickedOnly] of CHOICE_PASSES) {
 				// The choices each candidate is matched by in this pass.
 				const choicesOf = (k: number): Array<string> => choiceCandidates[k]![pickedOnly ? 2 : 1]
@@ -1280,10 +1298,12 @@ class Morph {
 				// they hold, in the order candidates try them. Each list skips its taken prefix once.
 				const holders: Map<string, Array<number>> = new Map()
 				for (const target of targets) {
-					for (const choice of this.#targetChoicesOf(toChildNodes[target] as Element).counts.keys()) {
-						const list = holders.get(choice)
+					const element = toChildNodes[target] as Element
+					for (const choice of this.#targetChoicesOf(element).counts.keys()) {
+						const key = indexKey(element, choice, sameAttributes)
+						const list = holders.get(key)
 						if (list) list.push(target)
-						else holders.set(choice, [target])
+						else holders.set(key, [target])
 					}
 				}
 				const position: Map<number, number> = new Map(targets.map((target, t) => [target, t]))
@@ -1296,8 +1316,9 @@ class Morph {
 					// Walk the lists for the candidate's choices together, in target order.
 					const lists: Array<Array<number>> = []
 					const heads: Array<number> = []
+					const candidate = fromChildNodes[choiceCandidates[k]![0]] as Element
 					for (const choice of new Set(choicesOf(k))) {
-						const list = holders.get(choice)
+						const list = holders.get(indexKey(candidate, choice, sameAttributes))
 						if (!list) continue
 						let head = firstFree.get(list) ?? 0
 						while (head < list.length && owners.has(list[head]!)) head++
@@ -1684,7 +1705,7 @@ class Morph {
 			const choices: Array<string> = []
 			for (const control of [element, ...element.querySelectorAll("input, option")]) {
 				const choice = this.#choiceOf(control)
-				if (choice !== null) choices.push(choice)
+				if (choice !== null && !this.#isClobberedWithin(control, element)) choices.push(choice)
 			}
 			targetChoices = { counts: countChoices(choices), size: choices.length }
 			this.#targetChoices.set(element, targetChoices)
@@ -1692,8 +1713,20 @@ class Morph {
 		return targetChoices
 	}
 
+	// Whether the control is in a `morphlex-clobber` element inside the target, or is one, so it can't keep a choice.
+	#isClobberedWithin(control: Element, element: Element): boolean {
+		const clobbered = this.#clobbered
+		if (!clobbered) return false
+		for (let node: Element | null = control; node; node = node === element ? null : node.parentElement) {
+			if (clobbered.has(node)) return true
+		}
+		return false
+	}
+
 	#choiceOf(element: Element): string | null {
-		return choiceOf(element, this.#enclosingSelect)
+		if (!isOptionElement(element)) return choiceOf(element, null)
+		const select = this.#enclosingSelect ?? selectOf(element)
+		return choiceOf(element, (select && this.#liveSelects.get(select)) ?? select)
 	}
 
 	// The choices of the checkboxes, radios and options the user changed in this element, or null when there are none.
@@ -2144,22 +2177,26 @@ function trimFragmentEdgeWhitespace(fragment: DocumentFragment): void {
 }
 
 // What choosing this element means: an option's value in its select, or a checkbox or radio's type, name,
-// value and form attribute. A target's option inside a morph rooted in a select has no select of its own, so it
-// takes the enclosing one.
-function choiceOf(element: Element, enclosingSelect: HTMLSelectElement | null): string | null {
+// value and form. An option's select is passed in, since a target's option is keyed by the live select.
+function choiceOf(element: Element, select: HTMLSelectElement | null): string | null {
 	if (isOptionElement(element)) {
-		const select = enclosingSelect ?? selectOf(element)
 		return JSON.stringify([
 			select?.getAttribute("name") ?? "",
-			select?.getAttribute("form") ?? null,
-			select?.hasAttribute("multiple"),
+			select && formOf(select),
+			select && (select.hasAttribute("multiple") ? 2 : Number.parseInt(select.getAttribute("size") ?? "", 10) > 1 ? 1 : 0),
 			element.value,
 		])
 	}
 	if (isInputElement(element) && (element.type === "checkbox" || element.type === "radio")) {
-		return JSON.stringify([element.type, element.name, element.value, element.getAttribute("form")])
+		return JSON.stringify([element.type, element.name, element.value, formOf(element)])
 	}
 	return null
+}
+
+// The control's `form` attribute, or null when it names the form the control is already in.
+function formOf(control: Element): string | null {
+	const form = control.getAttribute("form")
+	return form && form === control.closest("form")?.id ? null : form
 }
 
 // How often each choice appears.
@@ -2167,6 +2204,17 @@ function countChoices(choices: Array<string>): Map<string, number> {
 	const counts = new Map<string, number>()
 	for (const choice of choices) counts.set(choice, (counts.get(choice) ?? 0) + 1)
 	return counts
+}
+
+// A key for the element's attributes, equal for elements with the same attributes ignoring `morphlex-dirty` and any `ignored` names.
+function attributesKeyOf(element: Element, ignored: ReadonlyArray<string>): string {
+	const attributes: Array<[string | null, string, string]> = []
+	for (const { namespaceURI, name, localName, value } of element.attributes) {
+		if (namespaceURI !== null || (name !== "morphlex-dirty" && !ignored.includes(name))) {
+			attributes.push([namespaceURI, localName, value])
+		}
+	}
+	return JSON.stringify(attributes.sort((a, b) => (`${a[0]} ${a[1]}` < `${b[0]} ${b[1]}` ? -1 : 1)))
 }
 
 // Whether the elements have the same attributes, ignoring `morphlex-dirty` and any `ignored` names.
