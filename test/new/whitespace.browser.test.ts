@@ -247,3 +247,13 @@ test("whitespace behind an element waiting to move elsewhere is kept", () => {
 	expect(from.querySelector("#list")!.firstChild).toBe(whitespace)
 	expect(changed).toEqual([])
 })
+
+test("whitespace stays in front of an element whose removal was vetoed", () => {
+	const from = dom(`<div><b></b> </div>`)
+
+	morph(from, dom(`<div> </div>`), {
+		beforeNodeRemoved: (node) => node.nodeName !== "B",
+	})
+
+	expect(from.outerHTML).toBe(`<div> <b></b></div>`)
+})
