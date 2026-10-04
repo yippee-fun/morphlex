@@ -684,3 +684,21 @@ test("a wrapper whose picked radio is gone is still paired with the target holdi
 	expect(from.children[1]).toBe(wrapper)
 	expect(new FormData(from).get("g")).toBe(null)
 })
+
+test("a list box the user cleared stays cleared when another select with its name is prepended", () => {
+	const options = `<option value="a" selected>a</option><option value="b">b</option>`
+	const from = form(`<select name="s" size="2">${options}</select>`)
+	const select = from.querySelector("select")!
+	select.selectedIndex = -1
+
+	morph(
+		from,
+		form(
+			`<select name="s" size="2"><option value="x">x</option></select><select name="s" size="2" class="x">${options}</select>`,
+		),
+		{ preserveChanges: true },
+	)
+
+	expect(from.querySelectorAll("select")[1]).toBe(select)
+	expect(new FormData(from).getAll("s")).toEqual([])
+})
