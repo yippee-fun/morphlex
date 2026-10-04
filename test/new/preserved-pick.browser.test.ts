@@ -773,3 +773,20 @@ test("a select with the user's pick keeps it when a select of the same name is p
 	expect(from.querySelectorAll("select")[1]).toBe(select)
 	expect(new FormData(from).getAll("s")).toEqual(["a", "b"])
 })
+
+test("a drop-down whose size the browser ignores keeps the user's pick when a select of the same name is prepended", () => {
+	const from = form(`<select name="s" size=" 2"><option value="a">a</option><option value="b">b</option></select>`)
+	const select = from.querySelector("select")!
+	select.value = "b"
+
+	morph(
+		from,
+		form(
+			`<select name="s"><option value="a">a</option><option value="c">c</option></select><select name="s"><option value="a">a</option><option value="b">b</option></select>`,
+		),
+		{ preserveChanges: true },
+	)
+
+	expect(from.querySelectorAll("select")[1]).toBe(select)
+	expect(select.value).toBe("b")
+})

@@ -1314,7 +1314,9 @@ class Morph {
 					}
 				}
 				const position: Map<number, number> = new Map(targets.map((target, t) => [target, t]))
-				const firstFree: Map<Array<number>, number> = new Map()
+				// Candidates alike in everything `takes` checks pass and fail the same targets, so they share where
+				// each list's untried targets start.
+				const firstFree: Map<string, Map<Array<number>, number>> = new Map()
 
 				// Give each candidate a free target first, so augmenting paths are only searched for the rest.
 				const unassigned: Array<number> = []
@@ -1324,12 +1326,21 @@ class Morph {
 					const lists: Array<Array<number>> = []
 					const heads: Array<number> = []
 					const candidate = fromChildNodes[choiceCandidates[k]![0]] as Element
+					const likeness = JSON.stringify([
+						candidate.namespaceURI,
+						candidate.localName,
+						candidate.getAttribute("is"),
+						this.#holdsOwnChoices(candidate),
+						[...choicesOf(k)].sort(),
+						sameAttributes && indexKey(candidate, "", true),
+					])
+					let untried = firstFree.get(likeness)
+					if (!untried) firstFree.set(likeness, (untried = new Map()))
 					for (const choice of new Set(choicesOf(k))) {
 						const list = holders.get(indexKey(candidate, choice, sameAttributes))
 						if (!list) continue
-						let head = firstFree.get(list) ?? 0
+						let head = untried.get(list) ?? 0
 						while (head < list.length && owners.has(list[head]!)) head++
-						firstFree.set(list, head)
 						lists.push(list)
 						heads.push(head)
 					}
@@ -1346,6 +1357,8 @@ class Morph {
 						owners.set(next, k)
 						assigned = true
 					}
+					// Every target before each head was taken or failed, for this candidate and those alike.
+					for (let l = 0; l < lists.length; l++) untried.set(lists[l]!, heads[l]!)
 					if (!assigned) unassigned.push(k)
 				}
 				for (const k of unassigned) {
@@ -2222,7 +2235,7 @@ function choiceOf(element: Element, select: HTMLSelectElement | null): string | 
 		return JSON.stringify([
 			select?.getAttribute("name") ?? "",
 			select && formOf(select),
-			select && (select.hasAttribute("multiple") ? 2 : Number.parseInt(select.getAttribute("size") ?? "", 10) > 1 ? 1 : 0),
+			select && (select.hasAttribute("multiple") ? 2 : displaySizeOf(select) > 1 ? 1 : 0),
 			element.value,
 		])
 	}
