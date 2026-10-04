@@ -41,7 +41,6 @@ type Operation = (typeof Operation)[keyof typeof Operation]
 
 type IdSetMap = WeakMap<Node, Set<string>>
 type IdArrayMap = WeakMap<Node, Array<string>>
-type CandidateIdBucket = number | Array<number>
 type DefaultOptionMap = Map<HTMLSelectElement, HTMLOptionElement | null>
 
 /**
@@ -1151,7 +1150,7 @@ class Morph {
 		const candidateNodeIndices: Array<number> = []
 		const candidateElementIndices: Array<number> = []
 		const candidateElementWithIdIndices: Array<number> = []
-		const candidateElementIndicesById: Map<string, CandidateIdBucket> = new Map()
+		const candidateElementIndicesById: Map<string, Array<number>> = new Map()
 		const unmatchedNodeIndices: Array<number> = []
 		const unmatchedElementIndices: Array<number> = []
 		const whitespaceNodeIndices: Array<number> = []
@@ -1185,14 +1184,9 @@ class Morph {
 					candidateElementWithIdActive[i] = 1
 					candidateElementWithIdIndices.push(i)
 
-					const existingBucket = candidateElementIndicesById.get(candidateId)
-					if (existingBucket === undefined) {
-						candidateElementIndicesById.set(candidateId, i)
-					} else if (Array.isArray(existingBucket)) {
-						existingBucket.push(i)
-					} else {
-						candidateElementIndicesById.set(candidateId, [existingBucket, i])
-					}
+					const bucket = candidateElementIndicesById.get(candidateId)
+					if (bucket) bucket.push(i)
+					else candidateElementIndicesById.set(candidateId, [i])
 				} else {
 					candidateElementActive[i] = 1
 					candidateElementIndices.push(i)
@@ -1314,24 +1308,8 @@ class Morph {
 			const candidateBucket = candidateElementIndicesById.get(id)
 			if (candidateBucket === undefined) continue
 
-			if (Array.isArray(candidateBucket)) {
-				for (let c = 0; c < candidateBucket.length; c++) {
-					const candidateIndex = candidateBucket[c]!
-					if (!candidateElementWithIdActive[candidateIndex]) continue
-
-					if (
-						localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] &&
-						namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex]
-					) {
-						matches[unmatchedIndex] = candidateIndex
-						op[unmatchedIndex] = Operation.SameElement
-						candidateElementWithIdActive[candidateIndex] = 0
-						unmatchedElementActive[unmatchedIndex] = 0
-						break
-					}
-				}
-			} else {
-				const candidateIndex = candidateBucket
+			for (let c = 0; c < candidateBucket.length; c++) {
+				const candidateIndex = candidateBucket[c]!
 				if (!candidateElementWithIdActive[candidateIndex]) continue
 
 				if (
@@ -1342,6 +1320,7 @@ class Morph {
 					op[unmatchedIndex] = Operation.SameElement
 					candidateElementWithIdActive[candidateIndex] = 0
 					unmatchedElementActive[unmatchedIndex] = 0
+					break
 				}
 			}
 		}
