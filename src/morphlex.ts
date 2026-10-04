@@ -796,7 +796,6 @@ class Morph {
 		}
 
 		// Second pass: remove excess attributes. Check for any first, to avoid copying the attribute list.
-		// Stryker disable next-line ConditionalExpression: skipping the check only costs the copy.
 		if (hasExcessAttributes(from, to)) {
 			for (const { name, localName, value, namespaceURI } of Array.from(from.attributes)) {
 				if (!to.hasAttributeNS(namespaceURI, localName)) {
