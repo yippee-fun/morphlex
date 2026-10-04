@@ -1212,10 +1212,6 @@ class Morph {
 			if (candidateNodeActive[candidateIndex]) this.#removeNode(fromChildNodes[candidateIndex]!)
 		}
 
-		for (let i = 0; i < whitespaceNodeIndices.length; i++) {
-			this.#removeNode(fromChildNodes[whitespaceNodeIndices[i]!]!)
-		}
-
 		for (let i = 0; i < candidateElementIndices.length; i++) {
 			const candidateIndex = candidateElementIndices[i]!
 			if (candidateElementActive[candidateIndex]) this.#removeNode(fromChildNodes[candidateIndex]!)
@@ -1235,11 +1231,22 @@ class Morph {
 			shouldNotMove[matches[lisIndices[i]!]!] = true
 		}
 
+		// Whitespace stays in place for now, so target whitespace can reuse whatever is at the insertion point.
+		const liveWhitespace: Set<ChildNode> | null = whitespaceNodeIndices.length ? new Set() : null
+		for (let i = 0; i < whitespaceNodeIndices.length; i++) {
+			liveWhitespace!.add(fromChildNodes[whitespaceNodeIndices[i]!]!)
+		}
+
 		let insertionPoint: ChildNode | null = parent.firstChild
 		for (let i = 0; i < toChildNodes.length; i++) {
 			const node = toChildNodes[i]!
 			const matchInd = matches[i]
-			if (matchInd !== undefined) {
+			if (insertionPoint && liveWhitespace?.has(insertionPoint) && isWhitespaceTextNode(node)) {
+				const whitespace: ChildNode = insertionPoint
+				liveWhitespace.delete(whitespace)
+				insertionPoint = whitespace.nextSibling
+				this.#morphOneToOne(whitespace, node)
+			} else if (matchInd !== undefined) {
 				const match = fromChildNodes[matchInd]!
 				const operation = op[i]!
 
@@ -1265,6 +1272,12 @@ class Morph {
 				}
 			} else {
 				if (this.#addNode(parent, node, insertionPoint)) insertionPoint = node.nextSibling
+			}
+		}
+
+		if (liveWhitespace) {
+			for (const whitespace of liveWhitespace) {
+				if (whitespace.parentNode === parent) this.#removeNode(whitespace)
 			}
 		}
 
