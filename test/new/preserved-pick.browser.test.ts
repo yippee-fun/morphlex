@@ -545,3 +545,15 @@ test("a label with the user's tick keeps it when only a comment in it changes", 
 	expect(input.checked).toBe(true)
 	expect(from.querySelector("label")!.lastChild!.nodeValue).toBe("y")
 })
+
+test("labels with the same ticked choice keep their order when their classes change", () => {
+	const label = (text: string, attributes = "") => `<label${attributes}><input type="checkbox" name="t" value="a">${text}</label>`
+	const from = form(`${label("Alpha")}${label("Beta")}`)
+	for (const input of from.querySelectorAll("input")) input.checked = true
+	const [alpha, beta] = from.querySelectorAll("label")
+
+	morph(from, form(`${label("Alpha", ' class="x"')}${label("Beta", ' class="x"')}`), { preserveChanges: true })
+
+	expect(Array.from(from.querySelectorAll("label"))).toEqual([alpha, beta])
+	expect(alpha!.textContent).toBe("Alpha")
+})
