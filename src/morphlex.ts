@@ -579,6 +579,225 @@ interface PendingMove {
 	select: HTMLSelectElement | null
 }
 
+// The children of a live element and of its target while they're matched. Each live child is a candidate
+// in one of the lists until a target takes it, and each target child is unmatched until it takes one. Whitespace
+// is only ever matched with whitespace, so it's kept apart.
+class Siblings {
+	readonly from: Array<ChildNode>
+	readonly to: Array<ChildNode>
+	readonly candidateNodes: Array<number> = []
+	readonly candidateElements: Array<number> = []
+	readonly candidateElementsById: Map<string, Array<number>> = new Map()
+	readonly whitespace: Array<number> = []
+	readonly unmatchedNodes: Array<number> = []
+	readonly unmatchedElements: Array<number> = []
+	readonly candidateActive: Uint8Array
+	readonly unmatchedActive: Uint8Array
+	// The candidate each target took, and how the pair is morphed.
+	readonly matches: Array<number> = []
+	readonly op: Array<Operation> = []
+	// The candidates holding the user's changes, by shape, once they've been matched.
+	dirtyCandidatesByShape: Map<string, Array<number>> | null = null
+	readonly #fromLocalNames: Array<string> = []
+	readonly #fromNamespaces: Array<string | null> = []
+	readonly #toLocalNames: Array<string> = []
+	readonly #toNamespaces: Array<string | null> = []
+
+	constructor(from: Element, to: Element) {
+		this.from = nodeListToArray(from.childNodes)
+		this.to = nodeListToArray(to.childNodes)
+		this.candidateActive = new Uint8Array(this.from.length)
+		this.unmatchedActive = new Uint8Array(this.to.length)
+
+		for (let i = 0; i < this.from.length; i++) {
+			const candidate = this.from[i]!
+			if (isElement(candidate)) {
+				this.candidateActive[i] = 1
+				this.#fromLocalNames[i] = candidate.localName
+				this.#fromNamespaces[i] = candidate.namespaceURI
+				const id = candidate.id
+				if (id === "") {
+					this.candidateElements.push(i)
+				} else {
+					const bucket = this.candidateElementsById.get(id)
+					if (bucket) bucket.push(i)
+					else this.candidateElementsById.set(id, [i])
+				}
+			} else if (isWhitespaceTextNode(candidate)) {
+				this.whitespace.push(i)
+			} else {
+				this.candidateActive[i] = 1
+				this.candidateNodes.push(i)
+			}
+		}
+
+		for (let i = 0; i < this.to.length; i++) {
+			const node = this.to[i]!
+			if (isElement(node)) {
+				this.unmatchedActive[i] = 1
+				this.#toLocalNames[i] = node.localName
+				this.#toNamespaces[i] = node.namespaceURI
+				this.unmatchedElements.push(i)
+			} else if (!isWhitespaceTextNode(node)) {
+				this.unmatchedActive[i] = 1
+				this.unmatchedNodes.push(i)
+			}
+		}
+	}
+
+	// Whether the target and candidate elements have the same name and namespace.
+	sameKind(target: number, candidate: number): boolean {
+		return (
+			this.#toLocalNames[target] === this.#fromLocalNames[candidate] &&
+			this.#toNamespaces[target] === this.#fromNamespaces[candidate]
+		)
+	}
+
+	take(target: number, candidate: number, op: Operation): void {
+		this.matches[target] = candidate
+		this.op[target] = op
+		this.candidateActive[candidate] = 0
+		this.unmatchedActive[target] = 0
+	}
+}
+
+// A candidate for matching by choice: its index, the choices it holds, and the ones the user picked.
+type ChoiceCandidate = [number, Array<string>, Array<string>]
+
+// One pass pairing candidates with the targets they can take, as a bipartite matching, so one candidate
+// taking a target never leaves another without one it could have had. Each candidate first takes the first
+// free target in its lists, and paths are only searched for the rest, breadth first and without recursion,
+// through the listed targets only, reaching each target once.
+class ChoiceMatching {
+	// The candidate owning each target.
+	readonly owners: Map<number, number> = new Map()
+	readonly #targets: Array<number>
+	readonly #position: Map<number, number>
+	readonly #takes: (k: number, target: number) => boolean
+	readonly #listsOf: (k: number) => Array<Array<number>>
+	readonly #likenessOf: (k: number) => string
+	readonly #lists: Array<Array<Array<number>>> = []
+	readonly #likenesses: Array<string> = []
+	readonly #listIds: Map<Array<number>, number> = new Map()
+	// Alike candidates share where each list's untried targets start.
+	readonly #firstFree: Map<string, Map<Array<number>, number>> = new Map()
+	// Until a search succeeds, the targets a failed search reached can't lead to a free target, and a
+	// candidate alike to one whose search failed, with the same lists, fails too.
+	readonly #deadTargets: Set<number> = new Set()
+	readonly #failedSearches: Set<string> = new Set()
+	readonly #unassigned: Array<number> = []
+
+	constructor(
+		targets: Array<number>,
+		takes: (k: number, target: number) => boolean,
+		listsOf: (k: number) => Array<Array<number>>,
+		likenessOf: (k: number) => string,
+	) {
+		this.#targets = targets
+		this.#position = new Map(targets.map((target, t) => [target, t]))
+		this.#takes = takes
+		this.#listsOf = listsOf
+		this.#likenessOf = likenessOf
+	}
+
+	#listsFor(k: number): Array<Array<number>> {
+		let lists = this.#lists[k]
+		if (!lists) {
+			lists = this.#lists[k] = this.#listsOf(k)
+			for (const list of lists) if (!this.#listIds.has(list)) this.#listIds.set(list, this.#listIds.size)
+		}
+		return lists
+	}
+
+	#likeness(k: number): string {
+		return (this.#likenesses[k] ??= this.#likenessOf(k))
+	}
+
+	// Give the candidate the first free target it can take, walking its lists together in target order.
+	// Those it passes were taken or failed, for it and the candidates alike, so they're not tried again.
+	assignFree(k: number): void {
+		// A target the candidate can take is in its lists, so without any it has none.
+		const lists = this.#listsFor(k)
+		if (!lists.length) return
+		const likeness = this.#likeness(k)
+		let untried = this.#firstFree.get(likeness)
+		if (!untried) this.#firstFree.set(likeness, (untried = new Map()))
+		const heads: Array<number> = []
+		for (const list of lists) {
+			let head = untried.get(list) ?? 0
+			while (head < list.length && this.owners.has(list[head]!)) head++
+			heads.push(head)
+		}
+		let assigned = false
+		while (!assigned) {
+			let next: number | undefined
+			for (let l = 0; l < lists.length; l++) {
+				const target = lists[l]![heads[l]!]
+				if (target !== undefined && (next === undefined || this.#position.get(target)! < this.#position.get(next)!)) {
+					next = target
+				}
+			}
+			if (next === undefined) break
+			for (let l = 0; l < lists.length; l++) if (lists[l]![heads[l]!] === next) heads[l] = heads[l]! + 1
+			if (this.owners.has(next) || !this.#takes(k, next)) continue
+			this.owners.set(next, k)
+			assigned = true
+		}
+		for (let l = 0; l < lists.length; l++) untried.set(lists[l]!, heads[l]!)
+		if (!assigned) this.#unassigned.push(k)
+	}
+
+	// Search a path for each candidate still without a target, while there are free targets.
+	assignRest(): void {
+		for (const k of this.#unassigned) {
+			if (this.owners.size === this.#targets.length) break
+			this.#assign(k)
+		}
+	}
+
+	// Search breadth first for a chain of candidates, each taking the next one's target, that ends at a free
+	// target, and shift the targets along it.
+	#assign(start: number): void {
+		const search = `${this.#likeness(start)} ${this.#listsFor(start)
+			.map((list) => this.#listIds.get(list)!)
+			.join(" ")}`
+		if (this.#failedSearches.has(search)) return
+		const reachedFrom: Map<number, number> = new Map()
+		const ownedTarget: Map<number, number> = new Map()
+		// Alike candidates reach the same targets in a list, so each list is walked once for them.
+		const walked: Set<string> = new Set()
+		const queue = [start]
+		for (let q = 0; q < queue.length; q++) {
+			const k = queue[q]!
+			for (const list of this.#listsFor(k)) {
+				const walk = `${this.#likeness(k)} ${this.#listIds.get(list)!}`
+				if (walked.has(walk)) continue
+				walked.add(walk)
+				for (const target of list) {
+					if (reachedFrom.has(target) || this.#deadTargets.has(target) || !this.#takes(k, target)) continue
+					reachedFrom.set(target, k)
+					const owner = this.owners.get(target)
+					if (owner !== undefined) {
+						ownedTarget.set(owner, target)
+						queue.push(owner)
+						continue
+					}
+					for (let next: number | undefined = target; next !== undefined;) {
+						const taker = reachedFrom.get(next)!
+						this.owners.set(next, taker)
+						next = ownedTarget.get(taker)
+					}
+					this.#deadTargets.clear()
+					this.#failedSearches.clear()
+					return
+				}
+			}
+		}
+		for (const target of reachedFrom.keys()) this.#deadTargets.add(target)
+		this.#failedSearches.add(search)
+	}
+}
+
 class Morph {
 	readonly #idArrayMap: IdArrayMap = new WeakMap()
 	readonly #idSetMap: IdSetMap = new WeakMap()
@@ -1081,93 +1300,46 @@ class Morph {
 
 		if (isSelectElement(from) && isSelectElement(to)) this.#liveSelects.set(to, from)
 
-		const parent = from
-
-		const fromChildNodes = nodeListToArray(from.childNodes)
-		const toChildNodes = nodeListToArray(to.childNodes)
-
-		const candidateNodeIndices: Array<number> = []
-		const candidateElementIndices: Array<number> = []
-		const candidateElementIndicesById: Map<string, Array<number>> = new Map()
-		const unmatchedNodeIndices: Array<number> = []
-		const unmatchedElementIndices: Array<number> = []
-		const whitespaceNodeIndices: Array<number> = []
-
-		// Each live child is in one of the three candidate lists, and each target child in one of the two unmatched lists.
-		const candidateActive = new Uint8Array(fromChildNodes.length)
-		const unmatchedActive = new Uint8Array(toChildNodes.length)
-
-		const matches: Array<number> = []
-		const op: Array<Operation> = []
-		const nodeTypeMap: Array<number> = []
-		const candidateNodeTypeMap: Array<number> = []
-		const localNameMap: Array<string> = []
-		const candidateLocalNameMap: Array<string> = []
-		const namespaceURIMap: Array<string | null> = []
-		const candidateNamespaceURIMap: Array<string | null> = []
-
-		for (let i = 0; i < fromChildNodes.length; i++) {
-			const candidate = fromChildNodes[i]!
-			const nodeType = candidate.nodeType
-			candidateNodeTypeMap[i] = nodeType
-
-			if (nodeType === ELEMENT_NODE_TYPE) {
-				const candidateElement = candidate as Element
-				candidateLocalNameMap[i] = candidateElement.localName
-				candidateNamespaceURIMap[i] = candidateElement.namespaceURI
-				const candidateId = candidateElement.id
-				if (candidateId !== "") {
-					candidateActive[i] = 1
-
-					const bucket = candidateElementIndicesById.get(candidateId)
-					if (bucket) bucket.push(i)
-					else candidateElementIndicesById.set(candidateId, [i])
-				} else {
-					candidateActive[i] = 1
-					candidateElementIndices.push(i)
-				}
-			} else if (isWhitespaceTextNode(candidate)) {
-				whitespaceNodeIndices.push(i)
-			} else {
-				candidateActive[i] = 1
-				candidateNodeIndices.push(i)
-			}
+		// Each pass pairs the targets still without a candidate with the candidates still free, from the surest
+		// pairing to the loosest, and the remaining candidates are removed before the targets are placed.
+		const siblings = new Siblings(from, to)
+		this.#matchEqualElements(siblings)
+		this.#matchDirtyElements(siblings)
+		this.#matchElementsById(siblings)
+		this.#leaveClaimedTargets(siblings, from)
+		this.#matchElementsByIdSets(siblings)
+		if (this.#preserveChanges && this.#dirtyElements) {
+			this.#matchElementsByChoices(siblings)
+			this.#takeEqualTargetsForChoices(siblings)
 		}
-
-		for (let i = 0; i < toChildNodes.length; i++) {
-			const node = toChildNodes[i]!
-			const nodeType = node.nodeType
-			nodeTypeMap[i] = nodeType
-
-			if (nodeType === ELEMENT_NODE_TYPE) {
-				const element = node as Element
-				localNameMap[i] = element.localName
-				namespaceURIMap[i] = element.namespaceURI
-				unmatchedActive[i] = 1
-				unmatchedElementIndices.push(i)
-			} else if (isWhitespaceTextNode(node)) {
-				continue
-			} else {
-				unmatchedActive[i] = 1
-				unmatchedNodeIndices.push(i)
-			}
+		this.#matchElementsByAttributes(siblings)
+		this.#matchElementsByKind(siblings)
+		this.#matchEqualNodes(siblings)
+		this.#matchNodesByType(siblings)
+		for (let i = 0; i < siblings.from.length; i++) {
+			if (siblings.candidateActive[i]) this.#removeNode(siblings.from[i]!)
 		}
+		this.#placeChildren(from, siblings)
 
-		// Match elements by isEqualNode. Equal nodes have equal text content, so with many siblings,
-		// bucket the candidates by it rather than comparing every pair. An element holding the user's changes can't
-		// equal its target, so it's left for the pass after this one.
+		this.#settleIfRoot(from)
+		if (isSelectElement(from)) this.#syncDefaultSelection(from)
+
+		this.#options.afterChildrenVisited?.(from)
+	}
+
+	// Match elements by isEqualNode. Equal nodes have equal text content, so with many siblings,
+	// bucket the candidates by it rather than comparing every pair. An element holding the user's changes can't
+	// equal its target, so it's left for the pass after this one.
+	#matchEqualElements(siblings: Siblings): void {
+		const { from, to, candidateElements, unmatchedElements, candidateActive } = siblings
 		const dirtyElements = this.#dirtyElements
 		const candidatesByText =
-			candidateElementIndices.length * unmatchedElementIndices.length > 1024
-				? bucketByTextContent(fromChildNodes, candidateElementIndices)
-				: null
+			candidateElements.length * unmatchedElements.length > 1024 ? bucketByTextContent(from, candidateElements) : null
 
-		for (let i = 0; i < unmatchedElementIndices.length; i++) {
-			const unmatchedIndex = unmatchedElementIndices[i]!
-
-			const localName = localNameMap[unmatchedIndex]
-			const element = toChildNodes[unmatchedIndex] as Element
-			let candidates = candidateElementIndices
+		for (let i = 0; i < unmatchedElements.length; i++) {
+			const target = unmatchedElements[i]!
+			const element = to[target] as Element
+			let candidates = candidateElements
 			if (candidatesByText) {
 				const bucket = candidatesByText.get(element.textContent!)
 				if (bucket === undefined) continue
@@ -1176,534 +1348,376 @@ class Morph {
 
 			for (let c = 0; c < candidates.length; c++) {
 				const candidateIndex = candidates[c]!
-				if (!candidateActive[candidateIndex]) continue
-				if (localName !== candidateLocalNameMap[candidateIndex]) continue
-				if (namespaceURIMap[unmatchedIndex] !== candidateNamespaceURIMap[candidateIndex]) continue
-				const candidate = fromChildNodes[candidateIndex] as Element
+				if (!candidateActive[candidateIndex] || !siblings.sameKind(target, candidateIndex)) continue
+				const candidate = from[candidateIndex] as Element
 				if (dirtyElements?.has(candidate)) continue
 
 				if (isEqualNode(candidate, element)) {
-					matches[unmatchedIndex] = candidateIndex
-					op[unmatchedIndex] = Operation.EqualNode
-					candidateActive[candidateIndex] = 0
-					unmatchedActive[unmatchedIndex] = 0
+					siblings.take(target, candidateIndex, Operation.EqualNode)
 					break
 				}
 			}
 		}
+	}
 
-		// Match elements that only differ by the user's changes, so a changed control keeps its own target.
-		// Such elements share their shape, so the candidates are bucketed by it rather than comparing every pair.
-		let candidatesByShape: Map<string, Array<number>> | null = null
-		if (dirtyElements) {
-			candidatesByShape = new Map()
-			const firstActive: Map<Array<number>, number> = new Map()
-			for (let c = 0; c < candidateElementIndices.length; c++) {
-				const candidateIndex = candidateElementIndices[c]!
-				const candidate = fromChildNodes[candidateIndex] as Element
-				if (!candidateActive[candidateIndex] || !dirtyElements.has(candidate)) continue
-				const shape = shapeOf(candidate)
-				const bucket = candidatesByShape.get(shape)
-				if (bucket) bucket.push(candidateIndex)
-				else candidatesByShape.set(shape, [candidateIndex])
-			}
+	// Match elements that only differ by the user's changes, so a changed control keeps its own target.
+	// Such elements share their shape, so the candidates are bucketed by it rather than comparing every pair.
+	#matchDirtyElements(siblings: Siblings): void {
+		const dirtyElements = this.#dirtyElements
+		if (!dirtyElements) return
+		const { from, to, candidateElements, unmatchedElements, candidateActive, unmatchedActive } = siblings
 
-			for (let i = 0; candidatesByShape.size && i < unmatchedElementIndices.length; i++) {
-				const unmatchedIndex = unmatchedElementIndices[i]!
-				if (!unmatchedActive[unmatchedIndex]) continue
-				const element = toChildNodes[unmatchedIndex] as Element
-				const candidates = candidatesByShape.get(shapeOf(element))
-				// A target discarding user changes can't keep them, so it's left for the passes that rank it last.
-				if (!candidates || this.#holdsClobbered(element)) continue
-
-				// Elements with the same shape are equal apart from `morphlex-dirty`, so the target takes the bucket's first
-				// candidate that isn't taken yet.
-				let c = firstActive.get(candidates) ?? 0
-				while (c < candidates.length && !candidateActive[candidates[c]!]) c++
-				firstActive.set(candidates, c)
-				const candidateIndex = candidates[c]
-				if (candidateIndex === undefined) continue
-				matches[unmatchedIndex] = candidateIndex
-				op[unmatchedIndex] = Operation.SameElement
-				candidateActive[candidateIndex] = 0
-				unmatchedActive[unmatchedIndex] = 0
-			}
+		const candidatesByShape: Map<string, Array<number>> = (siblings.dirtyCandidatesByShape = new Map())
+		for (let c = 0; c < candidateElements.length; c++) {
+			const candidateIndex = candidateElements[c]!
+			const candidate = from[candidateIndex] as Element
+			if (!candidateActive[candidateIndex] || !dirtyElements.has(candidate)) continue
+			const shape = shapeOf(candidate)
+			const bucket = candidatesByShape.get(shape)
+			if (bucket) bucket.push(candidateIndex)
+			else candidatesByShape.set(shape, [candidateIndex])
 		}
 
-		// Match by exact id
-		for (let i = 0; i < unmatchedElementIndices.length; i++) {
-			const unmatchedIndex = unmatchedElementIndices[i]!
-			if (!unmatchedActive[unmatchedIndex]) continue
+		const firstActive: Map<Array<number>, number> = new Map()
+		for (let i = 0; candidatesByShape.size && i < unmatchedElements.length; i++) {
+			const target = unmatchedElements[i]!
+			if (!unmatchedActive[target]) continue
+			const element = to[target] as Element
+			const candidates = candidatesByShape.get(shapeOf(element))
+			// A target discarding user changes can't keep them, so it's left for the passes that rank it last.
+			if (!candidates || this.#holdsClobbered(element)) continue
 
-			const element = toChildNodes[unmatchedIndex] as Element
-			const id = element.id
+			// Elements with the same shape are equal apart from `morphlex-dirty`, so the target takes the bucket's first
+			// candidate that isn't taken yet.
+			let c = firstActive.get(candidates) ?? 0
+			while (c < candidates.length && !candidateActive[candidates[c]!]) c++
+			firstActive.set(candidates, c)
+			const candidateIndex = candidates[c]
+			if (candidateIndex !== undefined) siblings.take(target, candidateIndex, Operation.SameElement)
+		}
+	}
 
+	// Match by exact id.
+	#matchElementsById(siblings: Siblings): void {
+		const { to, candidateElementsById, unmatchedElements, candidateActive, unmatchedActive } = siblings
+		for (let i = 0; i < unmatchedElements.length; i++) {
+			const target = unmatchedElements[i]!
+			if (!unmatchedActive[target]) continue
+
+			const id = (to[target] as Element).id
 			if (id === "") continue
 
-			const candidateBucket = candidateElementIndicesById.get(id)
-			if (candidateBucket === undefined) continue
+			const candidates = candidateElementsById.get(id)
+			if (candidates === undefined) continue
 
-			for (let c = 0; c < candidateBucket.length; c++) {
-				const candidateIndex = candidateBucket[c]!
-				if (!candidateActive[candidateIndex]) continue
-
-				if (
-					localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] &&
-					namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex]
-				) {
-					matches[unmatchedIndex] = candidateIndex
-					op[unmatchedIndex] = Operation.SameElement
-					candidateActive[candidateIndex] = 0
-					unmatchedActive[unmatchedIndex] = 0
+			for (let c = 0; c < candidates.length; c++) {
+				const candidateIndex = candidates[c]!
+				if (candidateActive[candidateIndex] && siblings.sameKind(target, candidateIndex)) {
+					siblings.take(target, candidateIndex, Operation.SameElement)
 					break
 				}
 			}
 		}
+	}
 
-		// A target whose live element is elsewhere is left for #addNode to claim, so no other candidate takes its id.
-		for (let i = 0; i < unmatchedElementIndices.length; i++) {
-			const unmatchedIndex = unmatchedElementIndices[i]!
-			if (unmatchedActive[unmatchedIndex] && this.#canClaim(toChildNodes[unmatchedIndex] as Element, parent)) {
-				unmatchedActive[unmatchedIndex] = 0
-			}
+	// A target whose live element is elsewhere is left for #addNode to claim, so no other candidate takes its id.
+	#leaveClaimedTargets(siblings: Siblings, parent: Element): void {
+		const { to, unmatchedElements, unmatchedActive } = siblings
+		for (let i = 0; i < unmatchedElements.length; i++) {
+			const target = unmatchedElements[i]!
+			if (unmatchedActive[target] && this.#canClaim(to[target] as Element, parent)) unmatchedActive[target] = 0
 		}
+	}
 
-		// Match by idArray (to) against idSet (from)
-		// Elements with idSets may not have IDs themselves, so we check candidateElements
-		for (let i = 0; i < unmatchedElementIndices.length; i++) {
-			const unmatchedIndex = unmatchedElementIndices[i]!
-			if (!unmatchedActive[unmatchedIndex]) continue
+	// Match a target by the ids inside it against the ids inside each candidate, since elements holding ids
+	// may not have ids themselves.
+	#matchElementsByIdSets(siblings: Siblings): void {
+		const { from, to, candidateElements, unmatchedElements, candidateActive, unmatchedActive } = siblings
+		for (let i = 0; i < unmatchedElements.length; i++) {
+			const target = unmatchedElements[i]!
+			if (!unmatchedActive[target]) continue
 
-			const element = toChildNodes[unmatchedIndex] as Element
-			const idArray = this.#idArrayMap.get(element)
-
+			const idArray = this.#idArrayMap.get(to[target]!)
 			if (!idArray) continue
 
-			candidateLoop: for (let c = 0; c < candidateElementIndices.length; c++) {
-				const candidateIndex = candidateElementIndices[c]!
-				if (!candidateActive[candidateIndex]) continue
+			candidateLoop: for (let c = 0; c < candidateElements.length; c++) {
+				const candidateIndex = candidateElements[c]!
+				if (!candidateActive[candidateIndex] || !siblings.sameKind(target, candidateIndex)) continue
 
-				const candidate = fromChildNodes[candidateIndex] as Element
-
-				if (
-					localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] &&
-					namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex]
-				) {
-					const candidateIdSet = this.#idSetMap.get(candidate)
-					if (candidateIdSet) {
-						for (let a = 0; a < idArray.length; a++) {
-							const arrayId = idArray[a]!
-							if (candidateIdSet.has(arrayId)) {
-								matches[unmatchedIndex] = candidateIndex
-								op[unmatchedIndex] = Operation.SameElement
-								candidateActive[candidateIndex] = 0
-								unmatchedActive[unmatchedIndex] = 0
-								break candidateLoop
-							}
-						}
+				const candidateIdSet = this.#idSetMap.get(from[candidateIndex]!)
+				if (!candidateIdSet) continue
+				for (let a = 0; a < idArray.length; a++) {
+					if (candidateIdSet.has(idArray[a]!)) {
+						siblings.take(target, candidateIndex, Operation.SameElement)
+						break candidateLoop
 					}
 				}
 			}
 		}
+	}
 
-		// Under preserveChanges, match a checkbox, radio or option the user changed to a target with the same
-		// choice, and a wrapper without its own identity holding some to a target holding one of the same choices,
-		// so other elements can't take their targets and the user's choices keep their values. A wrapper tries targets
-		// without their own identity first, so a new label with an id can't take its place, but can still take its own
-		// target when it gains an id. A changed control, or a select, tries targets without an id first in the same way.
-		// Then targets with the same attributes apart from class and style, so a form doesn't
-		// take another form's target for holding the same choice, and then targets holding all of its choices.
-		if (this.#preserveChanges && dirtyElements) {
-			// Candidates holding more choices go first, so one holding fewer can't take the only target holding them all.
-			const choiceCandidates: Array<[number, Array<string>, Array<string>]> = []
-			for (let c = 0; c < candidateElementIndices.length; c++) {
-				const candidateIndex = candidateElementIndices[c]!
+	// Under preserveChanges, match a checkbox, radio or option the user changed to a target with the same
+	// choice, and a wrapper without its own identity holding some to a target holding one of the same choices,
+	// so other elements can't take their targets and the user's choices keep their values. A wrapper tries targets
+	// without their own identity first, so a new label with an id can't take its place, but can still take its own
+	// target when it gains an id. A changed control, or a select, tries targets without an id first in the same way.
+	// Then targets with the same attributes apart from class and style, so a form doesn't
+	// take another form's target for holding the same choice, and then targets holding all of its choices.
+	#matchElementsByChoices(siblings: Siblings): void {
+		const { from, to, candidateElements, unmatchedElements, candidateActive, unmatchedActive } = siblings
+
+		// Candidates holding more choices go first, so one holding fewer can't take the only target holding them all.
+		const choiceCandidates: Array<ChoiceCandidate> = []
+		for (let c = 0; c < candidateElements.length; c++) {
+			const candidateIndex = candidateElements[c]!
+			if (!candidateActive[candidateIndex]) continue
+			const candidate = from[candidateIndex] as Element
+			const dirtyChoices = this.#dirtyChoicesOf(candidate)
+			if (dirtyChoices && (this.#holdsOwnChoices(candidate) || canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate)))) {
+				choiceCandidates.push([candidateIndex, dirtyChoices.choices, dirtyChoices.picked])
+			}
+		}
+		choiceCandidates.sort((a, b) => b[1].length - a[1].length)
+
+		// Passes needing the same attributes index targets by their attributes too, so candidates skip the others.
+		const attributeKeys: Map<Element, string> = new Map()
+		const indexKey = (element: Element, choice: string, sameAttributes: boolean): string => {
+			if (!sameAttributes) return choice
+			let key = attributeKeys.get(element)
+			if (key === undefined) attributeKeys.set(element, (key = attributesKeyOf(element, STYLING_ATTRIBUTES)))
+			return `${key}\n${choice}`
+		}
+
+		for (const [identified, sameAttributes, allChoices, pickedOnly] of CHOICE_PASSES) {
+			// The choices each candidate is matched by in this pass.
+			const choicesOf = (k: number): Array<string> => choiceCandidates[k]![pickedOnly ? 2 : 1]
+
+			// Whether the candidate can take the target in this pass.
+			const takes = (k: number, target: number): boolean => {
+				const candidateIndex = choiceCandidates[k]![0]
+				if (!siblings.sameKind(target, candidateIndex)) return false
+				const candidate = from[candidateIndex] as Element
+				const element = to[target] as Element
+				return (
+					hasSameIs(candidate, element) &&
+					identified ===
+						(this.#holdsOwnChoices(candidate)
+							? this.#idArrayMap.has(element)
+							: !canSoftMatchByTagName(element, this.#idArrayMap.has(element))) &&
+					this.#holdsChoices(choicesOf(k), element, allChoices)
+				)
+			}
+
+			// The targets in the order candidates try them, smallest first when a candidate needs all of its choices.
+			const targets = unmatchedElements.filter((i) => unmatchedActive[i])
+			if (allChoices) {
+				targets.sort((a, b) => this.#targetChoicesOf(to[a] as Element).size - this.#targetChoicesOf(to[b] as Element).size)
+			}
+
+			// A candidate can only take a target holding one of its choices, so index the targets by the choices
+			// they hold, in the order candidates try them.
+			const holders: Map<string, Array<number>> = new Map()
+			for (const target of targets) {
+				const element = to[target] as Element
+				for (const choice of this.#targetChoicesOf(element).counts.keys()) {
+					const key = indexKey(element, choice, sameAttributes)
+					const list = holders.get(key)
+					if (list) list.push(target)
+					else holders.set(key, [target])
+				}
+			}
+
+			// The lists holding the targets the candidate can take. A target holding all of its choices is in every
+			// list, so then only the shortest is needed.
+			const listsOf = (k: number): Array<Array<number>> => {
+				const candidate = from[choiceCandidates[k]![0]] as Element
+				let candidateLists: Array<Array<number>> = []
+				for (const choice of new Set(choicesOf(k))) {
+					const list = holders.get(indexKey(candidate, choice, sameAttributes))
+					if (list) candidateLists.push(list)
+					else if (allChoices) return []
+				}
+				if (allChoices && candidateLists.length) {
+					candidateLists = [candidateLists.reduce((a, b) => (b.length < a.length ? b : a))]
+				}
+				return candidateLists
+			}
+
+			// Candidates alike in everything `takes` checks pass and fail the same targets. A target in a list holds
+			// one of the candidate's choices, so when one choice is enough, their choices don't matter.
+			const likenessOf = (k: number): string => {
+				const candidate = from[choiceCandidates[k]![0]] as Element
+				return JSON.stringify([
+					candidate.namespaceURI,
+					candidate.localName,
+					candidate.getAttribute("is"),
+					this.#holdsOwnChoices(candidate),
+					allChoices && [...choicesOf(k)].sort(),
+					sameAttributes && indexKey(candidate, "", true),
+				])
+			}
+
+			const matching = new ChoiceMatching(targets, takes, listsOf, likenessOf)
+			for (let k = 0; k < choiceCandidates.length; k++) {
+				if (candidateActive[choiceCandidates[k]![0]] && choicesOf(k).length) matching.assignFree(k)
+			}
+			matching.assignRest()
+
+			for (const [target, k] of matching.owners) siblings.take(target, choiceCandidates[k]![0], Operation.SameElement)
+		}
+	}
+
+	// An element holding the user's choices that's still without a target takes one that an identical
+	// untouched sibling took, so the untouched sibling goes rather than the user's choices.
+	#takeEqualTargetsForChoices(siblings: Siblings): void {
+		const { from, to, unmatchedElements, candidateActive, matches, op } = siblings
+		let equalTargets: Map<string, Array<number>> | null = null
+		const firstEqual: Map<Array<number>, number> = new Map()
+		for (const [shape, candidates] of siblings.dirtyCandidatesByShape!) {
+			for (const candidateIndex of candidates) {
 				if (!candidateActive[candidateIndex]) continue
-				const candidate = fromChildNodes[candidateIndex] as Element
-				const dirtyChoices = this.#dirtyChoicesOf(candidate)
-				if (
-					dirtyChoices &&
-					(this.#holdsOwnChoices(candidate) || canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate)))
-				) {
-					choiceCandidates.push([candidateIndex, dirtyChoices.choices, dirtyChoices.picked])
-				}
-			}
-			choiceCandidates.sort((a, b) => b[1].length - a[1].length)
-
-			// Passes needing the same attributes index targets by their attributes too, so candidates skip the others.
-			const attributeKeys: Map<Element, string> = new Map()
-			const indexKey = (element: Element, choice: string, sameAttributes: boolean): string => {
-				if (!sameAttributes) return choice
-				let key = attributeKeys.get(element)
-				if (key === undefined) attributeKeys.set(element, (key = attributesKeyOf(element, STYLING_ATTRIBUTES)))
-				return `${key}\n${choice}`
-			}
-
-			for (const [identified, sameAttributes, allChoices, pickedOnly] of CHOICE_PASSES) {
-				// The choices each candidate is matched by in this pass.
-				const choicesOf = (k: number): Array<string> => choiceCandidates[k]![pickedOnly ? 2 : 1]
-
-				// Whether the candidate can take the target in this pass.
-				const takes = (k: number, target: number): boolean => {
-					const candidateIndex = choiceCandidates[k]![0]
-					const choices = choicesOf(k)
-					if (localNameMap[target] !== candidateLocalNameMap[candidateIndex]) return false
-					if (namespaceURIMap[target] !== candidateNamespaceURIMap[candidateIndex]) return false
-					const candidate = fromChildNodes[candidateIndex] as Element
-					const element = toChildNodes[target] as Element
-					return (
-						hasSameIs(candidate, element) &&
-						identified ===
-							(this.#holdsOwnChoices(candidate)
-								? this.#idArrayMap.has(element)
-								: !canSoftMatchByTagName(element, this.#idArrayMap.has(element))) &&
-						this.#holdsChoices(choices, element, allChoices)
-					)
-				}
-
-				// The targets in the order candidates try them, smallest first when a candidate needs all of its choices.
-				const targets = unmatchedElementIndices.filter((i) => unmatchedActive[i])
-				if (allChoices) {
-					targets.sort(
-						(a, b) =>
-							this.#targetChoicesOf(toChildNodes[a] as Element).size - this.#targetChoicesOf(toChildNodes[b] as Element).size,
-					)
-				}
-
-				// A candidate can only take a target holding one of its choices, so index the targets by the choices
-				// they hold, in the order candidates try them.
-				const holders: Map<string, Array<number>> = new Map()
-				for (const target of targets) {
-					const element = toChildNodes[target] as Element
-					for (const choice of this.#targetChoicesOf(element).counts.keys()) {
-						const key = indexKey(element, choice, sameAttributes)
-						const list = holders.get(key)
+				if (!this.#dirtyChoicesOf(from[candidateIndex] as Element)) continue
+				if (!equalTargets) {
+					equalTargets = new Map()
+					for (const target of unmatchedElements) {
+						if (op[target] !== Operation.EqualNode) continue
+						const element = to[target] as Element
+						if (this.#holdsClobbered(element)) continue
+						const targetShape = shapeOf(element)
+						const list = equalTargets.get(targetShape)
 						if (list) list.push(target)
-						else holders.set(key, [target])
+						else equalTargets.set(targetShape, [target])
 					}
 				}
-				const listIds: Map<Array<number>, number> = new Map()
-				for (const list of holders.values()) listIds.set(list, listIds.size)
-
-				// The lists holding the targets the candidate can take. A target holding all of its choices is in every
-				// list, so then only the shortest is needed.
-				const lists: Array<Array<Array<number>>> = []
-				const listsOf = (k: number): Array<Array<number>> => {
-					let candidateLists = lists[k]
-					if (!candidateLists) {
-						const candidate = fromChildNodes[choiceCandidates[k]![0]] as Element
-						candidateLists = []
-						for (const choice of new Set(choicesOf(k))) {
-							const list = holders.get(indexKey(candidate, choice, sameAttributes))
-							if (list) candidateLists.push(list)
-							else if (allChoices) {
-								candidateLists = []
-								break
-							}
-						}
-						if (allChoices && candidateLists.length) {
-							candidateLists = [candidateLists.reduce((a, b) => (b.length < a.length ? b : a))]
-						}
-						lists[k] = candidateLists
-					}
-					return candidateLists
-				}
-
-				// Candidates alike in everything `takes` checks pass and fail the same targets. A target in a list holds
-				// one of the candidate's choices, so when one choice is enough, their choices don't matter.
-				const likenesses: Array<string> = []
-				const likenessOf = (k: number): string => {
-					let likeness = likenesses[k]
-					if (likeness === undefined) {
-						const candidate = fromChildNodes[choiceCandidates[k]![0]] as Element
-						likeness = likenesses[k] = JSON.stringify([
-							candidate.namespaceURI,
-							candidate.localName,
-							candidate.getAttribute("is"),
-							this.#holdsOwnChoices(candidate),
-							allChoices && [...choicesOf(k)].sort(),
-							sameAttributes && indexKey(candidate, "", true),
-						])
-					}
-					return likeness
-				}
-
-				// Pair as many candidates with targets as possible, so one taking a target can't leave another without any.
-				const owners: Map<number, number> = new Map()
-				// Until a search succeeds, the targets a failed search reached can't lead to a free target, and a
-				// candidate alike to one whose search failed, with the same lists, fails too.
-				const deadTargets: Set<number> = new Set()
-				const failedSearches: Set<string> = new Set()
-				// Search breadth first for a chain of candidates, each taking the next one's target, that ends at a free
-				// target, and shift the targets along it.
-				const assign = (start: number): void => {
-					const search = `${likenessOf(start)} ${listsOf(start)
-						.map((list) => listIds.get(list)!)
-						.join(" ")}`
-					if (failedSearches.has(search)) return
-					const reachedFrom: Map<number, number> = new Map()
-					const ownedTarget: Map<number, number> = new Map()
-					// Alike candidates reach the same targets in a list, so each list is walked once for them.
-					const walked: Set<string> = new Set()
-					const queue = [start]
-					for (let q = 0; q < queue.length; q++) {
-						const k = queue[q]!
-						for (const list of listsOf(k)) {
-							const walk = `${likenessOf(k)} ${listIds.get(list)!}`
-							if (walked.has(walk)) continue
-							walked.add(walk)
-							for (const target of list) {
-								if (reachedFrom.has(target) || deadTargets.has(target) || !takes(k, target)) continue
-								reachedFrom.set(target, k)
-								const owner = owners.get(target)
-								if (owner !== undefined) {
-									ownedTarget.set(owner, target)
-									queue.push(owner)
-									continue
-								}
-								for (let next: number | undefined = target; next !== undefined;) {
-									const taker = reachedFrom.get(next)!
-									owners.set(next, taker)
-									next = ownedTarget.get(taker)
-								}
-								deadTargets.clear()
-								failedSearches.clear()
-								return
-							}
-						}
-					}
-					for (const target of reachedFrom.keys()) deadTargets.add(target)
-					failedSearches.add(search)
-				}
-
-				const position: Map<number, number> = new Map(targets.map((target, t) => [target, t]))
-				// Alike candidates share where each list's untried targets start.
-				const firstFree: Map<string, Map<Array<number>, number>> = new Map()
-
-				// Give each candidate a free target first, so augmenting paths are only searched for the rest.
-				const unassigned: Array<number> = []
-				for (let k = 0; k < choiceCandidates.length; k++) {
-					if (!candidateActive[choiceCandidates[k]![0]] || !choicesOf(k).length) continue
-					// A target the candidate can take is in its lists, so without any it has none.
-					const candidateLists = listsOf(k)
-					if (!candidateLists.length) continue
-					let untried = firstFree.get(likenessOf(k))
-					if (!untried) firstFree.set(likenessOf(k), (untried = new Map()))
-					// Walk the lists together, in target order.
-					const heads: Array<number> = []
-					for (const list of candidateLists) {
-						let head = untried.get(list) ?? 0
-						while (head < list.length && owners.has(list[head]!)) head++
-						heads.push(head)
-					}
-					let assigned = false
-					while (!assigned) {
-						let next: number | undefined
-						for (let l = 0; l < candidateLists.length; l++) {
-							const target = candidateLists[l]![heads[l]!]
-							if (target !== undefined && (next === undefined || position.get(target)! < position.get(next)!)) next = target
-						}
-						if (next === undefined) break
-						for (let l = 0; l < candidateLists.length; l++) if (candidateLists[l]![heads[l]!] === next) heads[l] = heads[l]! + 1
-						if (owners.has(next) || !takes(k, next)) continue
-						owners.set(next, k)
-						assigned = true
-					}
-					// Every target before each head was taken or failed, for this candidate and those alike.
-					for (let l = 0; l < candidateLists.length; l++) untried.set(candidateLists[l]!, heads[l]!)
-					if (!assigned) unassigned.push(k)
-				}
-				for (const k of unassigned) {
-					if (owners.size === targets.length) break
-					assign(k)
-				}
-
-				for (const [target, k] of owners) {
-					const candidateIndex = choiceCandidates[k]![0]
-					matches[target] = candidateIndex
-					op[target] = Operation.SameElement
-					candidateActive[candidateIndex] = 0
-					unmatchedActive[target] = 0
-				}
-			}
-
-			// An element holding the user's choices that's still without a target takes one that an identical
-			// untouched sibling took, so the untouched sibling goes rather than the user's choices.
-			let equalTargets: Map<string, Array<number>> | null = null
-			const firstEqual: Map<Array<number>, number> = new Map()
-			for (const [shape, candidates] of candidatesByShape!) {
-				for (const candidateIndex of candidates) {
-					if (!candidateActive[candidateIndex]) continue
-					const candidate = fromChildNodes[candidateIndex] as Element
-					if (!this.#dirtyChoicesOf(candidate)) continue
-					if (!equalTargets) {
-						equalTargets = new Map()
-						for (const target of unmatchedElementIndices) {
-							if (op[target] !== Operation.EqualNode) continue
-							const element = toChildNodes[target] as Element
-							if (this.#holdsClobbered(element)) continue
-							const targetShape = shapeOf(element)
-							const list = equalTargets.get(targetShape)
-							if (list) list.push(target)
-							else equalTargets.set(targetShape, [target])
-						}
-					}
-					const list = equalTargets.get(shape)
-					if (!list) continue
-					// Each target is taken once, so the list skips its taken prefix.
-					const t = firstEqual.get(list) ?? 0
-					const target = list[t]
-					if (target === undefined) continue
-					firstEqual.set(list, t + 1)
-					candidateActive[matches[target]!] = 1
-					matches[target] = candidateIndex
-					op[target] = Operation.SameElement
-					candidateActive[candidateIndex] = 0
-				}
+				const list = equalTargets.get(shape)
+				if (!list) continue
+				// Each target is taken once, so the list skips its taken prefix.
+				const t = firstEqual.get(list) ?? 0
+				const target = list[t]
+				if (target === undefined) continue
+				firstEqual.set(list, t + 1)
+				candidateActive[matches[target]!] = 1
+				siblings.take(target, candidateIndex, Operation.SameElement)
 			}
 		}
+	}
 
-		// Match by heuristics
-		for (let i = 0; i < unmatchedElementIndices.length; i++) {
-			const unmatchedIndex = unmatchedElementIndices[i]!
-			if (!unmatchedActive[unmatchedIndex]) continue
+	// Match by a shared `name`, `href` or `src`.
+	#matchElementsByAttributes(siblings: Siblings): void {
+		const { from, to, candidateElements, unmatchedElements, candidateActive, unmatchedActive } = siblings
+		for (let i = 0; i < unmatchedElements.length; i++) {
+			const target = unmatchedElements[i]!
+			if (!unmatchedActive[target]) continue
 
-			const element = toChildNodes[unmatchedIndex] as Element
-
+			const element = to[target] as Element
 			const name = element.getAttribute("name")
 			const href = element.getAttribute("href")
 			const src = element.getAttribute("src")
 			if (!name && !href && !src) continue
 
-			for (let c = 0; c < candidateElementIndices.length; c++) {
-				const candidateIndex = candidateElementIndices[c]!
-				if (!candidateActive[candidateIndex]) continue
-				const candidate = fromChildNodes[candidateIndex] as Element
+			for (let c = 0; c < candidateElements.length; c++) {
+				const candidateIndex = candidateElements[c]!
+				if (!candidateActive[candidateIndex] || !siblings.sameKind(target, candidateIndex)) continue
+				const candidate = from[candidateIndex] as Element
 
 				if (
-					localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] &&
-					namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex] &&
 					((name && name === candidate.getAttribute("name")) ||
 						(href && href === candidate.getAttribute("href")) ||
 						(src && src === candidate.getAttribute("src"))) &&
 					!this.#holdsOtherChoice(candidate, element)
 				) {
-					matches[unmatchedIndex] = candidateIndex
-					op[unmatchedIndex] = Operation.SameElement
-					candidateActive[candidateIndex] = 0
-					unmatchedActive[unmatchedIndex] = 0
+					siblings.take(target, candidateIndex, Operation.SameElement)
 					break
 				}
 			}
 		}
+	}
 
-		// Match by tagName (only for elements without distinguishing attributes)
+	// Match elements of the same kind, only for elements without distinguishing attributes.
+	#matchElementsByKind(siblings: Siblings): void {
+		const { from, to, candidateElements, unmatchedElements, candidateActive, unmatchedActive } = siblings
 		let firstActiveCandidate = 0
-		for (let i = 0; i < unmatchedElementIndices.length; i++) {
-			const unmatchedIndex = unmatchedElementIndices[i]!
-			if (!unmatchedActive[unmatchedIndex]) continue
+		for (let i = 0; i < unmatchedElements.length; i++) {
+			const target = unmatchedElements[i]!
+			if (!unmatchedActive[target]) continue
 
-			const element = toChildNodes[unmatchedIndex] as Element
-
+			const element = to[target] as Element
 			if (!canSoftMatchByTagName(element, this.#idArrayMap.has(element))) continue
 
-			const localName = localNameMap[unmatchedIndex]
-
-			while (
-				firstActiveCandidate < candidateElementIndices.length &&
-				!candidateActive[candidateElementIndices[firstActiveCandidate]!]
-			) {
+			while (firstActiveCandidate < candidateElements.length && !candidateActive[candidateElements[firstActiveCandidate]!]) {
 				firstActiveCandidate++
 			}
 
-			for (let c = firstActiveCandidate; c < candidateElementIndices.length; c++) {
-				const candidateIndex = candidateElementIndices[c]!
+			for (let c = firstActiveCandidate; c < candidateElements.length; c++) {
+				const candidateIndex = candidateElements[c]!
 				if (!candidateActive[candidateIndex]) continue
 
-				const candidate = fromChildNodes[candidateIndex] as Element
-
+				const candidate = from[candidateIndex] as Element
 				if (!canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) continue
 
-				const candidateLocalName = candidateLocalNameMap[candidateIndex]
-
-				if (
-					localName === candidateLocalName &&
-					namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex] &&
-					!this.#holdsOtherChoice(candidate, element)
-				) {
-					matches[unmatchedIndex] = candidateIndex
-					op[unmatchedIndex] = Operation.SameElement
-					candidateActive[candidateIndex] = 0
-					unmatchedActive[unmatchedIndex] = 0
+				if (siblings.sameKind(target, candidateIndex) && !this.#holdsOtherChoice(candidate, element)) {
+					siblings.take(target, candidateIndex, Operation.SameElement)
 					break
 				}
 			}
 		}
+	}
 
-		// Match nodes by isEqualNode (skip whitespace-only text nodes)
-		for (let i = 0; i < unmatchedNodeIndices.length; i++) {
-			const unmatchedIndex = unmatchedNodeIndices[i]!
-
-			const node = toChildNodes[unmatchedIndex]!
-			for (let c = 0; c < candidateNodeIndices.length; c++) {
-				const candidateIndex = candidateNodeIndices[c]!
-				if (!candidateActive[candidateIndex]) continue
-
-				const candidate = fromChildNodes[candidateIndex]!
-				if (candidate.isEqualNode(node)) {
-					matches[unmatchedIndex] = candidateIndex
-					op[unmatchedIndex] = Operation.EqualNode
-					candidateActive[candidateIndex] = 0
-					unmatchedActive[unmatchedIndex] = 0
+	// Match the other nodes by isEqualNode.
+	#matchEqualNodes(siblings: Siblings): void {
+		const { from, to, candidateNodes, unmatchedNodes, candidateActive } = siblings
+		for (let i = 0; i < unmatchedNodes.length; i++) {
+			const target = unmatchedNodes[i]!
+			const node = to[target]!
+			for (let c = 0; c < candidateNodes.length; c++) {
+				const candidateIndex = candidateNodes[c]!
+				if (candidateActive[candidateIndex] && from[candidateIndex]!.isEqualNode(node)) {
+					siblings.take(target, candidateIndex, Operation.EqualNode)
 					break
 				}
 			}
 		}
+	}
 
-		// Match by nodeType
-		for (let i = 0; i < unmatchedNodeIndices.length; i++) {
-			const unmatchedIndex = unmatchedNodeIndices[i]!
-			if (!unmatchedActive[unmatchedIndex]) continue
+	// Match the other nodes by node type.
+	#matchNodesByType(siblings: Siblings): void {
+		const { from, to, candidateNodes, unmatchedNodes, candidateActive, unmatchedActive } = siblings
+		for (let i = 0; i < unmatchedNodes.length; i++) {
+			const target = unmatchedNodes[i]!
+			if (!unmatchedActive[target]) continue
 
-			const nodeType = nodeTypeMap[unmatchedIndex]
-
-			for (let c = 0; c < candidateNodeIndices.length; c++) {
-				const candidateIndex = candidateNodeIndices[c]!
-				if (!candidateActive[candidateIndex]) continue
-
-				if (nodeType === candidateNodeTypeMap[candidateIndex]) {
-					matches[unmatchedIndex] = candidateIndex
-					op[unmatchedIndex] = Operation.SameNode
-					candidateActive[candidateIndex] = 0
-					unmatchedActive[unmatchedIndex] = 0
+			const nodeType = to[target]!.nodeType
+			for (let c = 0; c < candidateNodes.length; c++) {
+				const candidateIndex = candidateNodes[c]!
+				if (candidateActive[candidateIndex] && nodeType === from[candidateIndex]!.nodeType) {
+					siblings.take(target, candidateIndex, Operation.SameNode)
 					break
 				}
 			}
 		}
+	}
 
-		// Remove any unmatched candidates first, before calculating LIS and repositioning
-		for (let i = 0; i < fromChildNodes.length; i++) {
-			if (candidateActive[i]) this.#removeNode(fromChildNodes[i]!)
-		}
+	// Put the target's children in order, moving the matched candidates that aren't already in order, morphing
+	// each into its target and adding the targets nothing matched.
+	#placeChildren(parent: Element, siblings: Siblings): void {
+		const { from, to, matches, op } = siblings
 
-		// Find LIS - these nodes don't need to move
-		// matches already contains the fromChildNodes indices, so we can use it directly
+		// The nodes in the longest increasing subsequence of matches don't need to move.
 		const lisIndices = longestIncreasingSubsequence(matches)
-
-		const shouldNotMove: Array<boolean> = new Array(fromChildNodes.length)
+		const shouldNotMove: Array<boolean> = new Array(from.length)
 		for (let i = 0; i < lisIndices.length; i++) {
 			shouldNotMove[matches[lisIndices[i]!]!] = true
 		}
 
 		// Whitespace stays in place for now, so target whitespace can reuse whatever is at the insertion point.
-		const liveWhitespace: Set<ChildNode> | null = whitespaceNodeIndices.length ? new Set() : null
-		for (let i = 0; i < whitespaceNodeIndices.length; i++) {
-			liveWhitespace!.add(fromChildNodes[whitespaceNodeIndices[i]!]!)
+		const liveWhitespace: Set<ChildNode> | null = siblings.whitespace.length ? new Set() : null
+		for (let i = 0; i < siblings.whitespace.length; i++) {
+			liveWhitespace!.add(from[siblings.whitespace[i]!]!)
 		}
 
 		let insertionPoint: ChildNode | null = parent.firstChild
 		const placed: Array<ChildNode> = []
-		for (let i = 0; i < toChildNodes.length; i++) {
+		for (let i = 0; i < to.length; i++) {
 			// A callback can remove the insertion point, such as the whitespace after the node it visits.
 			// Then carry on after the last node placed that's still here.
 			if (insertionPoint && insertionPoint.parentNode !== parent) {
@@ -1716,7 +1730,7 @@ class Morph {
 				}
 			}
 
-			const node = toChildNodes[i]!
+			const node = to[i]!
 			const matchInd = matches[i]
 			if (insertionPoint && liveWhitespace?.has(insertionPoint) && isWhitespaceTextNode(node)) {
 				const whitespace: ChildNode = insertionPoint
@@ -1725,7 +1739,7 @@ class Morph {
 				insertionPoint = whitespace.nextSibling
 				this.#morphOneToOne(whitespace, node)
 			} else if (matchInd !== undefined) {
-				const match = fromChildNodes[matchInd]!
+				const match = from[matchInd]!
 				const operation = op[i]!
 
 				if (!shouldNotMove[matchInd]) {
@@ -1764,11 +1778,6 @@ class Morph {
 				if (whitespace.parentNode === parent) this.#removeNode(whitespace)
 			}
 		}
-
-		this.#settleIfRoot(from)
-		if (isSelectElement(from)) this.#syncDefaultSelection(from)
-
-		this.#options.afterChildrenVisited?.(from)
 	}
 
 	// A morph inside a select never visits the select, so sync it when the morph settles if the morph
