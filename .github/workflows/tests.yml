@@ -46,8 +46,8 @@ jobs:
       - name: Check Package
         run: aube run check:package
 
-      - name: Run Unit Tests
-        run: aube run test
+      - name: Run Unit Tests With Coverage
+        run: aube run test --coverage
 
       - name: Run Browser Tests
         run: aube run test:browser
@@ -55,6 +55,3 @@ jobs:
           # A different start on each run, so repeated runs try new seeds.
           VITE_MORPHLEX_FUZZ_MOVE_SEEDS: 2000
           VITE_MORPHLEX_FUZZ_MOVE_SEED_START: ${{ github.run_id }}
-
-      - name: Generate Coverage Report
-        run: aube run test --coverage

@@ -18,6 +18,9 @@
 		"forceConsistentCasingInFileNames": true,
 		"useUnknownInCatchVariables": true,
 		"erasableSyntaxOnly": true,
+		"noImplicitReturns": true,
+		"verbatimModuleSyntax": true,
+		"noUncheckedSideEffectImports": true,
 
 		"skipLibCheck": true,
 		"noEmit": false,
