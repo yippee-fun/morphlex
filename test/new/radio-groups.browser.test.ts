@@ -975,3 +975,35 @@ test("a form claimed out of a live target from another root leaves the radios th
 	host.remove()
 	shadowHost.remove()
 })
+
+test("a radio inside a live target keeps its check when a live element claims the form it names", () => {
+	const shadowHost = mount(``)
+	const shadow = shadowHost.attachShadow({ mode: "open" })
+	shadow.innerHTML = `<div id="source"><section><form id="f"></form><input id="y" type="radio" name="r" form="f" checked></section></div><input id="a" type="radio" name="r" checked>`
+	const y = shadow.getElementById("y") as HTMLInputElement
+	const host = mount(`<div><form id="f"></form></div>`)
+
+	morphInner(host.firstElementChild!, shadow.getElementById("source")!)
+
+	expect(y.checked).toBe(true)
+	expect(shadow.getElementById("a")).toHaveProperty("checked", true)
+	host.remove()
+	shadowHost.remove()
+})
+
+test.skipIf(!groupsRadiosByForm())("a clobbered radio that a passing radio unchecked follows its markup", () => {
+	const host = mount(
+		`<div><form id="f"></form><input id="y" type="radio" name="r" form="f"><section><input id="b" type="radio" name="r"></section></div>`,
+	)
+	radio(host, "y").checked = true
+	radio(host, "b").checked = true
+	const b = radio(host, "b")
+
+	morph(host.firstElementChild!, parse(`<div><section morphlex-clobber><input id="b" type="radio" name="r"></section></div>`), {
+		preserveChanges: true,
+	})
+
+	expect(radio(host, "b")).toBe(b)
+	expect(checkedIds(host)).toBe("")
+	host.remove()
+})
