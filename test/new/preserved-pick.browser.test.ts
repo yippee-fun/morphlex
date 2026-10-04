@@ -639,3 +639,48 @@ test("labels that only differ inside keep their own ticks when they're reordered
 	expect(Array.from(from.querySelectorAll("label"))).toEqual([two, three, one])
 	expect(new FormData(from).getAll("t")).toEqual(["a", "a", "a"])
 })
+
+test("a wrapper is paired with the target holding the user's radio rather than the one they left", () => {
+	const radio = (value: string, checked = "") => `<input type="radio" name="g" value="${value}"${checked}>`
+	const from = form(`<div>${radio("a", " checked")}${radio("b")}</div>`)
+	const wrapper = from.firstElementChild
+	check(from, "b")
+
+	morph(from, form(`<div class="x">${radio("a")}</div><div class="x">${radio("b")}</div>`), {
+		preserveChanges: true,
+	})
+
+	expect(from.children[1]).toBe(wrapper)
+	expect(new FormData(from).get("g")).toBe("b")
+})
+
+test("a root select keeps the user's pick when its rename is vetoed and its option changes", () => {
+	const select = dom(`<select name="x"><option value="a">a</option><option value="b">b</option></select>`) as HTMLSelectElement
+	document.body.append(select)
+	select.value = "b"
+
+	morph(select, `<select name="y"><option value="a">a</option><option value="b">B!</option></select>`, {
+		preserveChanges: true,
+		beforeAttributeUpdated: (_element, name) => name !== "name",
+	})
+
+	expect(select.value).toBe("b")
+	expect(select.selectedOptions[0]!.text).toBe("B!")
+	select.remove()
+})
+
+test("a wrapper whose picked radio is gone is still paired with the target holding the radio the user left", () => {
+	const radio = (name: string, value: string, checked = "") => `<input type="radio" name="${name}" value="${value}"${checked}>`
+	const from = form(`<div>${radio("g", "a")}${radio("g", "b", " checked")}</div>`)
+	const wrapper = from.firstElementChild
+	check(from, "a")
+
+	morph(
+		from,
+		form(`<div>${radio("d", "a")}${radio("d", "b")}</div><div class="x">${radio("g", "n")}${radio("g", "b", " checked")}</div>`),
+		{ preserveChanges: true },
+	)
+
+	expect(from.children[1]).toBe(wrapper)
+	expect(new FormData(from).get("g")).toBe(null)
+})
