@@ -632,3 +632,168 @@ test.skipIf(!groupsRadiosByForm())("a radio inside a form whose id changes leave
 	expect(checkedIds(host)).toBe("a")
 	host.remove()
 })
+
+test.skipIf(!groupsRadiosByForm())(
+	"a radio naming a removed form by an id with quotes and newlines leaves its new group alone",
+	() => {
+		const id = `a"b\\c\nd\re\ff`
+		const host = mount(`<div><form></form><input id="b" type="radio" name="r"></div><input id="a" type="radio" name="r">`)
+		const form = host.querySelector("form")!
+		form.id = id
+		radio(host, "b").setAttribute("form", id)
+		radio(host, "b").checked = true
+		radio(host, "a").checked = true
+
+		const target = parse(`<div><input id="b" type="radio" name="r"></div>`)
+		target.querySelector("input")!.setAttribute("form", id)
+		morph(host.querySelector("div")!, target)
+
+		expect(checkedIds(host)).toBe("a")
+		host.remove()
+	},
+)
+
+test("a form whose id has quotes and newlines is morphed", () => {
+	const host = mount(`<div><form></form></div>`)
+	host.querySelector("form")!.id = `a"b\\c\nd\re\ff`
+
+	morph(host.querySelector("div")!, parse(`<div><form id="g"></form></div>`))
+
+	expect(host.innerHTML).toBe(`<div><form id="g"></form></div>`)
+	host.remove()
+})
+
+test("with preserveChanges, a radio the user hasn't touched follows its markup when its form and checked change together", () => {
+	const host = mount(`<form id="f"></form><form id="g"></form><div><input id="b" type="radio" name="r" form="f" checked></div>`)
+
+	morph(host.querySelector("div")!, parse(`<div><input id="b" type="radio" name="r" form="g"></div>`), { preserveChanges: true })
+
+	expect(radio(host, "b").checked).toBe(false)
+	host.remove()
+})
+
+test("with preserveChanges, a radio outside the morph that the user hasn't touched follows its markup after its form moves", () => {
+	const host = mount(
+		`<div><span id="s"><form id="f"></form></span><b></b></div><input id="y" type="radio" name="r" form="f" checked>`,
+	)
+
+	morph(host.firstElementChild!, parse(`<div><b><span id="s"><form id="f"></form></span></b></div>`), { preserveChanges: true })
+	radio(host, "y").removeAttribute("checked")
+
+	expect(radio(host, "y").checked).toBe(false)
+	host.remove()
+})
+
+test("a radio the user checked keeps its check when it changes form", () => {
+	const host = mount(`<form id="f"></form><form id="g"></form><div><input id="b" type="radio" name="r" form="f" checked></div>`)
+	radio(host, "b").checked = true
+
+	morph(host.querySelector("div")!, parse(`<div><input id="b" type="radio" name="r" form="g" checked></div>`), {
+		preserveChanges: true,
+	})
+
+	expect(radio(host, "b").checked).toBe(true)
+	expect(radio(host, "b").getAttribute("form")).toBe("g")
+	host.remove()
+})
+
+test("with preserveChanges, a radio the user checked outside a clobbered element keeps its check when a form inside it changes id", () => {
+	const host = mount(`<div><input id="y" type="radio" name="r" form="f"><section id="s"><form id="f"></form></section></div>`)
+	radio(host, "y").checked = true
+
+	const target = parse(`<div><input id="y" type="radio" name="r" form="f"><section id="s"><form id="g"></form></section></div>`)
+	target.querySelector("section")!.setAttribute("morphlex-clobber", "")
+	morph(host.firstElementChild!, target, { preserveChanges: true })
+
+	expect(host.querySelector("form")!.id).toBe("g")
+	expect(radio(host, "y").checked).toBe(true)
+	host.remove()
+})
+
+test("with preserveChanges, a radio the user checked outside a clobbered element keeps its check when a form moves into it", () => {
+	const host = mount(`<div><input id="y" type="radio" name="r" form="f"><b><form id="f"></form></b><section></section></div>`)
+	radio(host, "y").checked = true
+
+	const target = parse(`<div><input id="y" type="radio" name="r" form="f"><b></b><section><form id="f"></form></section></div>`)
+	target.querySelector("section")!.setAttribute("morphlex-clobber", "")
+	morph(host.firstElementChild!, target, { preserveChanges: true })
+
+	expect(host.querySelector("section form")).not.toBe(null)
+	expect(radio(host, "y").checked).toBe(true)
+	host.remove()
+})
+
+test("a radio outside the morph keeps the value of its checked attribute when its form moves", () => {
+	const host = mount(
+		`<div><span id="s"><form id="f"></form></span><b></b></div><input id="y" type="radio" name="r" form="f" checked="checked">`,
+	)
+
+	morph(host.firstElementChild!, parse(`<div><b><span id="s"><form id="f"></form></span></b></div>`))
+
+	expect(radio(host, "y").getAttribute("checked")).toBe("checked")
+	expect(radio(host, "y").checked).toBe(true)
+	host.remove()
+})
+
+// Found by the move fuzzer in Firefox: the target wraps a form around its own ancestor, so a new form
+// with the same id is added while the old one is still there.
+test.skipIf(!groupsRadiosByForm())(
+	"a form recreated around its own ancestor leaves the group of radios without a form alone",
+	() => {
+		const host = mount(
+			`<div><div><b id="i0"><input id="i1" type="radio" name="r"><form id="i2"><input id="i3" type="text"></form></b></div><input id="i8" type="radio" name="r" checked></div>`,
+		)
+		host.insertAdjacentHTML("afterbegin", `<input id="y" type="radio" name="r" form="i2" checked>`)
+
+		morph(
+			host.querySelector("div")!,
+			parse(
+				`<div><div><form id="i2"><input id="i3" type="text"><span id="i10"><b id="i0"></b></span></form></div><input id="i8" type="radio" name="r" checked></div>`,
+			),
+		)
+
+		expect(checkedIds(host)).toBe("y i8")
+		host.remove()
+	},
+)
+
+// Found by the move fuzzer in Firefox, which can stop a radio following its `checked` attribute while its form moves.
+const movingForms: Array<[string, string]> = [
+	[
+		`<div><section><input id="i0" type="radio" name="s" checked><form id="f"><textarea></textarea></form></section><form id="i5"><input id="i3" type="radio" name="r" checked><input id="i4" type="radio" name="r" checked></form></div>`,
+		`<div><input id="i4" type="radio" name="r" checked><form id="f"><textarea></textarea><section><input id="i0" type="radio" name="s" checked></section></form><form id="i5"><input id="i3" type="radio" name="r" checked></form></div>`,
+	],
+	[
+		`<div><form><input id="i0" type="radio" name="r" checked><input id="i2" type="radio" name="r" checked></form><form id="f"></form></div>`,
+		`<div><span id="i4"><input id="i2" type="radio" name="r" checked><form><input id="i0" type="radio" name="r" checked></form></span><b><form id="f"></form></b></div>`,
+	],
+]
+for (const [from, to] of movingForms) {
+	test.skipIf(!groupsRadiosByForm())(`a radio outside the morph stays checked when its form moves: ${to}`, () => {
+		const host = mount(from)
+		host.insertAdjacentHTML("afterbegin", `<input id="y" type="radio" name="r" form="f" checked>`)
+
+		morph(host.querySelector("div")!, parse(to))
+
+		expect(radio(host, "y").checked).toBe(true)
+		expect(radio(host, "y").getAttribute("checked")).toBe("")
+		host.remove()
+	})
+}
+
+test("a radio outside the morph gives way to the radio the markup checks in the group it joins", () => {
+	const host = mount(
+		`<div><section id="s"><form id="f"><textarea id="t"></textarea></form></section><form><input id="i8" type="radio" name="r" checked></form></div>`,
+	)
+	host.insertAdjacentHTML("afterbegin", `<input id="y" type="radio" name="r" form="f" checked>`)
+
+	morphInner(
+		host.querySelector("div")!,
+		parse(
+			`<div><form id="f"><textarea id="t"></textarea><section id="s"></section><input id="i8" type="radio" name="r" checked></form><form></form></div>`,
+		),
+	)
+
+	expect(radio(host, "i8").checked).toBe(true)
+	host.remove()
+})
