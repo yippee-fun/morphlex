@@ -222,10 +222,13 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const select = selectOf(fromElement)
 		const selection = select && markupSelectionOf(select)
 		const flagged = flagDirtyInputs(fromElement)
-		const morpher = new Morph(options, clobbered)
-		morpher.morphChildren(fromElement, toElement)
-		if (select) morpher.syncEnclosingSelect(select, selection!)
-		clearDirtyFlags(flagged)
+		try {
+			const morpher = new Morph(options, clobbered)
+			morpher.morphChildren(fromElement, toElement)
+			if (select) morpher.syncEnclosingSelect(select, selection!)
+		} finally {
+			clearDirtyFlags(flagged)
+		}
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
 	}
@@ -816,7 +819,8 @@ class Morph {
 		// First pass: update/add attributes from reference (iterate forwards)
 		const toAttributes = to.attributes
 		for (let i = 0; i < toAttributes.length; i++) {
-			const { name, localName, value, namespaceURI } = toAttributes[i]!
+			const attribute = toAttributes[i]!
+			const { name, localName, value, namespaceURI } = attribute
 			// Adding `open` would open it, but changing the value of an existing one is fine.
 			if (name === "open" && namespaceURI === null && this.#preserveChanges && hasOpenState(from) && !from.hasAttribute("open")) {
 				continue
@@ -825,12 +829,15 @@ class Morph {
 
 			if (oldValue === value) continue
 			if (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true) {
-				if (details && name === "open" && namespaceURI === null && oldValue === null) {
+				// Go through `Attr` nodes, because `setAttribute` rejects names the parser accepts, like `@click`.
+				// Look the attribute up after the callback, which may have removed or replaced it.
+				const existing = from.getAttributeNodeNS(namespaceURI, localName)
+				if (existing) {
+					existing.value = value
+				} else if (details && name === "open" && namespaceURI === null) {
 					this.#openDetailsItem(from, value)
-				} else if (namespaceURI) {
-					from.setAttributeNS(namespaceURI, name, value)
 				} else {
-					from.setAttribute(name, value)
+					from.setAttributeNodeNS(attribute.cloneNode() as Attr)
 				}
 				this.#options.afterAttributeUpdated?.(from, name, oldValue)
 			} else {
@@ -1299,10 +1306,6 @@ class Morph {
 			if (candidateNodeActive[candidateIndex]) this.#removeNode(fromChildNodes[candidateIndex]!)
 		}
 
-		for (let i = 0; i < whitespaceNodeIndices.length; i++) {
-			this.#removeNode(fromChildNodes[whitespaceNodeIndices[i]!]!)
-		}
-
 		for (let i = 0; i < candidateElementIndices.length; i++) {
 			const candidateIndex = candidateElementIndices[i]!
 			if (candidateElementActive[candidateIndex]) this.#removeNode(fromChildNodes[candidateIndex]!)
@@ -1322,11 +1325,36 @@ class Morph {
 			shouldNotMove[matches[lisIndices[i]!]!] = true
 		}
 
+		// Whitespace stays in place for now, so target whitespace can reuse whatever is at the insertion point.
+		const liveWhitespace: Set<ChildNode> | null = whitespaceNodeIndices.length ? new Set() : null
+		for (let i = 0; i < whitespaceNodeIndices.length; i++) {
+			liveWhitespace!.add(fromChildNodes[whitespaceNodeIndices[i]!]!)
+		}
+
 		let insertionPoint: ChildNode | null = parent.firstChild
+		const placed: Array<ChildNode> = []
 		for (let i = 0; i < toChildNodes.length; i++) {
+			// A callback can remove the insertion point, such as the whitespace after the node it visits.
+			// Then carry on after the last node placed that's still here.
+			if (insertionPoint && insertionPoint.parentNode !== parent) {
+				insertionPoint = parent.firstChild
+				for (let index = placed.length - 1; index >= 0; index--) {
+					if (placed[index]!.parentNode === parent) {
+						insertionPoint = placed[index]!.nextSibling
+						break
+					}
+				}
+			}
+
 			const node = toChildNodes[i]!
 			const matchInd = matches[i]
-			if (matchInd !== undefined) {
+			if (insertionPoint && liveWhitespace?.has(insertionPoint) && isWhitespaceTextNode(node)) {
+				const whitespace: ChildNode = insertionPoint
+				liveWhitespace.delete(whitespace)
+				placed.push(whitespace)
+				insertionPoint = whitespace.nextSibling
+				this.#morphOneToOne(whitespace, node)
+			} else if (matchInd !== undefined) {
 				const match = fromChildNodes[matchInd]!
 				const operation = op[i]!
 
@@ -1350,8 +1378,18 @@ class Morph {
 				} else {
 					this.#morphOneToOne(match, node)
 				}
+				// A replaced match leaves the target in its place.
+				placed.push(match.parentNode === parent ? match : node)
 			} else {
-				if (this.#addNode(parent, node, insertionPoint)) insertionPoint = node.nextSibling
+				const added = this.#addNode(parent, node, insertionPoint)
+				if (added) placed.push(added)
+				if (added === node) insertionPoint = node.nextSibling
+			}
+		}
+
+		if (liveWhitespace) {
+			for (const whitespace of liveWhitespace) {
+				if (whitespace.parentNode === parent) this.#removeNode(whitespace)
 			}
 		}
 
@@ -1510,15 +1548,16 @@ class Morph {
 		from.content.replaceChildren(to.content)
 	}
 
-	// Add a new node, or claim the live element with its id. Returns whether the new node was inserted.
-	#addNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): boolean {
+	// Add a new node, or claim the live element with its id. Returns the new node or the claim's
+	// placeholder, or null when the new node wasn't inserted.
+	#addNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): ChildNode | null {
 		const placeholder = isElement(node) ? this.#claimMovableElement(node, parent) : null
 		if (placeholder) {
 			parent.insertBefore(placeholder, insertionPoint)
-			return false
+			return placeholder
 		}
 
-		return this.#insertNewNode(parent, node, insertionPoint)
+		return this.#insertNewNode(parent, node, insertionPoint) ? node : null
 	}
 
 	#insertNewNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null, approved = false): boolean {
