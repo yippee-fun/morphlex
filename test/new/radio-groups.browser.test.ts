@@ -886,3 +886,47 @@ test("a form moving in from another root leaves the radios it leaves behind chec
 	host.remove()
 	shadowHost.remove()
 })
+
+test.skipIf(!groupsRadiosByForm())("a radio that loses its form and then its name gives back the group it passed through", () => {
+	const host = mount(
+		`<div><form id="f"></form><input id="y" type="radio" name="r" form="f"></div><input id="a" type="radio" name="r">`,
+	)
+	radio(host, "y").checked = true
+	radio(host, "a").checked = true
+
+	morph(host.firstElementChild!, parse(`<div><input id="y" type="radio" name="s" form="f"></div>`), { preserveChanges: true })
+
+	expect(checkedIds(host)).toBe("y a")
+	host.remove()
+})
+
+test("a root radio whose form changes is checked again before its afterNodeVisited", () => {
+	const host = mount(`<form id="f"></form><form id="g"></form><input id="y" type="radio" name="r" form="f">`)
+	radio(host, "y").checked = true
+	let checkedWhenVisited: boolean | null = null
+
+	morph(radio(host, "y"), parse(`<input id="y" type="radio" name="r" form="g" checked>`), {
+		beforeAttributeUpdated: (_element, name) => name !== "checked",
+		afterNodeVisited: (node) => {
+			checkedWhenVisited = (node as HTMLInputElement).checked
+		},
+	})
+
+	expect(checkedWhenVisited).toBe(true)
+	expect(radio(host, "y").checked).toBe(true)
+	host.remove()
+})
+
+test("a radio that loses its form and stays keeps the group it joined", () => {
+	const host = mount(`<div><form id="f"></form><input id="y" type="radio" name="r" form="f"></div>`)
+	radio(host, "y").checked = true
+	const container = document.createElement("p")
+	container.innerHTML = `<input id="a" type="radio" name="r">`
+	radio(container, "a").checked = true
+	host.append(container)
+
+	morph(host.firstElementChild!, parse(`<div><input id="y" type="radio" name="r" form="f"></div>`), { preserveChanges: true })
+
+	expect(checkedIds(host)).toBe("y")
+	host.remove()
+})
