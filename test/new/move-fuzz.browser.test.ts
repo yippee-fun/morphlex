@@ -700,7 +700,9 @@ function parse(html: string): HTMLElement {
 // first stays open, as Chromium's parser does, so close the later ones to get what the morph shows.
 function closeLaterAccordionItems<T extends Element>(root: T): T {
 	const open = new Set<string>()
-	for (const details of root.querySelectorAll(`details[open]:not([name=""])[name]`)) {
+	const items = [...root.querySelectorAll(`details[open]:not([name=""])[name]`)]
+	if (root.matches(`details[open]:not([name=""])[name]`)) items.unshift(root)
+	for (const details of items) {
 		const name = details.getAttribute("name")!
 		if (open.has(name)) details.removeAttribute("open")
 		else open.add(name)

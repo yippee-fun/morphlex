@@ -27,6 +27,7 @@ function openIds(host: Element): string {
 	return [...host.querySelectorAll("details")]
 		.filter((details) => details.hasAttribute("open"))
 		.map((details) => details.id)
+		.filter((id) => id !== "")
 		.join(" ")
 }
 
@@ -375,5 +376,46 @@ test("an svg element named details is left alone", () => {
 		},
 	})
 	expect(host.querySelector("svg details")!.hasAttribute("open")).toBe(false)
+	host.remove()
+})
+
+// WebKit and happy-dom parse several open items in one group, but a document keeps only the first.
+test("only the first open item of a group in the target is opened", () => {
+	const host = mount(`<div><p></p></div>`)
+	morph(
+		host.firstElementChild!,
+		`<div>x<details id="a" name="g" open></details><details id="b" open></details><details id="c" name="g" open></details><svg><details name="g" open></details></svg></div>`,
+	)
+	expect(openIds(host)).toBe("a b")
+	expect(host.querySelector("svg details")!.hasAttribute("open")).toBe(true)
+	host.remove()
+})
+
+test("only the first open item of a group in a target node list is opened", () => {
+	const host = mount(`<div><p id="p"></p></div>`)
+	morph(
+		host.querySelector("#p")!,
+		`text<details id="a" name="g" open><details id="b" name="g" open></details></details><details id="c" name="g" open></details>`,
+	)
+	expect(openIds(host)).toBe("a")
+	host.remove()
+})
+
+test("only the first open item of a group in a morphInner target is opened", () => {
+	const host = mount(`<div><p></p></div>`)
+	morphInner(
+		host.firstElementChild!,
+		`<div><details id="a" name="g" open></details><details id="b" name="g" open></details></div>`,
+	)
+	expect(openIds(host)).toBe("a")
+	host.remove()
+})
+
+test("only the first open item of a group in a target element is opened", () => {
+	const host = mount(`<div><p></p></div>`)
+	const target = document.createElement("div")
+	target.innerHTML = `<details id="a" name="g" open></details><details id="b" name="g" open></details>`
+	morph(host.firstElementChild!, target)
+	expect(openIds(host)).toBe("a")
 	host.remove()
 })

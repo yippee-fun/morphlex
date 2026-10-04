@@ -582,8 +582,6 @@ class Morph {
 	// Inserting an open item, or giving one a name, closes it while another in its group is open, so the
 	// ones left closed are opened again when the morph settles.
 	#openDetails: Map<Element, string> | null = null
-	// The noted items whose open state the morph kept as it was, because of a veto or `preserveChanges`.
-	#keptDetails: Set<Element> | null = null
 	// Only a target with an open `details` can add one, so other morphs skip looking for one.
 	#targetOpensDetails = false
 
@@ -605,11 +603,13 @@ class Morph {
 
 		if (isNodeList(to)) {
 			this.#mapIdArraysForEach(to)
+			if (this.#targetOpensDetails) closeLaterOpenDetails(to)
 			this.#morphOneToMany(from, to)
 		} else {
 			if (isParentNode(to)) {
 				this.#mapIdArrays(to)
 			}
+			if (this.#targetOpensDetails) closeLaterOpenDetails([to])
 			this.#morphOneToOne(from, to)
 		}
 
@@ -621,6 +621,7 @@ class Morph {
 		this.#scope = from
 		this.#mapIdSets(from)
 		this.#mapIdArrays(to, false)
+		if (this.#targetOpensDetails) closeLaterOpenDetails(to.children)
 		this.visitChildNodes(from, to)
 		this.#finish()
 	}
@@ -682,17 +683,14 @@ class Morph {
 		const openDetails = this.#openDetails
 		if (openDetails) {
 			this.#openDetails = null
-			this.#reopenDetails(openDetails, this.#keptDetails)
-			this.#keptDetails = null
+			this.#reopenDetails(openDetails)
 		}
 	}
 
 	// Open each item the morph wants open but the browser closed, in document order, so the first one wins
-	// as when parsing. Opening it closes the open item in its group, so it stays closed while that one is
-	// outside the morph, vetoed or kept open by the user, including one the morph skipped because it equals
-	// its target. Otherwise the target opens that one too, which WebKit's parser allows, so the item still
-	// opens when that one comes later.
-	#reopenDetails(openDetails: Map<Element, string>, kept: Set<Element> | null): void {
+	// as when parsing. An item stays closed while another in its group is open, since opening it would
+	// close that one, which is either wanted open too, outside the morph, vetoed or kept open by the user.
+	#reopenDetails(openDetails: Map<Element, string>): void {
 		const closed: Array<Element> = []
 		for (const details of openDetails.keys()) {
 			if (!details.hasAttribute("open") && this.#inScope(details)) closed.push(details)
@@ -700,15 +698,7 @@ class Morph {
 		closed.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
 
 		for (const details of closed) {
-			const others = openDetailsInGroup(details)
-			const yielding = others.every(
-				(other) =>
-					(openDetails.has(other) ? !kept?.has(other) : !this.#preserveChanges) &&
-					this.#inScope(other) &&
-					!this.#isVetoed(other) &&
-					(details.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
-			)
-			if (yielding) details.setAttribute("open", openDetails.get(details)!)
+			if (openDetailsInGroup(details).length === 0) details.setAttribute("open", openDetails.get(details)!)
 		}
 	}
 
@@ -886,7 +876,6 @@ class Morph {
 		if (intended === null) return
 
 		;(this.#openDetails ??= new Map()).set(details, intended)
-		if (vetoed || this.#preserveChanges) (this.#keptDetails ??= new Set()).add(details)
 	}
 
 	// Opening an accordion item closes the open one in its group, which may be vetoed, kept by the user,
@@ -2100,8 +2089,28 @@ function openDetailsInGroup(details: Element): Array<Element> {
 	const name = details.getAttribute("name")
 	if (!name) return []
 
-	const candidates = [...(details.getRootNode() as ParentNode).querySelectorAll("details[open]")]
-	return candidates.filter((other) => other !== details && isDetailsElement(other) && other.getAttribute("name") === name)
+	const selector = `details[open][name="${name.replace(/["\\]/g, "\\$&")}"]`
+	const candidates = [...(details.getRootNode() as ParentNode).querySelectorAll(selector)]
+	return candidates.filter((other) => other !== details && isDetailsElement(other))
+}
+
+// A document keeps only the first open item of an accordion, but WebKit's parser keeps them all, so
+// close the later ones in the target.
+function closeLaterOpenDetails(nodes: ArrayLike<Node>): void {
+	const names = new Set<string>()
+	for (let i = 0; i < nodes.length; i++) {
+		const node = nodes[i]!
+		if (!isElement(node)) continue
+
+		const items = [...node.querySelectorAll("details[open]")]
+		if (node.matches("details[open]")) items.unshift(node)
+		for (const item of items) {
+			const name = item.getAttribute("name")
+			if (!name || !isDetailsElement(item)) continue
+			if (names.has(name)) item.removeAttribute("open")
+			else names.add(name)
+		}
+	}
 }
 
 function isSelectElement(element: Element): element is HTMLSelectElement {
