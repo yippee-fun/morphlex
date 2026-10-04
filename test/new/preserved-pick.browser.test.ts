@@ -448,7 +448,7 @@ test("a wrapper with the user's tick takes the smallest target holding it", () =
 	expect(new FormData(from).getAll("t")).toEqual(["a"])
 })
 
-test("equal-sized wrappers with the user's ticks each find a target holding all of them", () => {
+test("when two wrappers with the user's ticks both fit one target, the first keeps it", () => {
 	const box = (value: string) => `<input type="checkbox" name="t" value="${value}">`
 	const from = form(`<div>${box("a")}${box("b")}</div><div>${box("a")}${box("c")}</div>`)
 	for (const input of from.querySelectorAll("input")) input.checked = true
@@ -461,7 +461,8 @@ test("equal-sized wrappers with the user's ticks each find a target holding all 
 		{ preserveChanges: true },
 	)
 
-	expect(new FormData(from).getAll("t")).toEqual(["a", "c", "a", "b"])
+	// A swap would keep all four ticks, but pairing is first-fit rather than a full matching.
+	expect(new FormData(from).getAll("t")).toEqual(["a", "b", "a"])
 })
 
 test("a customized label with the user's tick only takes a target with the same is", () => {

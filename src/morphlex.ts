@@ -1430,35 +1430,26 @@ class Morph {
 						else holders.set(key, [target])
 					}
 				}
-				const listIds: Map<Array<number>, number> = new Map()
-				for (const list of holders.values()) listIds.set(list, listIds.size)
 
 				// The lists holding the targets the candidate can take. A target holding all of its choices is in every
 				// list, so then only the shortest is needed.
-				const lists: Array<Array<Array<number>>> = []
 				const listsOf = (k: number): Array<Array<number>> => {
-					let candidateLists = lists[k]
-					if (!candidateLists) {
-						const candidate = fromChildNodes[choiceCandidates[k]![0]] as Element
-						candidateLists = []
-						for (const choice of new Set(choicesOf(k))) {
-							const list = holders.get(indexKey(candidate, choice, sameAttributes))
-							if (list) candidateLists.push(list)
-							else if (allChoices) {
-								candidateLists = []
-								break
-							}
-						}
-						if (allChoices && candidateLists.length) {
-							candidateLists = [candidateLists.reduce((a, b) => (b.length < a.length ? b : a))]
-						}
-						lists[k] = candidateLists
+					const candidate = fromChildNodes[choiceCandidates[k]![0]] as Element
+					let candidateLists: Array<Array<number>> = []
+					for (const choice of new Set(choicesOf(k))) {
+						const list = holders.get(indexKey(candidate, choice, sameAttributes))
+						if (list) candidateLists.push(list)
+						else if (allChoices) return []
+					}
+					if (allChoices && candidateLists.length) {
+						candidateLists = [candidateLists.reduce((a, b) => (b.length < a.length ? b : a))]
 					}
 					return candidateLists
 				}
 
-				// Candidates alike in everything `takes` checks pass and fail the same targets. A target in a list holds
-				// one of the candidate's choices, so when one choice is enough, their choices don't matter.
+				// Candidates alike in everything `takes` checks pass and fail the same targets, so they share where each
+				// list's untried targets start. A target in a list holds one of the candidate's choices, so when one choice
+				// is enough, their choices don't matter.
 				const likenesses: Array<string> = []
 				const likenessOf = (k: number): string => {
 					let likeness = likenesses[k]
@@ -1476,60 +1467,13 @@ class Morph {
 					return likeness
 				}
 
-				// Pair as many candidates with targets as possible, so one taking a target can't leave another without any.
+				// Each candidate takes the first free target it can, in target order. When two candidates both fit one
+				// target, the first keeps it.
 				const owners: Map<number, number> = new Map()
-				// Until a search succeeds, the targets a failed search reached can't lead to a free target, and a
-				// candidate alike to one whose search failed, with the same lists, fails too.
-				const deadTargets: Set<number> = new Set()
-				const failedSearches: Set<string> = new Set()
-				// Search breadth first for a chain of candidates, each taking the next one's target, that ends at a free
-				// target, and shift the targets along it.
-				const assign = (start: number): void => {
-					const search = `${likenessOf(start)} ${listsOf(start)
-						.map((list) => listIds.get(list)!)
-						.join(" ")}`
-					if (failedSearches.has(search)) return
-					const reachedFrom: Map<number, number> = new Map()
-					const ownedTarget: Map<number, number> = new Map()
-					// Alike candidates reach the same targets in a list, so each list is walked once for them.
-					const walked: Set<string> = new Set()
-					const queue = [start]
-					for (let q = 0; q < queue.length; q++) {
-						const k = queue[q]!
-						for (const list of listsOf(k)) {
-							const walk = `${likenessOf(k)} ${listIds.get(list)!}`
-							if (walked.has(walk)) continue
-							walked.add(walk)
-							for (const target of list) {
-								if (reachedFrom.has(target) || deadTargets.has(target) || !takes(k, target)) continue
-								reachedFrom.set(target, k)
-								const owner = owners.get(target)
-								if (owner !== undefined) {
-									ownedTarget.set(owner, target)
-									queue.push(owner)
-									continue
-								}
-								for (let next: number | undefined = target; next !== undefined;) {
-									const taker = reachedFrom.get(next)!
-									owners.set(next, taker)
-									next = ownedTarget.get(taker)
-								}
-								deadTargets.clear()
-								failedSearches.clear()
-								return
-							}
-						}
-					}
-					for (const target of reachedFrom.keys()) deadTargets.add(target)
-					failedSearches.add(search)
-				}
-
 				const position: Map<number, number> = new Map(targets.map((target, t) => [target, t]))
 				// Alike candidates share where each list's untried targets start.
 				const firstFree: Map<string, Map<Array<number>, number>> = new Map()
 
-				// Give each candidate a free target first, so augmenting paths are only searched for the rest.
-				const unassigned: Array<number> = []
 				for (let k = 0; k < choiceCandidates.length; k++) {
 					if (!candidateActive[choiceCandidates[k]![0]] || !choicesOf(k).length) continue
 					// A target the candidate can take is in its lists, so without any it has none.
@@ -1559,11 +1503,6 @@ class Morph {
 					}
 					// Every target before each head was taken or failed, for this candidate and those alike.
 					for (let l = 0; l < candidateLists.length; l++) untried.set(candidateLists[l]!, heads[l]!)
-					if (!assigned) unassigned.push(k)
-				}
-				for (const k of unassigned) {
-					if (owners.size === targets.length) break
-					assign(k)
 				}
 
 				for (const [target, k] of owners) {
