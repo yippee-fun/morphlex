@@ -172,7 +172,7 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 	const selection = select && markupSelectionOf(select)
 	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
 	try {
-		const morpher = new Morph(options, clobbered)
+		const morpher = new Morph(options, clobbered, flagged)
 		morpher.morph(from, to)
 		if (select) morpher.syncEnclosingSelect(select, selection!)
 	} finally {
@@ -221,7 +221,7 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const select = selectOf(fromElement)
 		const selection = select && markupSelectionOf(select)
 		const flagged = flagDirtyInputs(fromElement)
-		const morpher = new Morph(options, clobbered)
+		const morpher = new Morph(options, clobbered, flagged)
 		morpher.morphChildren(fromElement, toElement)
 		if (select) morpher.syncEnclosingSelect(select, selection!)
 		clearDirtyFlags(flagged)
@@ -578,11 +578,24 @@ class Morph {
 	#preserveChanges: boolean
 	// Only a target with a checked input can add a checked radio, so other morphs skip looking for one.
 	#targetChecksInputs = false
+	// Elements flagged `morphlex-dirty` and their ancestors. These can't equal their targets, so they're compared without the flag.
+	readonly #dirtyElements: Set<Element> | null = null
+	readonly #dirtyChoices: Map<Element, Array<string>> = new Map()
+	readonly #targetChoices: Map<Element, Set<string>> = new Map()
 
-	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
+	constructor(options: Options = {}, clobbered: Set<Element> | null = null, flagged: Array<Element> | null = null) {
 		this.#options = options
 		this.#clobbered = clobbered
 		this.#preserveChanges = options.preserveChanges ?? false
+		if (flagged?.length) {
+			const dirtyElements = new Set<Element>()
+			for (const element of flagged) {
+				for (let node: Element | null = element; node && !dirtyElements.has(node); node = node.parentElement) {
+					dirtyElements.add(node)
+				}
+			}
+			this.#dirtyElements = dirtyElements
+		}
 	}
 
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
@@ -1007,6 +1020,32 @@ class Morph {
 			}
 		}
 
+		// Match elements that only differ by the user's changes, so a changed control keeps its own target.
+		const dirtyElements = this.#dirtyElements
+		if (dirtyElements) {
+			for (let i = 0; i < unmatchedElementIndices.length; i++) {
+				const unmatchedIndex = unmatchedElementIndices[i]!
+				if (!unmatchedElementActive[unmatchedIndex]) continue
+				const element = toChildNodes[unmatchedIndex] as Element
+
+				for (let c = 0; c < candidateElementIndices.length; c++) {
+					const candidateIndex = candidateElementIndices[c]!
+					if (!candidateElementActive[candidateIndex]) continue
+					if (localNameMap[unmatchedIndex] !== candidateLocalNameMap[candidateIndex]) continue
+					const candidate = fromChildNodes[candidateIndex] as Element
+					if (!dirtyElements.has(candidate)) continue
+
+					if (isEqualExceptDirty(candidate, element, dirtyElements)) {
+						matches[unmatchedIndex] = candidateIndex
+						op[unmatchedIndex] = Operation.SameElement
+						candidateElementActive[candidateIndex] = 0
+						unmatchedElementActive[unmatchedIndex] = 0
+						break
+					}
+				}
+			}
+		}
+
 		// Match by exact id
 		for (let i = 0; i < unmatchedElementIndices.length; i++) {
 			const unmatchedIndex = unmatchedElementIndices[i]!
@@ -1098,6 +1137,38 @@ class Morph {
 			}
 		}
 
+		// Under preserveChanges, match a checkbox, radio or option the user changed to a target with the same
+		// choice, and a wrapper without its own identity holding some to a target holding one of the same choices,
+		// so other elements can't take their targets and the user's choices keep their values.
+		if (this.#preserveChanges && dirtyElements) {
+			for (let i = 0; i < unmatchedElementIndices.length; i++) {
+				const unmatchedIndex = unmatchedElementIndices[i]!
+				if (!unmatchedElementActive[unmatchedIndex]) continue
+				const element = toChildNodes[unmatchedIndex] as Element
+
+				for (let c = 0; c < candidateElementIndices.length; c++) {
+					const candidateIndex = candidateElementIndices[c]!
+					if (!candidateElementActive[candidateIndex]) continue
+					if (localNameMap[unmatchedIndex] !== candidateLocalNameMap[candidateIndex]) continue
+					if (namespaceURIMap[unmatchedIndex] !== candidateNamespaceURIMap[candidateIndex]) continue
+					const candidate = fromChildNodes[candidateIndex] as Element
+					const choices = this.#dirtyChoicesOf(candidate)
+
+					if (
+						choices &&
+						(candidate.hasAttribute("morphlex-dirty") || canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) &&
+						this.#sharesChoice(choices, element)
+					) {
+						matches[unmatchedIndex] = candidateIndex
+						op[unmatchedIndex] = Operation.SameElement
+						candidateElementActive[candidateIndex] = 0
+						unmatchedElementActive[unmatchedIndex] = 0
+						break
+					}
+				}
+			}
+		}
+
 		// Match by heuristics
 		for (let i = 0; i < unmatchedElementIndices.length; i++) {
 			const unmatchedIndex = unmatchedElementIndices[i]!
@@ -1120,7 +1191,8 @@ class Morph {
 					namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex] &&
 					((name && name === candidate.getAttribute("name")) ||
 						(href && href === candidate.getAttribute("href")) ||
-						(src && src === candidate.getAttribute("src")))
+						(src && src === candidate.getAttribute("src"))) &&
+					!this.#holdsOtherChoice(candidate, element)
 				) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
@@ -1160,7 +1232,11 @@ class Morph {
 
 				const candidateLocalName = candidateLocalNameMap[candidateIndex]
 
-				if (localName === candidateLocalName && namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex]) {
+				if (
+					localName === candidateLocalName &&
+					namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex] &&
+					!this.#holdsOtherChoice(candidate, element)
+				) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
 					candidateElementActive[candidateIndex] = 0
@@ -1408,6 +1484,42 @@ class Morph {
 			}
 		}
 		return false
+	}
+
+	// A checkbox, radio or option the user changed holds their choice of its value, so under
+	// preserveChanges it must not be matched to a target with another value.
+	#holdsOtherChoice(candidate: Element, element: Element): boolean {
+		return this.#preserveChanges && candidate.hasAttribute("morphlex-dirty") && choiceOf(candidate) !== choiceOf(element)
+	}
+
+	#sharesChoice(choices: Array<string>, element: Element): boolean {
+		let targetChoices = this.#targetChoices.get(element)
+		if (!targetChoices) {
+			targetChoices = new Set()
+			for (const control of [element, ...element.querySelectorAll("input, option")]) {
+				const choice = choiceOf(control)
+				if (choice !== null) targetChoices.add(choice)
+			}
+			this.#targetChoices.set(element, targetChoices)
+		}
+
+		for (const choice of choices) if (targetChoices.has(choice)) return true
+		return false
+	}
+
+	// The choices of the checkboxes, radios and options the user changed in this element, or null when there are none.
+	#dirtyChoicesOf(element: Element): Array<string> | null {
+		if (!this.#dirtyElements?.has(element)) return null
+		let choices = this.#dirtyChoices.get(element)
+		if (choices === undefined) {
+			choices = []
+			for (const control of [element, ...element.querySelectorAll("[morphlex-dirty]")]) {
+				const choice = control.hasAttribute("morphlex-dirty") ? choiceOf(control) : null
+				if (choice !== null) choices.push(choice)
+			}
+			this.#dirtyChoices.set(element, choices)
+		}
+		return choices.length ? choices : null
 	}
 
 	// A vetoed `selected` or `checked` update leaves the selection alone, like other vetoed form attributes.
@@ -1840,6 +1952,41 @@ function trimFragmentEdgeWhitespace(fragment: DocumentFragment): void {
 	while (fragment.lastChild && isWhitespaceTextNode(fragment.lastChild)) {
 		fragment.lastChild.remove()
 	}
+}
+
+// What choosing this element means: an option's value, or a checkbox or radio's type, name and value.
+function choiceOf(element: Element): string | null {
+	if (isOptionElement(element)) return element.value
+	if (isInputElement(element) && (element.type === "checkbox" || element.type === "radio")) {
+		return `${element.type} ${element.getAttribute("name")} ${element.getAttribute("value")}`
+	}
+	return null
+}
+
+// Like `isEqualNode`, but ignores the `morphlex-dirty` flag on the elements in `dirtyElements`.
+function isEqualExceptDirty(from: Element, to: Element, dirtyElements: Set<Element>): boolean {
+	if (!dirtyElements.has(from)) return isEqualNode(from, to)
+	if (from.localName !== to.localName || from.namespaceURI !== to.namespaceURI) return false
+
+	const attributes = to.attributes
+	if (from.attributes.length !== attributes.length + (from.hasAttribute("morphlex-dirty") ? 1 : 0)) return false
+	for (let i = 0; i < attributes.length; i++) {
+		const { namespaceURI, localName, value } = attributes[i]!
+		if (from.getAttributeNS(namespaceURI, localName) !== value) return false
+	}
+
+	const fromChildNodes = from.childNodes
+	const toChildNodes = to.childNodes
+	if (fromChildNodes.length !== toChildNodes.length) return false
+	for (let i = 0; i < fromChildNodes.length; i++) {
+		const fromChild = fromChildNodes[i]!
+		const toChild = toChildNodes[i]!
+		if (fromChild.nodeType === ELEMENT_NODE_TYPE && toChild.nodeType === ELEMENT_NODE_TYPE) {
+			if (!isEqualExceptDirty(fromChild as Element, toChild as Element, dirtyElements)) return false
+		} else if (!isEqualNode(fromChild, toChild)) return false
+	}
+
+	return true
 }
 
 // `isEqualNode` ignores template content, so templates need comparing separately.
