@@ -986,3 +986,18 @@ test("a ticked checkbox keeps the first of several identical targets", () => {
 	expect(from.querySelectorAll("input").length).toBe(2)
 	expect(new FormData(from).getAll("t")).toEqual(["a"])
 })
+
+test("changed labels that differ only by their template's content keep their own targets", () => {
+	const label = (key: string) => `<label><input type="text" name="t"><template><b>${key}</b></template></label>`
+	const from = form(`${label("a")}${label("b")}`)
+	const [a, b] = from.querySelectorAll("input")
+	a!.value = "typed a"
+	b!.value = "typed b"
+
+	morph(from, form(`${label("b")}${label("a")}`), { preserveChanges: true })
+
+	const inputs = from.querySelectorAll("input")
+	expect(inputs[0]).toBe(b)
+	expect(inputs[1]).toBe(a)
+	expect(from.querySelectorAll("template")[0]!.content.textContent).toBe("b")
+})

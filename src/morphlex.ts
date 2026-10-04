@@ -2389,7 +2389,8 @@ function isLeftChoice(element: Element): boolean {
 	return isInputElement(element) && element.type === "radio" && !element.checked
 }
 
-// A key that's the same for nodes that are equal apart from `morphlex-dirty`, as `isEqualNode` compares them.
+// A key that's the same for nodes that are equal apart from `morphlex-dirty`, as `isEqualNode` compares them,
+// template content included.
 function shapeOf(node: Node): string {
 	if (!isElement(node)) return JSON.stringify([node.nodeType, node.nodeName, node.nodeValue])
 	const attributes: Array<string> = []
@@ -2398,6 +2399,11 @@ function shapeOf(node: Node): string {
 	}
 	let children = ""
 	for (const child of node.childNodes) children += shapeOf(child)
+	if (isTemplateElement(node)) {
+		children += "<#content"
+		for (const child of node.content.childNodes) children += shapeOf(child)
+		children += ">"
+	}
 	return `<${JSON.stringify([node.namespaceURI, node.prefix, node.localName, attributes.sort()])}${children}>`
 }
 
