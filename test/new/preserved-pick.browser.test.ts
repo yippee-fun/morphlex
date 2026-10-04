@@ -323,3 +323,57 @@ test("a nested morph from a callback doesn't make the outer morph forget the use
 	expect(new FormData(from).get("g")).toBe("b")
 	expect(from.querySelector('[value="b"]')).toBe(b)
 })
+
+test("a wrapper with two identical ticked checkboxes takes the target holding both", () => {
+	const checkbox = `<input type="checkbox" name="t" value="a">`
+	const from = form(`<div>${checkbox}${checkbox}</div>`)
+	for (const input of from.querySelectorAll("input")) input.checked = true
+
+	morph(from, form(`<div>${checkbox}</div><div class="changed">${checkbox}${checkbox}</div>`), { preserveChanges: true })
+
+	expect(Array.from(from.querySelectorAll<HTMLInputElement>(".changed input"), (input) => input.checked)).toEqual([true, true])
+	expect(from.querySelector<HTMLInputElement>("div:not(.changed) input")!.checked).toBe(false)
+})
+
+test("labelled checkboxes for different forms keep their ticks when the labels swap", () => {
+	const checkbox = (owner: string) => `<input type="checkbox" name="t" value="a" form="${owner}">`
+	const host = dom(
+		`<div><form id="x"></form><form id="y"></form><div><label>${checkbox("x")}</label><label>${checkbox("y")}</label></div></div>`,
+	)
+	document.body.append(host)
+	const from = host.lastElementChild!
+	const [x, y] = Array.from(from.querySelectorAll("input"))
+	x!.checked = true
+	y!.checked = true
+
+	morph(from, dom(`<div><label>${checkbox("y")}<b>Y</b></label><label>${checkbox("x")}<b>X</b></label></div>`), {
+		preserveChanges: true,
+	})
+
+	expect(from.querySelector('[form="x"]')).toBe(x)
+	expect(from.querySelector('[form="y"]')).toBe(y)
+	expect([x!.checked, y!.checked]).toEqual([true, true])
+	host.remove()
+})
+
+test("a wrapper holding more of the user's ticks gets the target holding them all, even when it comes second", () => {
+	const a = `<input type="checkbox" name="t" value="a">`
+	const b = `<input type="checkbox" name="t" value="b">`
+	const from = form(`<div>${a}</div><div>${a}${b}</div>`)
+	for (const input of from.querySelectorAll("input")) input.checked = true
+
+	morph(from, form(`<div class="changed">${a}${b}</div><div class="changed">${a}</div>`), { preserveChanges: true })
+
+	expect(new FormData(from).getAll("t")).toEqual(["a", "b", "a"])
+})
+
+test("a label with the user's tick skips targets of another kind", () => {
+	const checkbox = `<input type="checkbox" name="t" value="a">`
+	const from = form(`<label>${checkbox}</label>`)
+	const input = check(from, "a")
+
+	morph(from, form(`<span>${checkbox}</span><label class="changed">${checkbox}</label>`), { preserveChanges: true })
+
+	expect(from.querySelector(".changed input")).toBe(input)
+	expect(input.checked).toBe(true)
+})

@@ -590,8 +590,7 @@ class Morph {
 	readonly #dirtyElements: Set<Element> | null = null
 	// The flagged elements themselves. A nested morph from a callback can clear their flags, so they're kept here.
 	readonly #flagged: Set<Element> = new Set()
-	readonly #dirtyChoices: Map<Element, Array<string>> = new Map()
-	readonly #targetChoices: Map<Element, Set<string>> = new Map()
+	readonly #targetChoices: Map<Element, Map<string, number>> = new Map()
 
 	constructor(options: Options = {}, clobbered: Set<Element> | null = null, flagged: Array<Element> | null = null) {
 		this.#options = options
@@ -1155,24 +1154,33 @@ class Morph {
 		// holding some, and in each, targets with the same attributes first, so a form doesn't take another form's
 		// target for holding the same choice.
 		if (this.#preserveChanges && dirtyElements) {
-			for (const [sameAttributes, allChoices] of CHOICE_PASSES) {
-				for (let i = 0; i < unmatchedElementIndices.length; i++) {
-					const unmatchedIndex = unmatchedElementIndices[i]!
-					if (!unmatchedElementActive[unmatchedIndex]) continue
-					const element = toChildNodes[unmatchedIndex] as Element
-					const anonymous = canSoftMatchByTagName(element, this.#idArrayMap.has(element))
+			// Candidates holding more choices go first, so one holding fewer can't take the only target holding them all.
+			const choiceCandidates: Array<[number, Array<string>]> = []
+			for (let c = 0; c < candidateElementIndices.length; c++) {
+				const candidateIndex = candidateElementIndices[c]!
+				if (!candidateElementActive[candidateIndex]) continue
+				const candidate = fromChildNodes[candidateIndex] as Element
+				const choices = this.#dirtyChoicesOf(candidate)
+				if (choices && (this.#flagged.has(candidate) || canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate)))) {
+					choiceCandidates.push([candidateIndex, choices])
+				}
+			}
+			choiceCandidates.sort((a, b) => b[1].length - a[1].length)
 
-					for (let c = 0; c < candidateElementIndices.length; c++) {
-						const candidateIndex = candidateElementIndices[c]!
-						if (!candidateElementActive[candidateIndex]) continue
+			for (const [sameAttributes, allChoices] of CHOICE_PASSES) {
+				for (const [candidateIndex, choices] of choiceCandidates) {
+					if (!candidateElementActive[candidateIndex]) continue
+					const candidate = fromChildNodes[candidateIndex] as Element
+
+					for (let i = 0; i < unmatchedElementIndices.length; i++) {
+						const unmatchedIndex = unmatchedElementIndices[i]!
+						if (!unmatchedElementActive[unmatchedIndex]) continue
 						if (localNameMap[unmatchedIndex] !== candidateLocalNameMap[candidateIndex]) continue
 						if (namespaceURIMap[unmatchedIndex] !== candidateNamespaceURIMap[candidateIndex]) continue
-						const candidate = fromChildNodes[candidateIndex] as Element
-						const choices = this.#dirtyChoicesOf(candidate)
+						const element = toChildNodes[unmatchedIndex] as Element
 
 						if (
-							choices &&
-							(this.#flagged.has(candidate) || (anonymous && canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate)))) &&
+							(this.#flagged.has(candidate) || canSoftMatchByTagName(element, this.#idArrayMap.has(element))) &&
 							this.#holdsChoices(choices, element, allChoices) &&
 							(!sameAttributes || hasSameAttributes(candidate, element))
 						) {
@@ -1514,29 +1522,22 @@ class Morph {
 	#holdsChoices(choices: Array<string>, element: Element, all: boolean): boolean {
 		let targetChoices = this.#targetChoices.get(element)
 		if (!targetChoices) {
-			targetChoices = new Set()
-			for (const control of [element, ...element.querySelectorAll("input, option")]) {
-				const choice = choiceOf(control)
-				if (choice !== null) targetChoices.add(choice)
-			}
+			targetChoices = countChoices([element, ...element.querySelectorAll("input, option")])
 			this.#targetChoices.set(element, targetChoices)
 		}
 
-		for (const choice of choices) if (targetChoices.has(choice) !== all) return !all
-		return all
+		if (!all) return choices.some((choice) => targetChoices.has(choice))
+		for (const [choice, count] of countChoices(choices)) if ((targetChoices.get(choice) ?? 0) < count) return false
+		return true
 	}
 
 	// The choices of the checkboxes, radios and options the user changed in this element, or null when there are none.
 	#dirtyChoicesOf(element: Element): Array<string> | null {
 		if (!this.#dirtyElements?.has(element)) return null
-		let choices = this.#dirtyChoices.get(element)
-		if (choices === undefined) {
-			choices = []
-			for (const control of this.#flagged) {
-				const choice = element.contains(control) ? choiceOf(control) : null
-				if (choice !== null) choices.push(choice)
-			}
-			this.#dirtyChoices.set(element, choices)
+		const choices: Array<string> = []
+		for (const control of this.#flagged) {
+			const choice = element.contains(control) ? choiceOf(control) : null
+			if (choice !== null) choices.push(choice)
 		}
 		return choices.length ? choices : null
 	}
@@ -1973,13 +1974,27 @@ function trimFragmentEdgeWhitespace(fragment: DocumentFragment): void {
 	}
 }
 
-// What choosing this element means: an option's value in its select, or a checkbox or radio's type, name and value.
+// What choosing this element means: an option's value in its select, or a checkbox or radio's type, name,
+// value and form attribute.
 function choiceOf(element: Element): string | null {
-	if (isOptionElement(element)) return JSON.stringify([selectOf(element)?.getAttribute("name") ?? null, element.value])
+	if (isOptionElement(element)) {
+		const select = selectOf(element)
+		return JSON.stringify([select?.getAttribute("name") ?? null, select?.getAttribute("form") ?? null, element.value])
+	}
 	if (isInputElement(element) && (element.type === "checkbox" || element.type === "radio")) {
-		return JSON.stringify([element.type, element.name, element.value])
+		return JSON.stringify([element.type, element.name, element.value, element.getAttribute("form")])
 	}
 	return null
+}
+
+// How often each choice appears, given choices or the elements holding them.
+function countChoices(items: Array<string | Element>): Map<string, number> {
+	const counts = new Map<string, number>()
+	for (const item of items) {
+		const choice = typeof item === "string" ? item : choiceOf(item)
+		if (choice !== null) counts.set(choice, (counts.get(choice) ?? 0) + 1)
+	}
+	return counts
 }
 
 // Whether the elements have the same attributes, ignoring `morphlex-dirty`.
