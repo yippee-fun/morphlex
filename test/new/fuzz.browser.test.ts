@@ -262,8 +262,7 @@ function collectReuseExpectations(
 		if (!source) continue
 
 		const target = toSpecs.find((candidate) => candidate.kind === "element" && getStableKey(candidate) === key) as
-			| ElementSpec
-			| undefined
+			ElementSpec | undefined
 
 		if (!target) continue
 
