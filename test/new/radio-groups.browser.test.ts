@@ -797,3 +797,55 @@ test("a radio outside the morph gives way to the radio the markup checks in the 
 	expect(radio(host, "i8").checked).toBe(true)
 	host.remove()
 })
+
+test.skipIf(!groupsRadiosByForm())("removing a form and a checked radio naming it leaves the group it would join alone", () => {
+	const lives = [
+		`<div><form id="f"></form><input id="y" type="radio" name="r" form="f"></div>`,
+		`<div><form id="f"></form><input id="y" type="radio" name="r" form="f" checked></div>`,
+		`<div><p><form id="f"></form></p><p><input id="y" type="radio" name="r" form="f"></p></div>`,
+	]
+	for (const preserveChanges of [true, false]) {
+		for (const live of lives) {
+			const host = mount(`${live}<input id="a" type="radio" name="r">`)
+			radio(host, "a").checked = true
+			radio(host, "y").checked = true
+
+			morph(host.firstElementChild!, parse(`<div></div>`), { preserveChanges })
+
+			expect(checkedIds(host)).toBe("a")
+			host.remove()
+		}
+	}
+})
+
+test("a radio unchecked by a radio that changes form and is then removed is checked again", () => {
+	for (const outside of [`<input id="a" type="radio" name="r" checked>`, `<input id="a" type="radio" name="r">`]) {
+		const host = mount(`<div><form id="f"></form><input id="y" type="radio" name="r" form="f"></div>`)
+		radio(host, "y").checked = true
+		const container = document.createElement("p")
+		container.innerHTML = outside
+		radio(container, "a").checked = true
+		host.append(container)
+
+		morph(host.firstElementChild!, parse(`<div></div>`), { preserveChanges: true })
+
+		expect(checkedIds(host)).toBe("a")
+		host.remove()
+	}
+})
+
+test.skipIf(!groupsRadiosByForm())(
+	"a radio unchecked by a radio that changes form and is then removed stays unchecked when another radio took its group",
+	() => {
+		const host = mount(
+			`<div><form id="f"></form><form id="g"></form><input id="y" type="radio" name="r" form="f"><input id="z" type="radio" name="r" form="g"></div>`,
+		)
+		host.insertAdjacentHTML("beforeend", `<input id="a" type="radio" name="r">`)
+		for (const id of ["y", "z", "a"]) radio(host, id).checked = true
+
+		morph(host.firstElementChild!, parse(`<div><input id="z" type="radio" name="r" form="g"></div>`), { preserveChanges: true })
+
+		expect(checkedIds(host)).toBe("z")
+		host.remove()
+	},
+)
