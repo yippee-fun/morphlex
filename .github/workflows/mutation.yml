@@ -24,12 +24,18 @@ jobs:
         run: aube ci
 
       # Pushes and pull requests only test the mutants their changes affect, starting from the last result on main.
+      # Stryker can't see changes to dependencies, config or test helpers, so those start a full run.
+      # It also reuses static mutants' results when tests change; the nightly full run catches those.
+      - name: Name incremental results
+        id: cache
+        run: echo "prefix=stryker-incremental-${{ hashFiles('package-lock.json', 'stryker.config.mjs', 'vitest.config.ts', 'test/**', '!test/**/*.test.ts') }}-" >> "$GITHUB_OUTPUT"
+
       - name: Restore incremental results
         uses: actions/cache/restore@v4
         with:
           path: reports/stryker-incremental.json
-          key: stryker-incremental-${{ github.run_id }}
-          restore-keys: stryker-incremental-
+          key: ${{ steps.cache.outputs.prefix }}${{ github.run_id }}
+          restore-keys: ${{ steps.cache.outputs.prefix }}
 
       - name: Run Stryker
         run: aube run test:mutation ${{ github.event_name == 'schedule' && '--force' || '' }}
@@ -39,7 +45,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: reports/stryker-incremental.json
-          key: stryker-incremental-${{ github.run_id }}
+          key: ${{ steps.cache.outputs.prefix }}${{ github.run_id }}
 
       - name: Upload report
         if: always()
