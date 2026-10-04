@@ -221,10 +221,13 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const select = selectOf(fromElement)
 		const selection = select && markupSelectionOf(select)
 		const flagged = flagDirtyInputs(fromElement)
-		const morpher = new Morph(options, clobbered)
-		morpher.morphChildren(fromElement, toElement)
-		if (select) morpher.syncEnclosingSelect(select, selection!)
-		clearDirtyFlags(flagged)
+		try {
+			const morpher = new Morph(options, clobbered)
+			morpher.morphChildren(fromElement, toElement)
+			if (select) morpher.syncEnclosingSelect(select, selection!)
+		} finally {
+			clearDirtyFlags(flagged)
+		}
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
 	}
@@ -493,56 +496,25 @@ function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNo
 }
 /* v8 ignore stop */
 
-// A radio with a `form` attribute changes form when a form with that id is added, moved or removed,
-// or when either attribute changes, and a checked one then unchecks the rest of its new group. Firefox
-// and Safari can briefly put it in the group of radios without a form on the way, where it unchecks a
-// radio it never joins. So these radios change form unchecked, and are checked again straight after,
-// which unchecks the rest of their new group as the change itself would. Returns the radios it unchecked.
-function uncheckRadiosNamingFormsIn(node: Node, root: Node): Array<HTMLInputElement> | null {
-	if (!isElement(node)) return null
-	let ids: Array<string> | null = null
-	const forms = isFormElement(node) ? [node] : node.getElementsByTagName("form")
+// Moving a form briefly frees the radios outside it that it owns through a `form` attribute, and a
+// checked one then unchecks the rest of its new group. So they move unchecked, to be checked again
+// straight after. Returns the radios it unchecked.
+function uncheckOutsideRadios(element: Element): Array<HTMLInputElement> {
+	const outside: Array<HTMLInputElement> = []
+	const forms = isFormElement(element) ? [element] : element.getElementsByTagName("form")
 	for (let i = 0; i < forms.length; i++) {
 		const form = forms[i]!
-		if (form.id !== "" && isFormElement(form)) (ids ??= []).push(form.id)
-	}
-	return ids && uncheckRadiosNaming(ids, root, node)
-}
-
-function uncheckRadiosNaming(ids: Array<string>, root: Node, except: Node): Array<HTMLInputElement> | null {
-	let unchecked: Array<HTMLInputElement> | null = null
-	const inputs = (root as ParentNode).querySelectorAll("input[form]")
-	for (let i = 0; i < inputs.length; i++) {
-		const input = inputs[i]!
-		if (isCheckedRadio(input) && ids.includes(input.getAttribute("form")!) && !except.contains(input)) {
-			input.checked = false
-			;(unchecked ??= []).push(input as HTMLInputElement)
+		if (!isFormElement(form)) continue
+		const controls = form.elements
+		for (let j = 0; j < controls.length; j++) {
+			const control = controls[j]!
+			if (isCheckedRadio(control) && !element.contains(control)) {
+				control.checked = false
+				outside.push(control)
+			}
 		}
 	}
-	return unchecked
-}
-
-// Changing a radio's `form` attribute or a form's id changes the form of radios, like moving a form.
-function uncheckRadiosForAttribute(element: Element, name: string, value: string | null): Array<HTMLInputElement> | null {
-	if (name === "form" && isCheckedRadio(element)) {
-		element.checked = false
-		return [element]
-	}
-	if (name === "id" && isFormElement(element)) {
-		const ids = value === null || value === "" ? [element.id] : [element.id, value]
-		return uncheckRadiosNaming(ids, element.getRootNode(), element)
-	}
-	return null
-}
-
-function checkRadios(radios: Array<HTMLInputElement> | null): void {
-	if (radios) for (let i = 0; i < radios.length; i++) radios[i]!.checked = true
-}
-
-function removeChild(node: ChildNode): void {
-	const radios = uncheckRadiosNamingFormsIn(node, node.getRootNode())
-	node.remove()
-	checkRadios(radios)
+	return outside
 }
 
 /* v8 ignore start -- moveBefore keeps focus and other state, but only some browsers have it */
@@ -668,7 +640,7 @@ class Morph {
 		if (deferred) {
 			for (let i = 0; i < deferred.length; i++) {
 				const node = deferred[i]!
-				removeChild(node)
+				node.remove()
 				this.#options.afterNodeRemoved?.(node)
 			}
 			this.#deferredRemovals = null
@@ -811,7 +783,8 @@ class Morph {
 		// First pass: update/add attributes from reference (iterate forwards)
 		const toAttributes = to.attributes
 		for (let i = 0; i < toAttributes.length; i++) {
-			const { name, localName, value, namespaceURI } = toAttributes[i]!
+			const attribute = toAttributes[i]!
+			const { name, localName, value, namespaceURI } = attribute
 			// Adding `open` would open it, but changing the value of an existing one is fine.
 			if (name === "open" && namespaceURI === null && this.#preserveChanges && hasOpenState(from) && !from.hasAttribute("open")) {
 				continue
@@ -820,12 +793,13 @@ class Morph {
 
 			if (oldValue === value) continue
 			if (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true) {
-				if (namespaceURI) {
-					from.setAttributeNS(namespaceURI, name, value)
+				// Go through `Attr` nodes, because `setAttribute` rejects names the parser accepts, like `@click`.
+				// Look the attribute up after the callback, which may have removed or replaced it.
+				const existing = from.getAttributeNodeNS(namespaceURI, localName)
+				if (existing) {
+					existing.value = value
 				} else {
-					const radios = uncheckRadiosForAttribute(from, name, value)
-					from.setAttribute(name, value)
-					checkRadios(radios)
+					from.setAttributeNodeNS(attribute.cloneNode() as Attr)
 				}
 				this.#options.afterAttributeUpdated?.(from, name, oldValue)
 			} else {
@@ -844,9 +818,7 @@ class Morph {
 						if (name === "open" && namespaceURI === null && isDialogElement(from)) {
 							from.close()
 						} else {
-							const radios = namespaceURI ? null : uncheckRadiosForAttribute(from, name, null)
 							from.removeAttributeNS(namespaceURI, localName)
-							checkRadios(radios)
 						}
 						this.#options.afterAttributeUpdated?.(from, name, value)
 					} else {
@@ -1252,10 +1224,6 @@ class Morph {
 			if (candidateNodeActive[candidateIndex]) this.#removeNode(fromChildNodes[candidateIndex]!)
 		}
 
-		for (let i = 0; i < whitespaceNodeIndices.length; i++) {
-			this.#removeNode(fromChildNodes[whitespaceNodeIndices[i]!]!)
-		}
-
 		for (let i = 0; i < candidateElementIndices.length; i++) {
 			const candidateIndex = candidateElementIndices[i]!
 			if (candidateElementActive[candidateIndex]) this.#removeNode(fromChildNodes[candidateIndex]!)
@@ -1275,23 +1243,43 @@ class Morph {
 			shouldNotMove[matches[lisIndices[i]!]!] = true
 		}
 
+		// Whitespace stays in place for now, so target whitespace can reuse whatever is at the insertion point.
+		const liveWhitespace: Set<ChildNode> | null = whitespaceNodeIndices.length ? new Set() : null
+		for (let i = 0; i < whitespaceNodeIndices.length; i++) {
+			liveWhitespace!.add(fromChildNodes[whitespaceNodeIndices[i]!]!)
+		}
+
 		let insertionPoint: ChildNode | null = parent.firstChild
+		const placed: Array<ChildNode> = []
 		for (let i = 0; i < toChildNodes.length; i++) {
-			// A callback can move or remove the insertion point. Then the next node goes before the next live node that stays put.
+			// A callback can remove the insertion point, such as the whitespace after the node it visits.
+			// Then carry on after the last node placed that's still here.
 			if (insertionPoint && insertionPoint.parentNode !== parent) {
-				insertionPoint = nextUnmovedNode(parent, fromChildNodes, matches, shouldNotMove, i)
+				insertionPoint = parent.firstChild
+				for (let index = placed.length - 1; index >= 0; index--) {
+					if (placed[index]!.parentNode === parent) {
+						insertionPoint = placed[index]!.nextSibling
+						break
+					}
+				}
 			}
 
 			const node = toChildNodes[i]!
 			const matchInd = matches[i]
-			if (matchInd !== undefined) {
+			if (insertionPoint && liveWhitespace?.has(insertionPoint) && isWhitespaceTextNode(node)) {
+				const whitespace: ChildNode = insertionPoint
+				liveWhitespace.delete(whitespace)
+				placed.push(whitespace)
+				insertionPoint = whitespace.nextSibling
+				this.#morphOneToOne(whitespace, node)
+			} else if (matchInd !== undefined) {
 				const match = fromChildNodes[matchInd]!
 				const operation = op[i]!
 
 				if (!shouldNotMove[matchInd]) {
-					const outsideRadios = uncheckRadiosNamingFormsIn(match, match.getRootNode())
+					const outsideRadios = isElement(match) ? uncheckOutsideRadios(match) : null
 					moveBefore(parent, match, insertionPoint)
-					checkRadios(outsideRadios)
+					if (outsideRadios) for (const radio of outsideRadios) radio.checked = true
 				}
 				// Read this before the morph, which can replace the match. A match that moved itself
 				// elsewhere when it reconnected leaves the insertion point where it was.
@@ -1309,10 +1297,19 @@ class Morph {
 				} else {
 					this.#morphOneToOne(match, node)
 				}
+				// A replaced match leaves the target in its place.
+				placed.push(match.parentNode === parent ? match : node)
 			} else {
-				this.#addNode(parent, node, insertionPoint)
+				const added = this.#addNode(parent, node, insertionPoint)
+				if (added) placed.push(added)
 				// A new node can move or remove itself when it's added, and then the insertion point stays.
-				if (node.parentNode === parent) insertionPoint = node.nextSibling
+				if (added === node && node.parentNode === parent) insertionPoint = node.nextSibling
+			}
+		}
+
+		if (liveWhitespace) {
+			for (const whitespace of liveWhitespace) {
+				if (whitespace.parentNode === parent) this.#removeNode(whitespace)
 			}
 		}
 
@@ -1391,8 +1388,8 @@ class Morph {
 	// after. Without `preserveChanges`, checked radios inside it that change form move unchecked too,
 	// and are checked again when the morph settles if the markup or a veto keeps them checked.
 	// Returns the radios outside.
-	#uncheckRadiosForMove(element: Element, parent: ParentNode): Array<HTMLInputElement> | null {
-		const outside = uncheckRadiosNamingFormsIn(element, element.getRootNode())
+	#uncheckRadiosForMove(element: Element, parent: ParentNode): Array<HTMLInputElement> {
+		const outside = uncheckOutsideRadios(element)
 
 		if (!this.#preserveChanges) {
 			const inputs = isInputElement(element) ? [element] : element.querySelectorAll("input")
@@ -1466,26 +1463,27 @@ class Morph {
 		from.content.replaceChildren(to.content)
 	}
 
-	// Add a new node, or claim the live element with its id.
-	#addNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): void {
+	// Add a new node, or claim the live element with its id. Returns the new node or the claim's
+	// placeholder, or null when the new node wasn't inserted.
+	#addNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): ChildNode | null {
 		const placeholder = isElement(node) ? this.#claimMovableElement(node, parent) : null
 		if (placeholder) {
 			parent.insertBefore(placeholder, insertionPoint)
-		} else {
-			this.#insertNewNode(parent, node, insertionPoint)
+			return placeholder
 		}
+
+		return this.#insertNewNode(parent, node, insertionPoint) ? node : null
 	}
 
-	#insertNewNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null, approved = false): void {
-		if (!approved && !(this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true)) return
+	#insertNewNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null, approved = false): boolean {
+		if (!approved && !(this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true)) return false
 
 		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, parent)
-		const radios = uncheckRadiosNamingFormsIn(node, (parent as Node).getRootNode())
 		parent.insertBefore(node, insertionPoint)
-		checkRadios(radios)
 		if (this.#targetChecksInputs && !this.#preserveChanges && isElement(node)) this.#noteAddedRadios(node)
 		this.#options.afterNodeAdded?.(node)
+		return true
 	}
 
 	// Put the live element where its placeholder is and morph it into the target, unless a veto
@@ -1526,7 +1524,7 @@ class Morph {
 			const outsideRadios = this.#uncheckRadiosForMove(live, parent)
 			moveInto(parent, live, placeholder)
 			placeholder.remove()
-			checkRadios(outsideRadios)
+			for (const radio of outsideRadios) radio.checked = true
 			if (!this.#preserveChanges) this.#noteRadioGroups(live)
 			this.#morphOneToOne(live, target)
 		} else {
@@ -1573,7 +1571,7 @@ class Morph {
 
 	#removeNodeNow(node: ChildNode): void {
 		if (this.#options.beforeNodeRemoved?.(node) ?? true) {
-			removeChild(node)
+			node.remove()
 			this.#options.afterNodeRemoved?.(node)
 		}
 	}
@@ -1582,7 +1580,7 @@ class Morph {
 		if (this.#holdsMovableElement(node)) {
 			;(this.#deferredRemovals ??= []).push(node)
 		} else {
-			removeChild(node)
+			node.remove()
 			this.#options.afterNodeRemoved?.(node)
 		}
 	}
@@ -2054,24 +2052,6 @@ function isParentNode(node: Node): node is ParentNode {
 
 function isNodeList(value: ChildNode | NodeListOf<ChildNode>): value is NodeListOf<ChildNode> {
 	return Object.prototype.toString.call(value) === "[object NodeList]"
-}
-
-// The next unmoved live node the morph hasn't reached yet, which everything still to be placed goes
-// before, whatever callbacks did to the parent. Returns `null` to append when there's none left.
-function nextUnmovedNode(
-	parent: ParentNode,
-	fromChildNodes: Array<ChildNode>,
-	matches: Array<number>,
-	shouldNotMove: Array<boolean>,
-	index: number,
-): ChildNode | null {
-	for (let i = index; i < matches.length; i++) {
-		const match = matches[i]
-		if (match === undefined || !shouldNotMove[match]) continue
-		const node = fromChildNodes[match]!
-		if (node.parentNode === parent) return node
-	}
-	return null
 }
 
 // Find longest increasing subsequence to minimize moves during reordering
