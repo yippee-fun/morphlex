@@ -1,0 +1,30 @@
+name: Nightly Fuzz
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  fuzz:
+    name: Move Fuzzer
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup mise
+        uses: jdx/mise-action@v2
+
+      - name: Install dependencies
+        run: aube ci
+
+      - name: Install Playwright Browsers
+        run: aube exec playwright install --with-deps chromium
+
+      - name: Run the move fuzzer
+        run: aube exec vitest run -c vitest.config.browser.ts --project chromium test/new/move-fuzz.browser.test.ts
+        env:
+          VITE_MORPHLEX_FUZZ_MOVE_SEEDS: 50000
+          VITE_MORPHLEX_FUZZ_MOVE_SEED_START: ${{ github.run_id }}

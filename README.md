@@ -106,7 +106,9 @@ This can be useful for preserving UI state that your backend does not track. `pr
 
 - **`afterChildrenVisited(parent)`**: Called after an element’s children have been visited and morphed.
 
-When a node can’t be morphed in place and has to be replaced, `beforeNodeRemoved` is called first, then `beforeNodeAdded` only if the removal was allowed. Returning `false` from either one leaves the original node where it is.
+When a node can’t be morphed in place and has to be replaced, `beforeNodeRemoved` is called first, then `beforeNodeAdded` only if the removal was allowed. Returning `false` from either one leaves the original node where it is, even when the replacement is an element that would move in from elsewhere.
+
+An element with a unique id can move to a new parent during a morph, and it moves once the rest of the morph is done. Until then, callbacks for other nodes, including `afterNodeAdded`, may see an empty comment where the element will go, or the element still in its old place. The after callbacks for the node you passed to `morph` see the finished DOM.
 
 ## Preserving changes
 

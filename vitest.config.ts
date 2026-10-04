@@ -5,7 +5,12 @@ export default defineConfig({
 		environment: "happy-dom",
 		globals: true,
 		// These generate trees that happy-dom can't parse and serialize faithfully, so they only run in real browsers.
-		exclude: [...configDefaults.exclude, "test/new/tree-fuzz.browser.test.ts", "test/new/exhaustive.browser.test.ts"],
+		exclude: [
+			...configDefaults.exclude,
+			"test/new/tree-fuzz.browser.test.ts",
+			"test/new/move-fuzz.browser.test.ts",
+			"test/new/exhaustive.browser.test.ts",
+		],
 		testTimeout: 10000,
 		hookTimeout: 10000,
 		coverage: {
