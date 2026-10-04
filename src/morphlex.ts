@@ -1444,9 +1444,10 @@ class Morph {
 		return unchecked
 	}
 
-	// Changing a radio's `form` attribute or a form's id changes the form of radios, like moving a form.
+	// Changing a radio's `form` attribute or a form's id changes the form of radios, like moving a form,
+	// and changing a radio's name changes its group too.
 	#uncheckRadiosForAttribute(element: Element, name: string, value: string | null): Array<HTMLInputElement> | null {
-		if (name === "form" && isCheckedRadio(element)) {
+		if ((name === "form" || name === "name") && isCheckedRadio(element)) {
 			this.#uncheckRadio(element)
 			return [element]
 		}

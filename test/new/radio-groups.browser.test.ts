@@ -1021,3 +1021,18 @@ test("a live form from another document leaves the radios there checked", () => 
 	expect(host.querySelector("form")).not.toBeNull()
 	host.remove()
 })
+
+test.skipIf(!groupsRadiosByForm())("a radio whose name and form change together leaves the group it passes through alone", () => {
+	for (const preserveChanges of [true, false]) {
+		const host = mount(
+			`<form id="f"></form><form id="g"></form><input id="a" type="radio" name="s" form="f" checked><div><input id="y" type="radio" name="r" form="f" checked></div>`,
+		)
+
+		morph(host.querySelector("div")!, parse(`<div><input id="y" type="radio" name="s" form="g" checked></div>`), {
+			preserveChanges,
+		})
+
+		expect(checkedIds(host)).toBe("a y")
+		host.remove()
+	}
+})
