@@ -808,3 +808,19 @@ test("a multiple select pairs with the target holding the option the user select
 	expect(from.querySelectorAll("select")[1]).toBe(select)
 	expect(select.options[0]!.selected).toBe(true)
 })
+
+test("a label holding several ticked boxes pairs with the first target holding any of them", () => {
+	const box = (value: string) => `<input type="checkbox" name="t" value="${value}">`
+	const from = form(`<label>${box("x")}${box("y")}${box("z")}</label>`)
+	const label = from.querySelector("label")!
+	for (const input of from.querySelectorAll("input")) input.checked = true
+	const y = from.querySelectorAll("input")[1]!
+
+	morph(from, form(`<label>${box("y")}</label><label>${box("x")}</label><label>${box("z")}</label>`), {
+		preserveChanges: true,
+	})
+
+	expect(from.querySelectorAll("label")[0]).toBe(label)
+	expect(label.querySelector("input")).toBe(y)
+	expect(y.checked).toBe(true)
+})

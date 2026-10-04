@@ -1315,33 +1315,41 @@ class Morph {
 				}
 				const position: Map<number, number> = new Map(targets.map((target, t) => [target, t]))
 				// Candidates alike in everything `takes` checks pass and fail the same targets, so they share where
-				// each list's untried targets start.
+				// each list's untried targets start. A target in a list holds one of the candidate's choices, so when one
+				// choice is enough, their choices don't matter.
 				const firstFree: Map<string, Map<Array<number>, number>> = new Map()
 
 				// Give each candidate a free target first, so augmenting paths are only searched for the rest.
 				const unassigned: Array<number> = []
 				for (let k = 0; k < choiceCandidates.length; k++) {
 					if (!candidateElementActive[choiceCandidates[k]![0]] || !choicesOf(k).length) continue
-					// Walk the lists for the candidate's choices together, in target order.
-					const lists: Array<Array<number>> = []
-					const heads: Array<number> = []
+					// Walk the lists for the candidate's choices together, in target order. A target holding all of them is
+					// in every list, so then only the shortest is walked.
 					const candidate = fromChildNodes[choiceCandidates[k]![0]] as Element
 					const likeness = JSON.stringify([
 						candidate.namespaceURI,
 						candidate.localName,
 						candidate.getAttribute("is"),
 						this.#holdsOwnChoices(candidate),
-						[...choicesOf(k)].sort(),
+						allChoices && [...choicesOf(k)].sort(),
 						sameAttributes && indexKey(candidate, "", true),
 					])
 					let untried = firstFree.get(likeness)
 					if (!untried) firstFree.set(likeness, (untried = new Map()))
+					let lists: Array<Array<number>> = []
 					for (const choice of new Set(choicesOf(k))) {
 						const list = holders.get(indexKey(candidate, choice, sameAttributes))
-						if (!list) continue
+						if (list) lists.push(list)
+						else if (allChoices) {
+							lists = []
+							break
+						}
+					}
+					if (allChoices && lists.length) lists = [lists.reduce((a, b) => (b.length < a.length ? b : a))]
+					const heads: Array<number> = []
+					for (const list of lists) {
 						let head = untried.get(list) ?? 0
 						while (head < list.length && owners.has(list[head]!)) head++
-						lists.push(list)
 						heads.push(head)
 					}
 					let assigned = false
