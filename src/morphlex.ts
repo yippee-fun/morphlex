@@ -320,14 +320,18 @@ function isDirtyInput(input: HTMLInputElement): boolean {
 	return input.value !== input.defaultValue && hasDirtyValue(input)
 }
 
+let probeDocument: Document | null = null
+
 // The browser sanitizes `.value` for many input types, so it can differ from the `value`
 // attribute when the user changed nothing: a range with no value reads "50", and email
 // inputs trim spaces. Only the browser knows if the user changed it. A clone keeps that
 // dirty flag, and while it's unset a text input's value follows its `value` attribute.
+// Cloning into a document without custom elements keeps a customized built-in from upgrading.
 // A file input ignores its `value` attribute and has a value only once the user picks a file.
 function hasDirtyValue(input: HTMLInputElement): boolean {
 	if (input.type === "file") return input.value !== ""
-	const clone = input.cloneNode(false) as HTMLInputElement
+	probeDocument ??= input.ownerDocument.implementation.createHTMLDocument("")
+	const clone = probeDocument.importNode(input) as HTMLInputElement
 	clone.type = "text"
 	const probe = clone.value === "a" ? "b" : "a"
 	clone.defaultValue = probe
@@ -859,18 +863,20 @@ class Morph {
 			}
 
 			// Checkbox and radio values aren't user-editable, and assigning them writes the value attribute.
-			// An input the user didn't change already follows its attribute, and assigning would mark it changed.
+			// The browser sanitizes both values, so compare with what the target's markup shows. Assigning
+			// marks the value as changed, so only assign when it differs, such as a range clamped by `max`.
 			const type = from.type
 			const value = to.getAttribute("value")
+			const target = to as HTMLInputElement
 			if (
 				type !== "file" &&
 				type !== "checkbox" &&
 				type !== "radio" &&
-				from.value !== (value ?? "") &&
-				from.getAttribute("value") === value &&
-				hasDirtyValue(from)
+				type === target.type &&
+				from.getAttribute("value") === value
 			) {
-				from.value = value ?? ""
+				const shown = isDirtyInput(target) ? (value ?? "") : target.value
+				if (from.value !== shown) from.value = shown
 			}
 		} else if (isOptionElement(from)) {
 			const selected = to.hasAttribute("selected")

@@ -189,3 +189,46 @@ test("an input the user changed to the letter a is reset without preserveChanges
 
 	expect(input.value).toBe("y")
 })
+
+test("checking an untouched customized built-in input doesn't construct another one", () => {
+	let constructed = 0
+	class CountedSlider extends HTMLInputElement {
+		constructor() {
+			super()
+			constructed++
+		}
+	}
+	customElements.define("x-counted-slider", CountedSlider, { extends: "input" })
+	const from = dom(`<div><input is="x-counted-slider" type="range"></div>`)
+	const input = from.querySelector("input")!
+	constructed = 0
+
+	morph(from, `<div><input is="x-counted-slider" type="range"><p>new</p></div>`)
+
+	expect(from.querySelector("input")).toBe(input)
+	expect(constructed).toBe(0)
+})
+
+test("an untouched range shows what the target shows after its attributes change", () => {
+	const from = dom(`<div><input id="r" type="range"></div>`)
+	const input = from.querySelector("input")!
+	const target = dom(`<div><input id="r" max="10" type="range"></div>`)
+	const expected = target.querySelector("input")!.value
+
+	morph(from, target)
+
+	expect(from.querySelector("input")).toBe(input)
+	expect(input.value).toBe(expected)
+})
+
+test("a vetoed type change doesn't take the target's value", () => {
+	const from = dom(`<div><input id="r"></div>`)
+	const input = from.querySelector("input")!
+
+	morph(from, `<div><input id="r" type="range"></div>`, {
+		beforeAttributeUpdated: (_element, name) => name !== "type",
+	})
+
+	expect(input.type).toBe("text")
+	expect(input.value).toBe("")
+})
