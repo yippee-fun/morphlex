@@ -23,6 +23,29 @@ const IS_PARENT_NODE_TYPE = [
 	0, // 12: Notation (deprecated)
 ]
 
+// The passes matching wrappers by choice, as [targets with their own identity, same attributes, all choices,
+// only the choices the user picked], from strictest to loosest.
+const CHOICE_PASSES = [
+	[false, true, true, true],
+	[false, true, true, false],
+	[false, true, false, true],
+	[false, true, false, false],
+	[false, false, true, true],
+	[false, false, true, false],
+	[false, false, false, true],
+	[false, false, false, false],
+	[true, true, true, true],
+	[true, true, true, false],
+	[true, true, false, true],
+	[true, true, false, false],
+	[true, false, true, true],
+	[true, false, true, false],
+	[true, false, false, true],
+	[true, false, false, false],
+] as const
+
+const STYLING_ATTRIBUTES = ["class", "style"]
+
 const Operation = {
 	EqualNode: 0,
 	SameElement: 1,
@@ -173,8 +196,10 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 	const select = selectOf(from)
 	const selection = select && markupSelectionOf(select)
 	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
+	// A root select's options are keyed by the live select, even if the target renames it and the rename is vetoed.
+	const keySelect = from.nodeType === ELEMENT_NODE_TYPE && isSelectElement(from as Element) ? (from as HTMLSelectElement) : select
 	try {
-		const morpher = new Morph(options, clobbered)
+		const morpher = new Morph(options, clobbered, flagged, keySelect)
 		if (select) morpher.setEnclosingSelect(select, selection!)
 		morpher.morph(from, to)
 	} finally {
@@ -223,8 +248,10 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const select = selectOf(fromElement)
 		const selection = select && markupSelectionOf(select)
 		const flagged = flagDirtyInputs(fromElement)
+		// The target's options belong to the live select, whatever the target select is called.
+		const keySelect = isSelectElement(fromElement) ? fromElement : select
 		try {
-			const morpher = new Morph(options, clobbered)
+			const morpher = new Morph(options, clobbered, flagged, keySelect)
 			if (select) morpher.setEnclosingSelect(select, selection!)
 			morpher.morphChildren(fromElement, toElement)
 		} finally {
@@ -626,6 +653,7 @@ class Morph {
 	// once in each tree is moved to wherever the target puts that id, even under another parent.
 	readonly #liveElementsById: Map<string, Element | null> = new Map()
 	readonly #targetIdCounts: Map<string, number> = new Map()
+	readonly #targetElementsById: Map<string, Element> = new Map()
 	// Movable elements left where they were, to be removed at the end unless they moved.
 	#unplacedElements: Array<Element> | null = null
 	// Approved removals put off until the end, because the node holds an element that may move out.
@@ -639,9 +667,24 @@ class Morph {
 	// Pending moves and removals are settled when the root's children have been visited, or when
 	// the root is replaced, so the root's own callbacks see the finished DOM.
 	#root: Node | null = null
+	// The target's root nodes, which bound the search for an option's select.
+	readonly #targetRoots: Set<Node> = new Set()
+	// The `morphlex-clobber` elements and their ancestors.
+	#clobberedHolders: Set<Element> | null = null
 	#preserveChanges: boolean
 	// Only a target with a checked input can add a checked radio, so other morphs skip looking for one.
 	#targetChecksInputs = false
+	// Elements flagged `morphlex-dirty` and their ancestors. These can't equal their targets, so they're compared without the flag.
+	readonly #dirtyElements: Set<Element> | null = null
+	// The flagged elements themselves. A nested morph from a callback can clear their flags, so they're kept here.
+	readonly #flagged: Set<Element> = new Set()
+	// The select keying the target's options in a morph rooted at or inside a select, which the target's options
+	// don't have.
+	readonly #keySelect: HTMLSelectElement | null
+	// The live select each target select is morphed into, so the target's options are keyed by the live select,
+	// whose attributes a veto can keep.
+	readonly #liveSelects: Map<Element, HTMLSelectElement> = new Map()
+	readonly #targetChoices: Map<Element, { counts: Map<string, number>; size: number }> = new Map()
 	// Items of exclusive accordions (`details` with a name) the morph wants open, with their `open` value.
 	// Inserting an open item, or giving one a name, closes it while another in its group is open, so the
 	// ones left closed are opened again when the morph settles.
@@ -657,10 +700,26 @@ class Morph {
 	// The select around a morph rooted inside it, and what its markup selected before the morph.
 	#enclosingSelect: [HTMLSelectElement, Array<HTMLOptionElement | null>] | null = null
 
-	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
+	constructor(
+		options: Options = {},
+		clobbered: Set<Element> | null = null,
+		flagged: Array<Element> | null = null,
+		keySelect: HTMLSelectElement | null = null,
+	) {
 		this.#options = options
+		this.#keySelect = keySelect
 		this.#clobbered = clobbered
 		this.#preserveChanges = options.preserveChanges ?? false
+		if (flagged?.length) {
+			const dirtyElements = new Set<Element>()
+			for (const element of flagged) {
+				this.#flagged.add(element)
+				for (let node: Element | null = element; node && !dirtyElements.has(node); node = node.parentElement) {
+					dirtyElements.add(node)
+				}
+			}
+			this.#dirtyElements = dirtyElements
+		}
 	}
 
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
@@ -674,10 +733,12 @@ class Morph {
 		}
 
 		if (isNodeList(to)) {
+			for (const node of to) this.#targetRoots.add(node)
 			this.#mapIdArraysForEach(to)
 			if (this.#targetOpensDetails) closeLaterOpenDetails(to)
 			this.#morphOneToMany(from, to)
 		} else {
+			this.#targetRoots.add(to)
 			if (isParentNode(to)) {
 				this.#mapIdArrays(to)
 			}
@@ -691,6 +752,7 @@ class Morph {
 	morphChildren(from: Element, to: Element): void {
 		this.#root = from
 		this.#scope = from
+		this.#targetRoots.add(to)
 		this.#mapIdSets(from)
 		this.#mapIdArrays(to, false)
 		if (this.#targetOpensDetails) closeLaterOpenDetails(to.children)
@@ -1116,6 +1178,8 @@ class Morph {
 			return
 		}
 
+		if (isSelectElement(from) && isSelectElement(to)) this.#liveSelects.set(to, from)
+
 		const parent = from
 
 		const fromChildNodes = nodeListToArray(from.childNodes)
@@ -1198,7 +1262,9 @@ class Morph {
 		}
 
 		// Match elements by isEqualNode. Equal nodes have equal text content, so with many siblings,
-		// bucket the candidates by it rather than comparing every pair.
+		// bucket the candidates by it rather than comparing every pair. An element holding the user's changes can't
+		// equal its target, so it's left for the pass after this one.
+		const dirtyElements = this.#dirtyElements
 		const candidatesByText =
 			candidateElementIndices.length * unmatchedElementIndices.length > 1024
 				? bucketByTextContent(fromChildNodes, candidateElementIndices)
@@ -1222,6 +1288,7 @@ class Morph {
 				if (localName !== candidateLocalNameMap[candidateIndex]) continue
 				if (namespaceURIMap[unmatchedIndex] !== candidateNamespaceURIMap[candidateIndex]) continue
 				const candidate = fromChildNodes[candidateIndex] as Element
+				if (dirtyElements?.has(candidate)) continue
 
 				if (isEqualNode(candidate, element)) {
 					matches[unmatchedIndex] = candidateIndex
@@ -1230,6 +1297,44 @@ class Morph {
 					unmatchedElementActive[unmatchedIndex] = 0
 					break
 				}
+			}
+		}
+
+		// Match elements that only differ by the user's changes, so a changed control keeps its own target.
+		// Such elements share their shape, so the candidates are bucketed by it rather than comparing every pair.
+		let candidatesByShape: Map<string, Array<number>> | null = null
+		if (dirtyElements) {
+			candidatesByShape = new Map()
+			const firstActive: Map<Array<number>, number> = new Map()
+			for (let c = 0; c < candidateElementIndices.length; c++) {
+				const candidateIndex = candidateElementIndices[c]!
+				const candidate = fromChildNodes[candidateIndex] as Element
+				if (!candidateElementActive[candidateIndex] || !dirtyElements.has(candidate)) continue
+				const shape = shapeOf(candidate)
+				const bucket = candidatesByShape.get(shape)
+				if (bucket) bucket.push(candidateIndex)
+				else candidatesByShape.set(shape, [candidateIndex])
+			}
+
+			for (let i = 0; candidatesByShape.size && i < unmatchedElementIndices.length; i++) {
+				const unmatchedIndex = unmatchedElementIndices[i]!
+				if (!unmatchedElementActive[unmatchedIndex]) continue
+				const element = toChildNodes[unmatchedIndex] as Element
+				const candidates = candidatesByShape.get(shapeOf(element))
+				// A target discarding user changes can't keep them, so it's left for the passes that rank it last.
+				if (!candidates || this.#holdsClobbered(element)) continue
+
+				// Elements with the same shape are equal apart from `morphlex-dirty`, so the target takes the bucket's first
+				// candidate that isn't taken yet.
+				let c = firstActive.get(candidates) ?? 0
+				while (c < candidates.length && !candidateElementActive[candidates[c]!]) c++
+				firstActive.set(candidates, c)
+				const candidateIndex = candidates[c]
+				if (candidateIndex === undefined) continue
+				matches[unmatchedIndex] = candidateIndex
+				op[unmatchedIndex] = Operation.SameElement
+				candidateElementActive[candidateIndex] = 0
+				unmatchedElementActive[unmatchedIndex] = 0
 			}
 		}
 
@@ -1324,6 +1429,263 @@ class Morph {
 			}
 		}
 
+		// Under preserveChanges, match a checkbox, radio or option the user changed to a target with the same
+		// choice, and a wrapper without its own identity holding some to a target holding one of the same choices,
+		// so other elements can't take their targets and the user's choices keep their values. A wrapper tries targets
+		// without their own identity first, so a new label with an id can't take its place, but can still take its own
+		// target when it gains an id. A changed control, or a select, tries targets without an id first in the same way.
+		// Then targets with the same attributes apart from class and style, so a form doesn't
+		// take another form's target for holding the same choice, and then targets holding all of its choices.
+		if (this.#preserveChanges && dirtyElements) {
+			// Candidates holding more choices go first, so one holding fewer can't take the only target holding them all.
+			const choiceCandidates: Array<[number, Array<string>, Array<string>]> = []
+			for (let c = 0; c < candidateElementIndices.length; c++) {
+				const candidateIndex = candidateElementIndices[c]!
+				if (!candidateElementActive[candidateIndex]) continue
+				const candidate = fromChildNodes[candidateIndex] as Element
+				const dirtyChoices = this.#dirtyChoicesOf(candidate)
+				if (
+					dirtyChoices &&
+					(this.#holdsOwnChoices(candidate) || canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate)))
+				) {
+					choiceCandidates.push([candidateIndex, dirtyChoices.choices, dirtyChoices.picked])
+				}
+			}
+			choiceCandidates.sort((a, b) => b[1].length - a[1].length)
+
+			// Passes needing the same attributes index targets by their attributes too, so candidates skip the others.
+			const attributeKeys: Map<Element, string> = new Map()
+			const indexKey = (element: Element, choice: string, sameAttributes: boolean): string => {
+				if (!sameAttributes) return choice
+				let key = attributeKeys.get(element)
+				if (key === undefined) attributeKeys.set(element, (key = attributesKeyOf(element, STYLING_ATTRIBUTES)))
+				return `${key}\n${choice}`
+			}
+
+			for (const [identified, sameAttributes, allChoices, pickedOnly] of CHOICE_PASSES) {
+				// The choices each candidate is matched by in this pass.
+				const choicesOf = (k: number): Array<string> => choiceCandidates[k]![pickedOnly ? 2 : 1]
+
+				// Whether the candidate can take the target in this pass.
+				const takes = (k: number, target: number): boolean => {
+					const candidateIndex = choiceCandidates[k]![0]
+					const choices = choicesOf(k)
+					if (localNameMap[target] !== candidateLocalNameMap[candidateIndex]) return false
+					if (namespaceURIMap[target] !== candidateNamespaceURIMap[candidateIndex]) return false
+					const candidate = fromChildNodes[candidateIndex] as Element
+					const element = toChildNodes[target] as Element
+					return (
+						hasSameIs(candidate, element) &&
+						identified ===
+							(this.#holdsOwnChoices(candidate)
+								? this.#idArrayMap.has(element)
+								: !canSoftMatchByTagName(element, this.#idArrayMap.has(element))) &&
+						this.#holdsChoices(choices, element, allChoices)
+					)
+				}
+
+				// The targets in the order candidates try them, smallest first when a candidate needs all of its choices.
+				const targets = unmatchedElementIndices.filter((i) => unmatchedElementActive[i])
+				if (allChoices) {
+					targets.sort(
+						(a, b) =>
+							this.#targetChoicesOf(toChildNodes[a] as Element).size - this.#targetChoicesOf(toChildNodes[b] as Element).size,
+					)
+				}
+
+				// A candidate can only take a target holding one of its choices, so index the targets by the choices
+				// they hold, in the order candidates try them.
+				const holders: Map<string, Array<number>> = new Map()
+				for (const target of targets) {
+					const element = toChildNodes[target] as Element
+					for (const choice of this.#targetChoicesOf(element).counts.keys()) {
+						const key = indexKey(element, choice, sameAttributes)
+						const list = holders.get(key)
+						if (list) list.push(target)
+						else holders.set(key, [target])
+					}
+				}
+				const listIds: Map<Array<number>, number> = new Map()
+				for (const list of holders.values()) listIds.set(list, listIds.size)
+
+				// The lists holding the targets the candidate can take. A target holding all of its choices is in every
+				// list, so then only the shortest is needed.
+				const lists: Array<Array<Array<number>>> = []
+				const listsOf = (k: number): Array<Array<number>> => {
+					let candidateLists = lists[k]
+					if (!candidateLists) {
+						const candidate = fromChildNodes[choiceCandidates[k]![0]] as Element
+						candidateLists = []
+						for (const choice of new Set(choicesOf(k))) {
+							const list = holders.get(indexKey(candidate, choice, sameAttributes))
+							if (list) candidateLists.push(list)
+							else if (allChoices) {
+								candidateLists = []
+								break
+							}
+						}
+						if (allChoices && candidateLists.length) {
+							candidateLists = [candidateLists.reduce((a, b) => (b.length < a.length ? b : a))]
+						}
+						lists[k] = candidateLists
+					}
+					return candidateLists
+				}
+
+				// Candidates alike in everything `takes` checks pass and fail the same targets. A target in a list holds
+				// one of the candidate's choices, so when one choice is enough, their choices don't matter.
+				const likenesses: Array<string> = []
+				const likenessOf = (k: number): string => {
+					let likeness = likenesses[k]
+					if (likeness === undefined) {
+						const candidate = fromChildNodes[choiceCandidates[k]![0]] as Element
+						likeness = likenesses[k] = JSON.stringify([
+							candidate.namespaceURI,
+							candidate.localName,
+							candidate.getAttribute("is"),
+							this.#holdsOwnChoices(candidate),
+							allChoices && [...choicesOf(k)].sort(),
+							sameAttributes && indexKey(candidate, "", true),
+						])
+					}
+					return likeness
+				}
+
+				// Pair as many candidates with targets as possible, so one taking a target can't leave another without any.
+				const owners: Map<number, number> = new Map()
+				// Until a search succeeds, the targets a failed search reached can't lead to a free target, and a
+				// candidate alike to one whose search failed, with the same lists, fails too.
+				const deadTargets: Set<number> = new Set()
+				const failedSearches: Set<string> = new Set()
+				// Search breadth first for a chain of candidates, each taking the next one's target, that ends at a free
+				// target, and shift the targets along it.
+				const assign = (start: number): void => {
+					const search = `${likenessOf(start)} ${listsOf(start)
+						.map((list) => listIds.get(list)!)
+						.join(" ")}`
+					if (failedSearches.has(search)) return
+					const reachedFrom: Map<number, number> = new Map()
+					const ownedTarget: Map<number, number> = new Map()
+					// Alike candidates reach the same targets in a list, so each list is walked once for them.
+					const walked: Set<string> = new Set()
+					const queue = [start]
+					for (let q = 0; q < queue.length; q++) {
+						const k = queue[q]!
+						for (const list of listsOf(k)) {
+							const walk = `${likenessOf(k)} ${listIds.get(list)!}`
+							if (walked.has(walk)) continue
+							walked.add(walk)
+							for (const target of list) {
+								if (reachedFrom.has(target) || deadTargets.has(target) || !takes(k, target)) continue
+								reachedFrom.set(target, k)
+								const owner = owners.get(target)
+								if (owner !== undefined) {
+									ownedTarget.set(owner, target)
+									queue.push(owner)
+									continue
+								}
+								for (let next: number | undefined = target; next !== undefined;) {
+									const taker = reachedFrom.get(next)!
+									owners.set(next, taker)
+									next = ownedTarget.get(taker)
+								}
+								deadTargets.clear()
+								failedSearches.clear()
+								return
+							}
+						}
+					}
+					for (const target of reachedFrom.keys()) deadTargets.add(target)
+					failedSearches.add(search)
+				}
+
+				const position: Map<number, number> = new Map(targets.map((target, t) => [target, t]))
+				// Alike candidates share where each list's untried targets start.
+				const firstFree: Map<string, Map<Array<number>, number>> = new Map()
+
+				// Give each candidate a free target first, so augmenting paths are only searched for the rest.
+				const unassigned: Array<number> = []
+				for (let k = 0; k < choiceCandidates.length; k++) {
+					if (!candidateElementActive[choiceCandidates[k]![0]] || !choicesOf(k).length) continue
+					// A target the candidate can take is in its lists, so without any it has none.
+					const candidateLists = listsOf(k)
+					if (!candidateLists.length) continue
+					let untried = firstFree.get(likenessOf(k))
+					if (!untried) firstFree.set(likenessOf(k), (untried = new Map()))
+					// Walk the lists together, in target order.
+					const heads: Array<number> = []
+					for (const list of candidateLists) {
+						let head = untried.get(list) ?? 0
+						while (head < list.length && owners.has(list[head]!)) head++
+						heads.push(head)
+					}
+					let assigned = false
+					while (!assigned) {
+						let next: number | undefined
+						for (let l = 0; l < candidateLists.length; l++) {
+							const target = candidateLists[l]![heads[l]!]
+							if (target !== undefined && (next === undefined || position.get(target)! < position.get(next)!)) next = target
+						}
+						if (next === undefined) break
+						for (let l = 0; l < candidateLists.length; l++) if (candidateLists[l]![heads[l]!] === next) heads[l] = heads[l]! + 1
+						if (owners.has(next) || !takes(k, next)) continue
+						owners.set(next, k)
+						assigned = true
+					}
+					// Every target before each head was taken or failed, for this candidate and those alike.
+					for (let l = 0; l < candidateLists.length; l++) untried.set(candidateLists[l]!, heads[l]!)
+					if (!assigned) unassigned.push(k)
+				}
+				for (const k of unassigned) {
+					if (owners.size === targets.length) break
+					assign(k)
+				}
+
+				for (const [target, k] of owners) {
+					const candidateIndex = choiceCandidates[k]![0]
+					matches[target] = candidateIndex
+					op[target] = Operation.SameElement
+					candidateElementActive[candidateIndex] = 0
+					unmatchedElementActive[target] = 0
+				}
+			}
+
+			// An element holding the user's choices that's still without a target takes one that an identical
+			// untouched sibling took, so the untouched sibling goes rather than the user's choices.
+			let equalTargets: Map<string, Array<number>> | null = null
+			const firstEqual: Map<Array<number>, number> = new Map()
+			for (const [shape, candidates] of candidatesByShape!) {
+				for (const candidateIndex of candidates) {
+					if (!candidateElementActive[candidateIndex]) continue
+					const candidate = fromChildNodes[candidateIndex] as Element
+					if (!this.#dirtyChoicesOf(candidate)) continue
+					if (!equalTargets) {
+						equalTargets = new Map()
+						for (const target of unmatchedElementIndices) {
+							if (op[target] !== Operation.EqualNode) continue
+							const element = toChildNodes[target] as Element
+							if (this.#holdsClobbered(element)) continue
+							const targetShape = shapeOf(element)
+							const list = equalTargets.get(targetShape)
+							if (list) list.push(target)
+							else equalTargets.set(targetShape, [target])
+						}
+					}
+					const list = equalTargets.get(shape)
+					if (!list) continue
+					// Each target is taken once, so the list skips its taken prefix.
+					const t = firstEqual.get(list) ?? 0
+					const target = list[t]
+					if (target === undefined) continue
+					firstEqual.set(list, t + 1)
+					candidateElementActive[matches[target]!] = 1
+					matches[target] = candidateIndex
+					op[target] = Operation.SameElement
+					candidateElementActive[candidateIndex] = 0
+				}
+			}
+		}
+
 		// Match by heuristics
 		for (let i = 0; i < unmatchedElementIndices.length; i++) {
 			const unmatchedIndex = unmatchedElementIndices[i]!
@@ -1346,7 +1708,8 @@ class Morph {
 					namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex] &&
 					((name && name === candidate.getAttribute("name")) ||
 						(href && href === candidate.getAttribute("href")) ||
-						(src && src === candidate.getAttribute("src")))
+						(src && src === candidate.getAttribute("src"))) &&
+					!this.#holdsOtherChoice(candidate, element)
 				) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
@@ -1386,7 +1749,11 @@ class Morph {
 
 				const candidateLocalName = candidateLocalNameMap[candidateIndex]
 
-				if (localName === candidateLocalName && namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex]) {
+				if (
+					localName === candidateLocalName &&
+					namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex] &&
+					!this.#holdsOtherChoice(candidate, element)
+				) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
 					candidateElementActive[candidateIndex] = 0
@@ -1823,6 +2190,122 @@ class Morph {
 		return false
 	}
 
+	// A changed control, or a select holding changed options, is matched by its choices even though it has a name.
+	#holdsOwnChoices(candidate: Element): boolean {
+		return this.#flagged.has(candidate) || isSelectElement(candidate)
+	}
+
+	// A checkbox, radio or option the user changed holds their choice of its value, so under
+	// preserveChanges it must not be matched to a target with another value, unless the target
+	// discards user changes with `morphlex-clobber`.
+	#holdsOtherChoice(candidate: Element, element: Element): boolean {
+		return (
+			this.#preserveChanges &&
+			this.#flagged.has(candidate) &&
+			!this.#clobbered?.has(element) &&
+			this.#choiceOf(candidate) !== this.#choiceOf(element)
+		)
+	}
+
+	// Whether the target holds all of the choices, or with `all` false, any of them.
+	#holdsChoices(choices: Array<string>, element: Element, all: boolean): boolean {
+		const targetChoices = this.#targetChoicesOf(element).counts
+		if (!all) return choices.some((choice) => targetChoices.has(choice))
+		for (const [choice, count] of countChoices(choices)) if ((targetChoices.get(choice) ?? 0) < count) return false
+		return true
+	}
+
+	// How often each choice appears in the target, and how many choices it holds. A control with a movable id
+	// keeps its live element wherever it goes, so it isn't a choice the target can keep for a wrapper. Each choice
+	// is keyed with the path down to its control too, which the live control's path has to match to be kept.
+	#targetChoicesOf(element: Element): { counts: Map<string, number>; size: number } {
+		let targetChoices = this.#targetChoices.get(element)
+		if (!targetChoices) {
+			const choices: Array<string> = []
+			for (const control of [element, ...element.querySelectorAll("input, option")]) {
+				if (this.#isClobberedWithin(control, element) || this.#movesWithin(control, element)) continue
+				const choice = this.#choiceOf(control)
+				if (choice !== null) choices.push(pathTo(control, element) + choice)
+			}
+			targetChoices = { counts: countChoices(choices), size: choices.length }
+			this.#targetChoices.set(element, targetChoices)
+		}
+		return targetChoices
+	}
+
+	// Whether the control, or an element between it and the wrapper, has an id pairing a live element with a target
+	// it can be morphed into, so the control moves with that element, wherever the wrapper goes.
+	#movesWithin(control: Element, wrapper: Element): boolean {
+		for (let node: Element = control; node !== wrapper; node = node.parentElement!) {
+			const live = this.#movableElement(node.id)
+			const target = live && this.#targetElementsById.get(node.id)
+			if (target && canMorphElementInPlace(live, target)) return true
+		}
+		return false
+	}
+
+	// Whether the target is, or holds, a `morphlex-clobber` element.
+	#holdsClobbered(element: Element): boolean {
+		const clobbered = this.#clobbered
+		if (!clobbered) return false
+		if (!this.#clobberedHolders) {
+			this.#clobberedHolders = new Set()
+			for (const node of clobbered) {
+				for (let holder: Element | null = node; holder && !this.#clobberedHolders.has(holder); holder = holder.parentElement) {
+					this.#clobberedHolders.add(holder)
+				}
+			}
+		}
+		return this.#clobberedHolders.has(element)
+	}
+
+	// Whether the control is in a `morphlex-clobber` element inside the target, or is one, so it can't keep a choice.
+	#isClobberedWithin(control: Element, element: Element): boolean {
+		const clobbered = this.#clobbered
+		if (!clobbered) return false
+		for (let node: Element | null = control; node; node = node === element ? null : node.parentElement) {
+			if (clobbered.has(node)) return true
+		}
+		return false
+	}
+
+	// An option is keyed by the nearest select around it up to the morph's root, or else the select around the
+	// morph, unless it's in a datalist the select doesn't own. A target can still be in another select past its root.
+	#choiceOf(element: Element): string | null {
+		if (!isOptionElement(element)) return choiceOf(element, null)
+		let select: HTMLSelectElement | null = null
+		for (
+			let node: Element = element, parent = node.parentElement;
+			parent && node !== this.#root && !this.#targetRoots.has(node);
+			node = parent, parent = parent.parentElement
+		) {
+			if (parent.localName === "datalist" && parent.namespaceURI === HTML_NAMESPACE) return null
+			if (isSelectElement(parent)) {
+				select = parent
+				break
+			}
+		}
+		select ??= this.#keySelect
+		return choiceOf(element, (select && this.#liveSelects.get(select)) ?? select)
+	}
+
+	// The choices of the checkboxes, radios and options the user changed in this element, or null when there are none.
+	// A control with a movable id goes to its own target, so the element doesn't need a target for it.
+	// The picked ones leave out options and radios the user moved away from, which can be matched once those can't.
+	#dirtyChoicesOf(element: Element): { choices: Array<string>; picked: Array<string> } | null {
+		if (!this.#dirtyElements?.has(element)) return null
+		const choices: Array<string> = []
+		const picked: Array<string> = []
+		for (const control of [element, ...element.querySelectorAll("input, option")]) {
+			const choice = this.#flagged.has(control) && !this.#movesWithin(control, element) ? this.#choiceOf(control) : null
+			if (choice === null) continue
+			const key = pathTo(control, element) + choice
+			choices.push(key)
+			if (control === element || !isLeftChoice(control)) picked.push(key)
+		}
+		return choices.length ? { choices, picked } : null
+	}
+
 	// A vetoed `selected` or `checked` update leaves the selection alone, like other vetoed form attributes,
 	// and a vetoed `open` update leaves an accordion item as it was.
 	#noteVetoedAttribute(element: Element, name: string, namespaceURI: string | null): void {
@@ -2136,6 +2619,7 @@ class Morph {
 		forEachDescendantElementWithId(node, (element) => {
 			const id = element.id
 			targetIdCounts.set(id, (targetIdCounts.get(id) ?? 0) + 1)
+			this.#targetElementsById.set(id, element)
 
 			let currentElement: Element | null = element
 
@@ -2305,6 +2789,84 @@ function trimFragmentEdgeWhitespace(fragment: DocumentFragment): void {
 	while (fragment.lastChild && isWhitespaceTextNode(fragment.lastChild)) {
 		fragment.lastChild.remove()
 	}
+}
+
+// What choosing this element means: an option's value in its select, or a checkbox or radio's type, name,
+// value and form, along with its `is`, since a control with another `is` is recreated. An option's select is passed in, since a target's option is keyed by the live select.
+function choiceOf(element: Element, select: HTMLSelectElement | null): string | null {
+	if (isOptionElement(element)) {
+		return JSON.stringify([
+			select?.getAttribute("name") ?? "",
+			select && formOf(select),
+			select && (select.hasAttribute("multiple") ? 2 : displaySizeOf(select) > 1 ? 1 : 0),
+			element.value,
+			element.getAttribute("is"),
+		])
+	}
+	if (isInputElement(element) && (element.type === "checkbox" || element.type === "radio")) {
+		return JSON.stringify([element.type, element.name, element.value, formOf(element), element.getAttribute("is")])
+	}
+	return null
+}
+
+// The control's `form` attribute, or null when it names the form the control is already in.
+function formOf(control: Element): string | null {
+	const form = control.getAttribute("form")
+	return form && form === control.closest("form")?.id ? null : form
+}
+
+// The namespaces, names and `is` of the elements between the wrapper and the control. The wrapper's morph only keeps a
+// control whose path matches, since an element with another name or `is` is replaced along with what it holds.
+function pathTo(control: Element, wrapper: Element): string {
+	const path: Array<[string | null, string, string | null]> = []
+	for (let node = control; node !== wrapper;) {
+		node = node.parentElement!
+		if (node !== wrapper) path.push([node.namespaceURI, node.localName, node.getAttribute("is")])
+	}
+	return JSON.stringify(path)
+}
+
+// How often each choice appears.
+function countChoices(choices: Array<string>): Map<string, number> {
+	const counts = new Map<string, number>()
+	for (const choice of choices) counts.set(choice, (counts.get(choice) ?? 0) + 1)
+	return counts
+}
+
+// A key for the element's attributes, equal for elements with the same attributes ignoring `morphlex-dirty` and any `ignored` names.
+function attributesKeyOf(element: Element, ignored: ReadonlyArray<string>): string {
+	const attributes: Array<[string | null, string, string]> = []
+	for (const { namespaceURI, name, localName, value } of element.attributes) {
+		if (namespaceURI !== null || (name !== DIRTY_ATTRIBUTE && !ignored.includes(name))) {
+			attributes.push([namespaceURI, localName, value])
+		}
+	}
+	return JSON.stringify(attributes.sort((a, b) => (`${a[0]} ${a[1]}` < `${b[0]} ${b[1]}` ? -1 : 1)))
+}
+
+// An option the user deselected or moved a select away from, or a radio they moved their group away from. What holds
+// it is matched by the picked one first, though the option or radio itself still keeps its own target.
+function isLeftChoice(element: Element): boolean {
+	if (isOptionElement(element)) return !element.selected
+	return isInputElement(element) && element.type === "radio" && !element.checked
+}
+
+// A key that's the same for nodes that are equal apart from `morphlex-dirty`, as `isEqualNode` compares them,
+// template content included.
+function shapeOf(node: Node): string {
+	if (!isElement(node)) return JSON.stringify([node.nodeType, node.nodeName, node.nodeValue])
+	const attributes: Array<string> = []
+	for (const { namespaceURI, localName, value } of node.attributes) {
+		if (namespaceURI !== null || localName !== DIRTY_ATTRIBUTE) attributes.push(JSON.stringify([namespaceURI, localName, value]))
+	}
+	let children = ""
+	for (const child of node.childNodes) children += shapeOf(child)
+	if (isTemplateElement(node)) {
+		children += "<#content"
+		for (const child of node.content.childNodes) children += shapeOf(child)
+		children += ">"
+	}
+	return `<${JSON.stringify([node.namespaceURI, node.prefix, node.localName, attributes.sort()])}${children}>`
 }
 
 // `isEqualNode` ignores template content, so templates need comparing separately.

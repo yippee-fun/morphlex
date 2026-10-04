@@ -55,3 +55,5 @@ jobs:
           # A different start on each run, so repeated runs try new seeds.
           VITE_MORPHLEX_FUZZ_MOVE_SEEDS: 2000
           VITE_MORPHLEX_FUZZ_MOVE_SEED_START: ${{ github.run_id }}
+          VITE_MORPHLEX_FUZZ_CHOICE_SEEDS: 2000
+          VITE_MORPHLEX_FUZZ_CHOICE_SEED_START: ${{ github.run_id }}

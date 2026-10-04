@@ -12,6 +12,8 @@ export default defineConfig({
 			"test/new/move-fuzz.browser.test.ts",
 			"test/new/exhaustive.browser.test.ts",
 			"test/new/whitespace-select.browser.test.ts",
+			// happy-dom loses a select's selection when options are inserted or moved.
+			"test/new/choice-fuzz.browser.test.ts",
 		],
 		testTimeout: 10000,
 		hookTimeout: 10000,
