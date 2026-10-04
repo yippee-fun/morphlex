@@ -191,6 +191,84 @@ test("changing one attribute makes only that one mutation", () => {
 	})
 })
 
+test("nodes that move themselves out when they connect leave the rest in target order", () => {
+	check((scenario, fail) => {
+		const random = createRandom(scenario.seed ^ 0x2545f491)
+		const host = mount(scenario.fromHtml)
+		withTeleports(random, host.firstChild as HTMLElement, 0.15)
+		const to = withTeleports(random, parse(scenario.toHtml), 0.3)
+
+		teleporting = true
+		try {
+			morph(host.firstChild!, to)
+		} finally {
+			teleporting = false
+			portal.replaceChildren()
+		}
+
+		if (!isSameTree(withoutTeleports(host.firstChild!), withoutTeleports(parse(scenario.toHtml)))) fail(host)
+	})
+})
+
+test("afterNodeAdded can move the new node away, remove the node after it and append another, and the rest stays in target order", () => {
+	check((scenario, fail) => {
+		const random = createRandom(scenario.seed ^ 0x68e31da4)
+		const host = mount(scenario.fromHtml)
+		const to = parse(scenario.toHtml)
+		let order = 0
+		for (const element of [to, ...to.querySelectorAll("*")]) element.setAttribute("data-order", String(order++))
+
+		morph(host.firstChild!, to, {
+			afterNodeAdded: (node) => {
+				if (random() < 0.3) node.nextSibling?.remove()
+				if (random() < 0.2) node.parentNode?.append(document.createElement("u"))
+				if (random() < 0.3) portal.append(node)
+			},
+		})
+		portal.replaceChildren()
+
+		for (const element of [host, ...host.querySelectorAll("*")]) {
+			let previous = -1
+			for (const child of element.children) {
+				// Elements the callback added have no order.
+				if (!child.hasAttribute("data-order")) continue
+				const current = Number(child.getAttribute("data-order"))
+				if (current <= previous) fail(host)
+				previous = current
+			}
+		}
+	})
+})
+
+let teleporting = false
+const portal = document.createElement("div")
+customElements.define(
+	"x-tree-fuzz-teleport",
+	class extends HTMLElement {
+		connectedCallback(): void {
+			if (teleporting && this.parentNode !== portal) portal.append(this)
+		}
+	},
+)
+
+// Adds elements that move themselves out of the tree whenever they connect during a morph.
+function withTeleports(random: Random, root: HTMLElement, chance: number): HTMLElement {
+	for (const element of [root, ...root.querySelectorAll("*")]) {
+		if (element.closest("template, svg, select, textarea") || VOID_TAGS.includes(element.localName)) continue
+		if (random() >= chance) continue
+		const index = randomInt(random, 0, element.childNodes.length)
+		element.insertBefore(document.createElement("x-tree-fuzz-teleport"), element.childNodes[index] ?? null)
+	}
+	return root
+}
+
+function withoutTeleports(node: Node): Node {
+	const clone = node.cloneNode(true) as Element
+	for (const teleport of clone.querySelectorAll("x-tree-fuzz-teleport")) teleport.remove()
+	clone.normalize()
+	return clone
+}
+
 function check(property: (scenario: Case, fail: (host: HTMLElement) => void) => void): void {
 	let smallest: string | null = null
 	let failures = 0

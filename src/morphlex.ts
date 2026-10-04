@@ -1286,8 +1286,9 @@ class Morph {
 					moveBefore(parent, match, insertionPoint)
 					this.#checkRadios(outsideRadios)
 				}
-				// Read this before the morph, which can replace the match.
-				insertionPoint = match.nextSibling
+				// Read this before the morph, which can replace the match. A match that moved itself
+				// elsewhere when it reconnected leaves the insertion point where it was.
+				if (match.parentNode === parent) insertionPoint = match.nextSibling
 
 				if (operation === Operation.EqualNode) {
 				} else if (operation === Operation.SameElement) {
@@ -1306,7 +1307,8 @@ class Morph {
 			} else {
 				const added = this.#addNode(parent, node, insertionPoint)
 				if (added) placed.push(added)
-				if (added === node) insertionPoint = node.nextSibling
+				// A new node can move or remove itself when it's added, and then the insertion point stays.
+				if (added === node && node.parentNode === parent) insertionPoint = node.nextSibling
 			}
 		}
 
