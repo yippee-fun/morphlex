@@ -211,8 +211,6 @@ test("callbacks see a consistent DOM, and vetoes are respected", () => {
 		for (const [element, snapshot] of snapshots) {
 			if (!vetoRan(element, vetoVisit, visited, vetoChildren, childrenChecked)) continue
 			if (!host.contains(element)) fail(host, `a vetoed element was removed: ${describe(element)}`)
-			// A descendant that the target puts around the element moves out before the element's veto is asked.
-			if (snapshot.nodes.some((node) => node.contains(element))) continue
 			const nodes = descendants(element)
 			const same = nodes.length === snapshot.nodes.length && nodes.every((node, index) => node === snapshot.nodes[index])
 			if (!same || element.innerHTML !== snapshot.html) fail(host, `a vetoed subtree changed: ${describe(element)}`)
@@ -276,7 +274,25 @@ function movableElements(host: HTMLElement, scenario: Case): Map<string, Element
 		if (select || toSelect) {
 			if (element.localName === "option" || !select || toSelect?.id !== select.id || !keeps(select)) return false
 		}
-		return !isInsideOwnDescendant(element, to, target)
+		return !isInsideOwnDescendant(element, to, target) && !wrapsOwnAncestor(element, to)
+	}
+
+	// The element is recreated rather than moved out of a movable ancestor that the target puts inside it,
+	// when that ancestor can be morphed into its target. An ancestor holding options may not move, so its
+	// descendants aren't checked.
+	const morphRoot = scenario.shape === "list" ? root.firstChild : root
+	const wrapsOwnAncestor = (element: Element, to: Element): boolean => {
+		for (let ancestor = element.parentElement; ancestor && ancestor !== morphRoot; ancestor = ancestor.parentElement) {
+			const id = ancestor.id
+			if (!id || ancestor.localName === "option" || ancestor.localName === "optgroup") continue
+			if (root.querySelectorAll(`[id="${id}"]`).length !== 1 || target.querySelectorAll(`[id="${id}"]`).length !== 1) continue
+			const match = to.querySelector(`[id="${id}"]`)
+			if (!match) continue
+			if (ancestor.querySelector("option")) return true
+			if (match.localName !== ancestor.localName || match.getAttribute("is") !== ancestor.getAttribute("is")) continue
+			return true
+		}
+		return false
 	}
 
 	for (const element of root.querySelectorAll("[id]")) {
@@ -315,9 +331,12 @@ function outsideCheckedness(expected: Document, formId: string): string {
 
 // Live elements whose \`is\` differs from that of the target element with their id. A customized
 // built-in's definition is fixed when it's created, so these must be recreated.
+// A node list morph's root is morphed into the first target node instead, so it's left out.
 function redefinedElements(host: HTMLElement, scenario: Case): Array<Element> {
 	const target = parse(scenario.toHtml)
+	const listRoot = scenario.shape === "list" ? host.firstChild!.firstChild : null
 	return [...host.querySelectorAll("[id]")].filter((element) => {
+		if (element === listRoot) return false
 		const to = target.id === element.id ? target : target.querySelector(`[id="${element.id}"]`)
 		return to !== null && to.localName === element.localName && to.getAttribute("is") !== element.getAttribute("is")
 	})
@@ -384,6 +403,7 @@ function createCase(seed: number): Case {
 		to =
 			(selects && random() < 0.7 && mutateSelect(random, top, ids)) ||
 			(forms && random() < 0.4 && moveRadio(random, top)) ||
+			(random() < 0.15 && wrapInDescendant(random, top)) ||
 			mutate(random, to, ids)
 	}
 
@@ -581,6 +601,22 @@ function moveRadio(random: Random, top: ElementNode): Array<TreeNode> | null {
 	)
 	into.children.splice(randomInt(random, 0, into.children.length), 0, node)
 	if (random() < 0.5) toggleAttribute(node, "checked")
+	return top.children
+}
+
+// Swap a container with a container inside it, so the inner one ends up wrapping the outer one.
+function wrapInDescendant(random: Random, top: ElementNode): Array<TreeNode> | null {
+	const pairs = containersOf(top).flatMap((outer) =>
+		outer === top ? [] : containersOf(outer).flatMap((inner) => (inner === outer ? [] : [[outer, inner] as const])),
+	)
+	if (pairs.length === 0) return null
+	const [outer, inner] = pick(random, pairs)
+
+	const innerParent = containersOf(outer).find((place) => place.children.includes(inner))!
+	innerParent.children.splice(innerParent.children.indexOf(inner), 1)
+	const outerParent = containersOf(top).find((place) => place.children.includes(outer))!
+	outerParent.children[outerParent.children.indexOf(outer)] = inner
+	inner.children.splice(randomInt(random, 0, inner.children.length), 0, outer)
 	return top.children
 }
 
