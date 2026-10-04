@@ -55,6 +55,10 @@ const ATTRIBUTES = [
 	"disabled",
 	"min",
 	"max",
+	"@click",
+	":class",
+	"x-on:click.prevent",
+	"xlink:href",
 ]
 // Most of these sanitize their value, so an untouched one can read differently from its `value` attribute.
 const INPUT_TYPES = ["text", "checkbox", "radio", "hidden", "range", "color", "email", "number", "date", "file"]

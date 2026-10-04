@@ -584,23 +584,24 @@ test("a checked radio whose form attribute changes or goes stays checked", () =>
 })
 
 test("a checked radio naming a form whose id changes or goes stays checked", () => {
+	// happy-dom keeps finding a form by the id it had before its `Attr` changed, so these ids are used nowhere else.
 	const host = mount(
-		`<form id="f"><input id="i" type="radio" name="p" form="f" checked></form><input id="y" type="radio" name="r" form="f"><input id="z" type="radio" name="q" form="h" checked>`,
+		`<form id="m"><input id="i" type="radio" name="p" form="m" checked></form><input id="y" type="radio" name="r" form="m"><input id="z" type="radio" name="q" form="o" checked>`,
 	)
 	radio(host, "y").checked = true
 	const form = host.querySelector("form")!
 
-	morph(form, parse(`<form id="g"><input id="i" type="radio" name="p" form="f" checked></form>`))
-	expect(form.id).toBe("g")
+	morph(form, parse(`<form id="n"><input id="i" type="radio" name="p" form="m" checked></form>`))
+	expect(form.id).toBe("n")
 	expect(checkedIds(host)).toBe("i y z")
 
-	form.id = "f"
-	morph(form, parse(`<form><input id="i" type="radio" name="p" form="f" checked></form>`))
+	form.id = "m"
+	morph(form, parse(`<form><input id="i" type="radio" name="p" form="m" checked></form>`))
 	expect(form.hasAttribute("id")).toBe(false)
 	expect(radio(host, "y").checked).toBe(true)
 
-	form.id = "f"
-	morph(form, parse(`<form id=""><input id="i" type="radio" name="p" form="f" checked></form>`))
+	form.id = "m"
+	morph(form, parse(`<form id=""><input id="i" type="radio" name="p" form="m" checked></form>`))
 	expect(form.id).toBe("")
 	expect(radio(host, "y").checked).toBe(true)
 	host.remove()
@@ -929,4 +930,109 @@ test("a radio that loses its form and stays keeps the group it joined", () => {
 
 	expect(checkedIds(host)).toBe("y")
 	host.remove()
+})
+
+test.skipIf(!groupsRadiosByForm())(
+	"a radio that leaves its form and loses its check gives the group back to the radio it passed",
+	() => {
+		const host = mount(
+			`<form id="f"></form><div><input id="y" type="radio" name="r" form="f" checked></div><input id="a" type="radio" name="r" checked>`,
+		)
+
+		morph(host.querySelector("div")!, parse(`<div><input id="y" type="radio" name="r"></div>`), { preserveChanges: true })
+
+		expect(checkedIds(host)).toBe("a")
+		host.remove()
+	},
+)
+
+test.skipIf(!groupsRadiosByForm())("a radio the markup unchecks stays unchecked after a radio passed through its group", () => {
+	const host = mount(
+		`<div><form id="f"></form><input id="y" type="radio" name="r" form="f" checked><input id="b" type="radio" name="r" checked></div>`,
+	)
+
+	morph(
+		host.firstElementChild!,
+		parse(
+			`<div><form id="g"></form><input id="y" type="radio" name="r" form="g" checked><input id="b" type="radio" name="r"></div>`,
+		),
+		{ preserveChanges: true },
+	)
+
+	expect(checkedIds(host)).toBe("y")
+	host.remove()
+})
+
+test("a form claimed out of a live target from another root leaves the radios there checked", () => {
+	const shadowHost = mount(``)
+	const shadow = shadowHost.attachShadow({ mode: "open" })
+	shadow.innerHTML = `<div id="source"><section><form id="f"></form></section></div><form id="f"></form><input id="y" type="radio" name="r" form="f" checked><input id="a" type="radio" name="r" checked>`
+	const host = mount(`<div><form id="f"></form></div>`)
+
+	morphInner(host.firstElementChild!, shadow.getElementById("source")!)
+
+	expect(shadow.getElementById("y")).toHaveProperty("checked", true)
+	expect(shadow.getElementById("a")).toHaveProperty("checked", true)
+	host.remove()
+	shadowHost.remove()
+})
+
+test("a radio inside a live target keeps its check when a live element claims the form it names", () => {
+	const shadowHost = mount(``)
+	const shadow = shadowHost.attachShadow({ mode: "open" })
+	shadow.innerHTML = `<div id="source"><section><form id="f"></form><input id="y" type="radio" name="r" form="f" checked></section></div><input id="a" type="radio" name="r" checked>`
+	const y = shadow.getElementById("y") as HTMLInputElement
+	const host = mount(`<div><form id="f"></form></div>`)
+
+	morphInner(host.firstElementChild!, shadow.getElementById("source")!)
+
+	expect(y.checked).toBe(true)
+	expect(shadow.getElementById("a")).toHaveProperty("checked", true)
+	host.remove()
+	shadowHost.remove()
+})
+
+test.skipIf(!groupsRadiosByForm())("a clobbered radio that a passing radio unchecked follows its markup", () => {
+	const host = mount(
+		`<div><form id="f"></form><input id="y" type="radio" name="r" form="f"><section><input id="b" type="radio" name="r"></section></div>`,
+	)
+	radio(host, "y").checked = true
+	radio(host, "b").checked = true
+	const b = radio(host, "b")
+
+	morph(host.firstElementChild!, parse(`<div><section morphlex-clobber><input id="b" type="radio" name="r"></section></div>`), {
+		preserveChanges: true,
+	})
+
+	expect(radio(host, "b")).toBe(b)
+	expect(checkedIds(host)).toBe("")
+	host.remove()
+})
+
+test("a live form from another document leaves the radios there checked", () => {
+	const source = document.implementation.createHTMLDocument("")
+	source.body.innerHTML = `<div id="source"><form id="f"></form></div><form id="f"></form><input id="y" type="radio" name="r" form="f" checked><input id="a" type="radio" name="r" checked>`
+	const host = mount(`<div></div>`)
+
+	morphInner(host.firstElementChild!, source.getElementById("source")!)
+
+	expect(source.getElementById("y")).toHaveProperty("checked", true)
+	expect(source.getElementById("a")).toHaveProperty("checked", true)
+	expect(host.querySelector("form")).not.toBeNull()
+	host.remove()
+})
+
+test.skipIf(!groupsRadiosByForm())("a radio whose name and form change together leaves the group it passes through alone", () => {
+	for (const preserveChanges of [true, false]) {
+		const host = mount(
+			`<form id="f"></form><form id="g"></form><input id="a" type="radio" name="s" form="f" checked><div><input id="y" type="radio" name="r" form="f" checked></div>`,
+		)
+
+		morph(host.querySelector("div")!, parse(`<div><input id="y" type="radio" name="s" form="g" checked></div>`), {
+			preserveChanges,
+		})
+
+		expect(checkedIds(host)).toBe("a y")
+		host.remove()
+	}
 })
