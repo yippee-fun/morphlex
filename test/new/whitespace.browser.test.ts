@@ -233,21 +233,6 @@ test("a callback that removes the whitespace after a node keeps later nodes afte
 	expect(from.querySelector("#list")!.innerHTML).toBe(`<i id="x"></i><span></span><b></b>`)
 })
 
-test("whitespace behind an element waiting to move elsewhere is kept", () => {
-	const from = dom(`<div><div id="list"><i id="x"></i> <b></b></div><section id="s"></section></div>`)
-	const whitespace = from.querySelector("#list")!.childNodes[1]
-	const changed: Array<string> = []
-
-	morph(from, dom(`<div><div id="list"> <b></b></div><section id="s"><i id="x"></i></section></div>`), {
-		afterNodeAdded: (node) => void changed.push(`+${node.nodeName}`),
-		afterNodeRemoved: (node) => void changed.push(`-${node.nodeName}`),
-	})
-
-	expect(from.outerHTML).toBe(`<div><div id="list"> <b></b></div><section id="s"><i id="x"></i></section></div>`)
-	expect(from.querySelector("#list")!.firstChild).toBe(whitespace)
-	expect(changed).toEqual([])
-})
-
 test("whitespace stays in front of an element whose removal was vetoed", () => {
 	const from = dom(`<div><b></b> </div>`)
 
@@ -256,4 +241,14 @@ test("whitespace stays in front of an element whose removal was vetoed", () => {
 	})
 
 	expect(from.outerHTML).toBe(`<div> <b></b></div>`)
+})
+
+test("whitespace stays in front of a movable element whose removal was vetoed", () => {
+	const from = dom(`<div><i id="x"></i> </div>`)
+
+	morph(from, dom(`<div> <b id="x"></b></div>`), {
+		beforeNodeRemoved: (node) => node.nodeName !== "I",
+	})
+
+	expect(from.outerHTML).toBe(`<div> <b id="x"></b><i id="x"></i></div>`)
 })

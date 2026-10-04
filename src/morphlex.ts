@@ -1242,23 +1242,6 @@ class Morph {
 			liveWhitespace!.add(fromChildNodes[whitespaceNodeIndices[i]!]!)
 		}
 
-		// Movable elements waiting to move elsewhere don't hide whitespace behind them. Nodes whose
-		// removal was vetoed stay where they are, so whitespace isn't reused from behind them.
-		let leaving: Set<ChildNode> | null = null
-		if (liveWhitespace) {
-			for (let i = 0; i < candidateElementWithIdIndices.length; i++) {
-				const candidateIndex = candidateElementWithIdIndices[i]!
-				const candidate = fromChildNodes[candidateIndex] as Element
-				if (
-					candidateElementWithIdActive[candidateIndex] &&
-					candidate.parentNode === parent &&
-					this.#movableElement(candidate.id) === candidate
-				) {
-					;(leaving ??= new Set()).add(candidate)
-				}
-			}
-		}
-
 		let insertionPoint: ChildNode | null = parent.firstChild
 		const placed: Array<ChildNode> = []
 		for (let i = 0; i < toChildNodes.length; i++) {
@@ -1276,10 +1259,8 @@ class Morph {
 
 			const node = toChildNodes[i]!
 			const matchInd = matches[i]
-			let reusable = insertionPoint
-			while (reusable && leaving?.has(reusable)) reusable = reusable.nextSibling
-			if (reusable && liveWhitespace?.has(reusable) && isWhitespaceTextNode(node)) {
-				const whitespace: ChildNode = reusable
+			if (insertionPoint && liveWhitespace?.has(insertionPoint) && isWhitespaceTextNode(node)) {
+				const whitespace: ChildNode = insertionPoint
 				liveWhitespace.delete(whitespace)
 				placed.push(whitespace)
 				insertionPoint = whitespace.nextSibling
