@@ -2,26 +2,11 @@ const SUPPORTS_MOVE_BEFORE = typeof Element !== "undefined" && "moveBefore" in E
 const ELEMENT_NODE_TYPE = 1
 const TEXT_NODE_TYPE = 3
 const DOCUMENT_NODE_TYPE = 9
+const DOCUMENT_FRAGMENT_NODE_TYPE = 11
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
 const CLOBBER_ATTRIBUTE = "morphlex-clobber"
 const DIRTY_ATTRIBUTE = "morphlex-dirty"
 const DETACHED_NODE_ERROR = "[Morphlex] Cannot replace a detached node. It needs a parent."
-
-const IS_PARENT_NODE_TYPE = [
-	0, //  0: (unused)
-	1, //  1: Element
-	0, //  2: Attribute (deprecated)
-	0, //  3: Text
-	0, //  4: CDATASection (deprecated)
-	0, //  5: EntityReference (deprecated)
-	0, //  6: Entity (deprecated)
-	0, //  7: ProcessingInstruction
-	0, //  8: Comment
-	1, //  9: Document
-	0, // 10: DocumentType
-	1, // 11: DocumentFragment
-	0, // 12: Notation (deprecated)
-]
 
 // The passes matching wrappers by choice, as [targets with their own identity, same attributes, all choices,
 // only the choices the user picked], from strictest to loosest.
@@ -3079,7 +3064,8 @@ function isDocument(node: Node): node is Document {
 }
 
 function isParentNode(node: Node): node is ParentNode {
-	return !!IS_PARENT_NODE_TYPE[node.nodeType]
+	const type = node.nodeType
+	return type === ELEMENT_NODE_TYPE || type === DOCUMENT_NODE_TYPE || type === DOCUMENT_FRAGMENT_NODE_TYPE
 }
 
 function isNodeList(value: ChildNode | NodeListOf<ChildNode>): value is NodeListOf<ChildNode> {
