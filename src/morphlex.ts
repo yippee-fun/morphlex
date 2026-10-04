@@ -578,6 +578,8 @@ class Morph {
 	#preserveChanges: boolean
 	// Only a target with a checked input can add a checked radio, so other morphs skip looking for one.
 	#targetChecksInputs = false
+	// Whether each parent collapses whitespace, read once per morph since reading it updates styles.
+	#collapsesWhitespace: Map<Element, boolean> | null = null
 
 	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
 		this.#options = options
@@ -707,6 +709,7 @@ class Morph {
 		// Fast path: if nodes are exactly the same object, skip morphing
 		if (from === to) return
 		if (isEqualNode(from, to)) return
+		if (this.#isInterchangeableWhitespace(from, to)) return
 
 		if (from.nodeType === ELEMENT_NODE_TYPE && to.nodeType === ELEMENT_NODE_TYPE) {
 			if (canMorphElementInPlace(from as Element, to as Element)) {
@@ -717,6 +720,28 @@ class Morph {
 		} else {
 			this.#morphOtherNode(from, to)
 		}
+	}
+
+	// Whitespace the browser collapses looks the same whatever it holds, so it's left alone. Spaces and
+	// line breaks aren't interchangeable, since some browsers drop a line break between CJK characters.
+	#isInterchangeableWhitespace(from: ChildNode, to: ChildNode): boolean {
+		if (!isWhitespaceTextNode(from) || !isWhitespaceTextNode(to)) return false
+
+		const fromValue = from.nodeValue!
+		const toValue = to.nodeValue!
+		if (!fromValue || !toValue || hasSegmentBreak(fromValue) !== hasSegmentBreak(toValue)) return false
+
+		const parent = from.parentElement
+		if (!parent) return false
+
+		this.#collapsesWhitespace ??= new Map()
+		let collapses = this.#collapsesWhitespace.get(parent)
+		if (collapses === undefined) {
+			collapses = collapsesWhitespace(parent)
+			this.#collapsesWhitespace.set(parent, collapses)
+		}
+
+		return collapses
 	}
 
 	#morphMatchingElements(from: Element, to: Element): void {
@@ -1835,6 +1860,20 @@ function isWhitespaceTextNode(node: Node): boolean {
 	}
 
 	return true
+}
+
+function hasSegmentBreak(string: string): boolean {
+	return string.includes("\n") || string.includes("\r")
+}
+
+// Only a connected element has computed styles, so a detached one is treated as preserving whitespace,
+// as is an unknown value.
+function collapsesWhitespace(element: Element): boolean {
+	const view = element.ownerDocument.defaultView
+	if (!view || !element.isConnected) return false
+
+	const whiteSpace = view.getComputedStyle(element).whiteSpace
+	return whiteSpace === "normal" || whiteSpace === "nowrap"
 }
 
 // HTML's ASCII whitespace: tab, LF, FF, CR and space. Unlike `String.prototype.trim`, this excludes

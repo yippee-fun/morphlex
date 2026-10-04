@@ -156,7 +156,7 @@ When morphing the children of an element, Morphlex pairs each new child with an 
 4. An element with the same non-empty `name`, `href` or `src` attribute.
 5. Any element with the same tag name, as long as neither element has an `id`, one of the attributes above, or ids inside it, and neither is a form control.
 
-Elements are only paired with elements of the same tag name and namespace. Text and comment nodes are paired with nodes of the same type, except text nodes that are only whitespace. Those are never paired with other nodes. Existing whitespace that sits where the new children have whitespace is kept, with its text updated if it differs. Other whitespace is removed or inserted fresh.
+Elements are only paired with elements of the same tag name and namespace. Text and comment nodes are paired with nodes of the same type, except text nodes that are only whitespace. Those are never paired with other nodes. Existing whitespace that sits where the new children have whitespace is kept, with its text updated only if the difference shows (see below). Other whitespace is removed or inserted fresh.
 
 Paired nodes are morphed in place, existing nodes that weren’t paired are removed, and new nodes that weren’t paired are inserted. Morphlex then moves the fewest nodes it can to get them in the right order, using `moveBefore` where the browser supports it so moved elements keep their state.
 
@@ -167,6 +167,10 @@ The element you pass to `morph` is replaced rather than morphed in place if its 
 ### Templates
 
 The contents of a `<template>` element are compared and, if they differ, replaced in one go rather than morphed, so no callbacks are called for nodes inside a template.
+
+### Whitespace
+
+A text node that's only whitespace is left alone when the new one is also only whitespace and the difference wouldn't show, so reindented markup doesn't change the page. That's when the parent's `white-space` is `normal` or `nowrap`, and either both have a line break or neither does, since some browsers drop a line break between Chinese, Japanese or Korean characters. Whitespace is always updated inside `<pre>` or anything else that keeps it, and inside a detached element, whose style isn't known. A text node's `textContent` can then differ from the target's.
 
 ### Whitespace in strings
 

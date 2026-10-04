@@ -45,3 +45,5 @@ The root's id counts towards uniqueness, but the root never moves. `morphInner` 
 ### Whitespace between elements
 
 Whitespace text nodes are only ever matched with whitespace. The live whitespace stays in place while the children are placed, and target whitespace reuses the live whitespace at the insertion point, so unchanged whitespace isn't removed and added again. Whitespace nothing reused is removed afterwards.
+
+Reused whitespace is only updated when the difference would show (Joel's call): `#morphOneToOne` skips two non-empty whitespace-only text nodes when both or neither have a line break (CR or LF, because of CJK segment break rules) and the parent's computed `white-space` is `normal` or `nowrap`. Anything else, including a detached parent, a parent that isn't an element (a shadow root), or a document without a window, updates as before. The computed style is read once per parent per morph, because reading it after a mutation updates styles. Skipped whitespace isn't visited, like an equal node, so no callbacks run for it. The fuzzers compare whitespace by the same rule.

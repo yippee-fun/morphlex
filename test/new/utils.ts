@@ -82,3 +82,46 @@ export function observeMutations(target: Node, callback: () => void): Mutations 
 	observer.disconnect()
 	return mutations
 }
+
+// Like `isEqualNode`, but also compares template contents, and whitespace only as closely as it renders.
+export function isSameTree(live: Node, target: Node, ignoreOpen = false): boolean {
+	if (live.nodeType !== target.nodeType || live.childNodes.length !== target.childNodes.length) return false
+
+	if (live instanceof Element) {
+		const liveClone = live.cloneNode(false) as Element
+		const targetClone = target.cloneNode(false) as Element
+		if (ignoreOpen && liveClone.localName === "details") {
+			liveClone.removeAttribute("open")
+			targetClone.removeAttribute("open")
+		}
+		if (!liveClone.isEqualNode(targetClone)) return false
+	} else if (live.nodeValue !== target.nodeValue && !isInterchangeableWhitespace(live, target)) {
+		return false
+	}
+
+	if (live instanceof HTMLTemplateElement) {
+		if (!isSameTree(live.content, (target as HTMLTemplateElement).content, ignoreOpen)) return false
+	}
+
+	for (let index = 0; index < live.childNodes.length; index++) {
+		if (!isSameTree(live.childNodes[index]!, target.childNodes[index]!, ignoreOpen)) return false
+	}
+
+	return true
+}
+
+// Whitespace the browser collapses renders the same whatever it holds, as long as both have a
+// line break or neither does.
+function isInterchangeableWhitespace(live: Node, target: Node): boolean {
+	const whitespace = /^[ \t\n\f\r]+$/
+	const lineBreak = /[\n\r]/
+	const liveValue = live.nodeValue ?? ""
+	const targetValue = target.nodeValue ?? ""
+	if (live.nodeType !== Node.TEXT_NODE || !whitespace.test(liveValue) || !whitespace.test(targetValue)) return false
+	if (lineBreak.test(liveValue) !== lineBreak.test(targetValue)) return false
+
+	const parent = live.parentElement
+	if (!parent?.isConnected) return false
+
+	return ["normal", "nowrap"].includes(getComputedStyle(parent).whiteSpace)
+}
