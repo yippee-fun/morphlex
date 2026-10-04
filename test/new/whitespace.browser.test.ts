@@ -205,3 +205,15 @@ test("a callback that removes the whitespace after a node keeps later nodes afte
 
 	expect(from.outerHTML).toBe(`<div><i></i><span></span><b></b></div>`)
 })
+
+test("a callback that removes the whitespace after a replaced node keeps later nodes after it", () => {
+	const from = dom(`<div><button is="x-a"></button> </div>`)
+
+	morph(from, dom(`<div><button is="x-b"></button><span></span></div>`), {
+		afterNodeVisited: (_from, to) => {
+			if (to.nodeName === "BUTTON") to.nextSibling?.remove()
+		},
+	})
+
+	expect(from.outerHTML).toBe(`<div><button is="x-b"></button><span></span></div>`)
+})

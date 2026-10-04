@@ -1275,7 +1275,6 @@ class Morph {
 					if (outsideRadios) for (const radio of outsideRadios) radio.checked = true
 				}
 				// Read this before the morph, which can replace the match.
-				placed.push(match)
 				insertionPoint = match.nextSibling
 
 				if (operation === Operation.EqualNode) {
@@ -1290,6 +1289,8 @@ class Morph {
 				} else {
 					this.#morphOneToOne(match, node)
 				}
+				// A replaced match leaves the target in its place.
+				placed.push(match.parentNode === parent ? match : node)
 			} else {
 				if (this.#addNode(parent, node, insertionPoint)) {
 					placed.push(node)
