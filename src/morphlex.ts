@@ -1046,19 +1046,31 @@ class Morph {
 		}
 
 		// Match elements that only differ by the user's changes, so a changed control keeps its own target.
+		// Such elements share their shape, so the candidates are bucketed by it rather than comparing every pair.
 		const dirtyElements = this.#dirtyElements
 		if (dirtyElements) {
-			for (let i = 0; i < unmatchedElementIndices.length; i++) {
+			const candidatesByShape: Map<string, Array<number>> = new Map()
+			for (let c = 0; c < candidateElementIndices.length; c++) {
+				const candidateIndex = candidateElementIndices[c]!
+				const candidate = fromChildNodes[candidateIndex] as Element
+				if (!candidateElementActive[candidateIndex] || !dirtyElements.has(candidate)) continue
+				const shape = shapeOf(candidate)
+				const bucket = candidatesByShape.get(shape)
+				if (bucket) bucket.push(candidateIndex)
+				else candidatesByShape.set(shape, [candidateIndex])
+			}
+
+			for (let i = 0; candidatesByShape.size && i < unmatchedElementIndices.length; i++) {
 				const unmatchedIndex = unmatchedElementIndices[i]!
 				if (!unmatchedElementActive[unmatchedIndex]) continue
 				const element = toChildNodes[unmatchedIndex] as Element
+				const candidates = candidatesByShape.get(shapeOf(element))
+				if (!candidates) continue
 
-				for (let c = 0; c < candidateElementIndices.length; c++) {
-					const candidateIndex = candidateElementIndices[c]!
+				for (let c = 0; c < candidates.length; c++) {
+					const candidateIndex = candidates[c]!
 					if (!candidateElementActive[candidateIndex]) continue
-					if (localNameMap[unmatchedIndex] !== candidateLocalNameMap[candidateIndex]) continue
 					const candidate = fromChildNodes[candidateIndex] as Element
-					if (!dirtyElements.has(candidate)) continue
 
 					if (isEqualExceptDirty(candidate, element, dirtyElements)) {
 						matches[unmatchedIndex] = candidateIndex
@@ -1176,50 +1188,42 @@ class Morph {
 				if (!candidateElementActive[candidateIndex]) continue
 				const candidate = fromChildNodes[candidateIndex] as Element
 				const choices = this.#dirtyChoicesOf(candidate)
-				if (choices && (this.#flagged.has(candidate) || canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate)))) {
+				if (choices && (this.#holdsOwnChoices(candidate) || canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate)))) {
 					choiceCandidates.push([candidateIndex, choices])
 				}
 			}
 			choiceCandidates.sort((a, b) => b[1].length - a[1].length)
 
 			for (const [identified, sameAttributes, allChoices] of CHOICE_PASSES) {
-				// The targets each candidate can take in this pass, smallest first when it needs all of its choices.
-				const eligible = choiceCandidates.map(([candidateIndex, choices]) => {
-					const targets: Array<number> = []
-					if (!candidateElementActive[candidateIndex]) return targets
+				// Whether the candidate can take the target in this pass.
+				const takes = (k: number, target: number): boolean => {
+					const [candidateIndex, choices] = choiceCandidates[k]!
+					if (localNameMap[target] !== candidateLocalNameMap[candidateIndex]) return false
+					if (namespaceURIMap[target] !== candidateNamespaceURIMap[candidateIndex]) return false
 					const candidate = fromChildNodes[candidateIndex] as Element
+					const element = toChildNodes[target] as Element
+					return (
+						hasSameIs(candidate, element) &&
+						(this.#holdsOwnChoices(candidate) || identified !== canSoftMatchByTagName(element, this.#idArrayMap.has(element))) &&
+						this.#holdsChoices(choices, element, allChoices) &&
+						(!sameAttributes || hasSameAttributes(candidate, element, STYLING_ATTRIBUTES))
+					)
+				}
 
-					for (let i = 0; i < unmatchedElementIndices.length; i++) {
-						const unmatchedIndex = unmatchedElementIndices[i]!
-						if (!unmatchedElementActive[unmatchedIndex]) continue
-						if (localNameMap[unmatchedIndex] !== candidateLocalNameMap[candidateIndex]) continue
-						if (namespaceURIMap[unmatchedIndex] !== candidateNamespaceURIMap[candidateIndex]) continue
-						const element = toChildNodes[unmatchedIndex] as Element
-
-						if (
-							hasSameIs(candidate, element) &&
-							(this.#flagged.has(candidate) || identified !== canSoftMatchByTagName(element, this.#idArrayMap.has(element))) &&
-							this.#holdsChoices(choices, element, allChoices) &&
-							(!sameAttributes || hasSameAttributes(candidate, element, STYLING_ATTRIBUTES))
-						) {
-							targets.push(unmatchedIndex)
-						}
-					}
-
-					if (allChoices) {
-						targets.sort(
-							(a, b) =>
-								this.#targetChoicesOf(toChildNodes[a] as Element).size - this.#targetChoicesOf(toChildNodes[b] as Element).size,
-						)
-					}
-					return targets
-				})
+				// The targets in the order candidates try them, smallest first when a candidate needs all of its choices.
+				const targets = unmatchedElementIndices.filter((i) => unmatchedElementActive[i])
+				if (allChoices) {
+					targets.sort(
+						(a, b) =>
+							this.#targetChoicesOf(toChildNodes[a] as Element).size - this.#targetChoicesOf(toChildNodes[b] as Element).size,
+					)
+				}
 
 				// Pair as many candidates with targets as possible, so one taking a target can't leave another without any.
 				const owners: Map<number, number> = new Map()
 				const assign = (k: number, seen: Set<number>): boolean => {
-					for (const target of eligible[k]!) {
-						if (seen.has(target)) continue
+					for (const target of targets) {
+						if (seen.has(target) || !takes(k, target)) continue
 						seen.add(target)
 						const owner = owners.get(target)
 						if (owner === undefined || assign(owner, seen)) {
@@ -1229,7 +1233,16 @@ class Morph {
 					}
 					return false
 				}
-				for (let k = 0; k < eligible.length; k++) assign(k, new Set())
+
+				// Give each candidate a free target first, so augmenting paths are only searched for the rest.
+				const unassigned: Array<number> = []
+				for (let k = 0; k < choiceCandidates.length; k++) {
+					if (!candidateElementActive[choiceCandidates[k]![0]]) continue
+					const target = targets.find((target) => !owners.has(target) && takes(k, target))
+					if (target === undefined) unassigned.push(k)
+					else owners.set(target, k)
+				}
+				for (const k of unassigned) assign(k, new Set())
 
 				for (const [target, k] of owners) {
 					const candidateIndex = choiceCandidates[k]![0]
@@ -1558,6 +1571,11 @@ class Morph {
 		return false
 	}
 
+	// A changed control, or a select holding changed options, is matched by its choices even though it has a name.
+	#holdsOwnChoices(candidate: Element): boolean {
+		return this.#flagged.has(candidate) || isSelectElement(candidate)
+	}
+
 	// A checkbox, radio or option the user changed holds their choice of its value, so under
 	// preserveChanges it must not be matched to a target with another value, unless the target
 	// discards user changes with `morphlex-clobber`.
@@ -1601,8 +1619,8 @@ class Morph {
 	#dirtyChoicesOf(element: Element): Array<string> | null {
 		if (!this.#dirtyElements?.has(element)) return null
 		const choices: Array<string> = []
-		for (const control of this.#flagged) {
-			const choice = element.contains(control) ? this.#choiceOf(control) : null
+		for (const control of [element, ...element.querySelectorAll("input, option")]) {
+			const choice = this.#flagged.has(control) ? this.#choiceOf(control) : null
 			if (choice !== null) choices.push(choice)
 		}
 		return choices.length ? choices : null
@@ -2045,7 +2063,7 @@ function trimFragmentEdgeWhitespace(fragment: DocumentFragment): void {
 // takes the enclosing one.
 function choiceOf(element: Element, enclosingSelect: HTMLSelectElement | null): string | null {
 	if (isOptionElement(element)) {
-		const select = selectOf(element) ?? enclosingSelect
+		const select = enclosingSelect ?? selectOf(element)
 		return JSON.stringify([select?.getAttribute("name") ?? null, select?.getAttribute("form") ?? null, element.value])
 	}
 	if (isInputElement(element) && (element.type === "checkbox" || element.type === "radio")) {
@@ -2075,6 +2093,15 @@ function hasSameAttributes(from: Element, to: Element, ignored: ReadonlyArray<st
 		if (namespaceURI !== null || (name !== "morphlex-dirty" && !ignored.includes(name))) count--
 	}
 	return count === 0
+}
+
+// What elements equal apart from `morphlex-dirty` have in common: their name, attributes and text.
+function shapeOf(element: Element): string {
+	const attributes: Array<string> = []
+	for (const { namespaceURI, localName, value } of element.attributes) {
+		if (namespaceURI !== null || localName !== "morphlex-dirty") attributes.push(JSON.stringify([namespaceURI, localName, value]))
+	}
+	return JSON.stringify([element.namespaceURI, element.prefix, element.localName, attributes.sort(), element.textContent])
 }
 
 // Like `isEqualNode`, but ignores the `morphlex-dirty` flag on the elements in `dirtyElements`.

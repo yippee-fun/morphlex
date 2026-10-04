@@ -499,3 +499,49 @@ test("a changed checkbox is morphed into a clobbered target with another value",
 	expect(input.value).toBe("b")
 	expect(input.checked).toBe(false)
 })
+
+test("morphing inside a select keeps the user's pick when the target is still in another select", () => {
+	const select = dom(
+		`<select name="s"><optgroup><option value="a">a</option><option value="b">b</option></optgroup></select>`,
+	) as HTMLSelectElement
+	select.value = "b"
+	const source = dom(
+		`<select name="other"><optgroup><option value="c">c</option><option value="a">a</option><option value="b">B!</option></optgroup></select>`,
+	)
+
+	morphInner(select.firstElementChild!, source.firstElementChild!, { preserveChanges: true })
+
+	expect(select.value).toBe("b")
+	expect(select.selectedOptions[0]!.text).toBe("B!")
+})
+
+test("selects with the same name keep the user's pick when they swap and their options change", () => {
+	const from = form(
+		`<select name="s"><option value="a">a</option><option value="b">b</option></select><select name="s"><option value="x">x</option><option value="y">y</option></select>`,
+	)
+	const picked = from.querySelectorAll("select")[1]!
+	picked.value = "y"
+
+	morph(
+		from,
+		form(
+			`<select name="s"><option value="x">x</option><option value="y">Y!</option></select><select name="s"><option value="a">a</option><option value="b">B!</option></select>`,
+		),
+		{ preserveChanges: true },
+	)
+
+	expect(from.firstElementChild).toBe(picked)
+	expect(picked.value).toBe("y")
+	expect(picked.selectedOptions[0]!.text).toBe("Y!")
+})
+
+test("a label with the user's tick keeps it when only a comment in it changes", () => {
+	const from = form(`<label><input type="checkbox" name="t" value="a"><!--x--></label>`)
+	const input = check(from, "a")
+
+	morph(from, form(`<label><input type="checkbox" name="t" value="a"><!--y--></label>`), { preserveChanges: true })
+
+	expect(from.querySelector("input")).toBe(input)
+	expect(input.checked).toBe(true)
+	expect(from.querySelector("label")!.lastChild!.nodeValue).toBe("y")
+})
