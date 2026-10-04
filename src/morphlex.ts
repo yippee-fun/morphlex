@@ -493,47 +493,9 @@ function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNo
 }
 /* v8 ignore stop */
 
-// A radio with a `form` attribute changes form when a form with that id is added, moved or removed,
-// or when either attribute changes, and a checked one then unchecks the rest of its new group. Firefox
-// and Safari can briefly put it in the group of radios without a form on the way, where it unchecks a
-// radio it never joins. So these radios change form unchecked, and are checked again straight after,
-// which unchecks the rest of their new group as the change itself would. Returns the radios it unchecked.
-function uncheckRadiosNamingFormsIn(node: Node, root: Node): Array<HTMLInputElement> | null {
-	if (!isElement(node)) return null
-	let ids: Array<string> | null = null
-	const forms = isFormElement(node) ? [node] : node.getElementsByTagName("form")
-	for (let i = 0; i < forms.length; i++) {
-		const form = forms[i]!
-		if (form.id !== "" && isFormElement(form)) (ids ??= []).push(form.id)
-	}
-	return ids && uncheckRadiosNaming(ids, root, node)
-}
-
-function uncheckRadiosNaming(ids: Array<string>, root: Node, except: Node | null): Array<HTMLInputElement> | null {
-	let unchecked: Array<HTMLInputElement> | null = null
-	const inputs = (root as ParentNode).querySelectorAll("input[form]")
-	for (let i = 0; i < inputs.length; i++) {
-		const input = inputs[i]!
-		if (isCheckedRadio(input) && ids.includes(input.getAttribute("form")!) && !except?.contains(input)) {
-			input.checked = false
-			;(unchecked ??= []).push(input as HTMLInputElement)
-		}
-	}
-	return unchecked
-}
-
-// Changing a radio's `form` attribute or a form's id changes the form of radios, like moving a form.
-function uncheckRadiosForAttribute(element: Element, name: string, value: string | null): Array<HTMLInputElement> | null {
-	if (name === "form" && isCheckedRadio(element)) {
-		element.checked = false
-		return [element]
-	}
-	if (name === "id" && isFormElement(element)) {
-		const ids = value === null || value === "" ? [element.id] : [element.id, value]
-		return uncheckRadiosNaming(ids, element.getRootNode(), null)
-	}
-	return null
-}
+// Radios that a change to a form unchecked by removing their `checked` attribute, so they're checked
+// again the same way and keep following the markup.
+const uncheckedByAttribute = new WeakSet<HTMLInputElement>()
 
 /* v8 ignore start -- moveBefore keeps focus and other state, but only some browsers have it */
 function moveInto(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): void {
@@ -813,7 +775,7 @@ class Morph {
 				if (namespaceURI) {
 					from.setAttributeNS(namespaceURI, name, value)
 				} else {
-					const radios = uncheckRadiosForAttribute(from, name, value)
+					const radios = this.#uncheckRadiosForAttribute(from, name, value)
 					from.setAttribute(name, value)
 					this.#checkRadios(radios)
 				}
@@ -834,7 +796,7 @@ class Morph {
 						if (name === "open" && namespaceURI === null && isDialogElement(from)) {
 							from.close()
 						} else {
-							const radios = namespaceURI ? null : uncheckRadiosForAttribute(from, name, null)
+							const radios = namespaceURI ? null : this.#uncheckRadiosForAttribute(from, name, null)
 							from.removeAttributeNS(namespaceURI, localName)
 							this.#checkRadios(radios)
 						}
@@ -1274,7 +1236,7 @@ class Morph {
 				const operation = op[i]!
 
 				if (!shouldNotMove[matchInd]) {
-					const outsideRadios = uncheckRadiosNamingFormsIn(match, match.getRootNode())
+					const outsideRadios = this.#uncheckRadiosNamingFormsIn(match, match.getRootNode())
 					moveBefore(parent, match, insertionPoint)
 					this.#checkRadios(outsideRadios)
 				}
@@ -1374,7 +1336,7 @@ class Morph {
 	// and are checked again when the morph settles if the markup or a veto keeps them checked.
 	// Returns the radios outside.
 	#uncheckRadiosForMove(element: Element, parent: ParentNode): Array<HTMLInputElement> | null {
-		const outside = uncheckRadiosNamingFormsIn(element, element.getRootNode())
+		const outside = this.#uncheckRadiosNamingFormsIn(element, element.getRootNode())
 
 		if (!this.#preserveChanges) {
 			const inputs = isInputElement(element) ? [element] : element.querySelectorAll("input")
@@ -1390,6 +1352,63 @@ class Morph {
 		return outside
 	}
 
+	// A radio with a `form` attribute changes form when a form with that id is added, moved or removed,
+	// or when either attribute changes, and a checked one then unchecks the rest of its new group. Firefox
+	// and Safari can briefly put it in the group of radios without a form on the way, where it unchecks a
+	// radio it never joins. So these radios change form unchecked, and are checked again straight after,
+	// which unchecks the rest of their new group as the change itself would. Returns the radios it unchecked.
+	#uncheckRadiosNamingFormsIn(node: Node, root: Node): Array<HTMLInputElement> | null {
+		if (!isElement(node)) return null
+		let ids: Array<string> | null = null
+		const forms = isFormElement(node) ? [node] : node.getElementsByTagName("form")
+		for (let i = 0; i < forms.length; i++) {
+			const form = forms[i]!
+			if (form.id !== "" && isFormElement(form)) (ids ??= []).push(form.id)
+		}
+		return ids && this.#uncheckRadiosNaming(ids, root, node)
+	}
+
+	#uncheckRadiosNaming(ids: Array<string>, root: Node, except: Node | null): Array<HTMLInputElement> | null {
+		let unchecked: Array<HTMLInputElement> | null = null
+		// Only checked inputs matter, which keeps this short on pages with many radios.
+		const inputs = (root as ParentNode).querySelectorAll("input[form]:checked")
+		for (let i = 0; i < inputs.length; i++) {
+			const input = inputs[i]!
+			if (isCheckedRadio(input) && ids.includes(input.getAttribute("form")!) && !except?.contains(input)) {
+				this.#uncheckRadio(input)
+				;(unchecked ??= []).push(input)
+			}
+		}
+		return unchecked
+	}
+
+	// Changing a radio's `form` attribute or a form's id changes the form of radios, like moving a form.
+	#uncheckRadiosForAttribute(element: Element, name: string, value: string | null): Array<HTMLInputElement> | null {
+		if (name === "form" && isCheckedRadio(element)) {
+			this.#uncheckRadio(element)
+			return [element]
+		}
+		if (name === "id" && isFormElement(element)) {
+			const ids = value === null || value === "" ? [element.id] : [element.id, value]
+			return this.#uncheckRadiosNaming(ids, element.getRootNode(), null)
+		}
+		return null
+	}
+
+	// Setting `.checked` stops a radio from following its `checked` attribute. So a radio that's checked
+	// again straight after, and still follows the attribute, is unchecked by removing the attribute.
+	#uncheckRadio(radio: HTMLInputElement): void {
+		if ((this.#preserveChanges || !this.#inScope(radio)) && radio.hasAttribute("checked")) {
+			radio.removeAttribute("checked")
+			if (!radio.checked) {
+				uncheckedByAttribute.add(radio)
+				return
+			}
+			radio.setAttribute("checked", "")
+		}
+		radio.checked = false
+	}
+
 	// Radios that changed form unchecked are checked again. Without `preserveChanges`, the morph's own
 	// radios wait until it settles, and are checked only if the markup or a veto keeps them checked, so
 	// one the markup unchecks doesn't uncheck the rest of its new group first.
@@ -1397,13 +1416,14 @@ class Morph {
 		if (!radios) return
 		for (let i = 0; i < radios.length; i++) {
 			const radio = radios[i]!
-			if (this.#preserveChanges || !this.#inScope(radio)) radio.checked = true
+			if (uncheckedByAttribute.delete(radio)) radio.setAttribute("checked", "")
+			else if (this.#preserveChanges || !this.#inScope(radio)) radio.checked = true
 			else (this.#radiosUncheckedForMove ??= new Set()).add(radio)
 		}
 	}
 
 	#removeChild(node: ChildNode): void {
-		const radios = uncheckRadiosNamingFormsIn(node, node.getRootNode())
+		const radios = this.#uncheckRadiosNamingFormsIn(node, node.getRootNode())
 		node.remove()
 		this.#checkRadios(radios)
 	}
@@ -1482,7 +1502,7 @@ class Morph {
 
 		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, parent)
-		const radios = uncheckRadiosNamingFormsIn(node, (parent as Node).getRootNode())
+		const radios = this.#uncheckRadiosNamingFormsIn(node, (parent as Node).getRootNode())
 		parent.insertBefore(node, insertionPoint)
 		this.#checkRadios(radios)
 		if (this.#targetChecksInputs && !this.#preserveChanges && isElement(node)) this.#noteAddedRadios(node)
