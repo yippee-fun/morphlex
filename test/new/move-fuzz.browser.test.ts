@@ -276,14 +276,20 @@ function movableElements(host: HTMLElement, scenario: Case): Map<string, Element
 		return !isInsideOwnDescendant(element, to, target) && !wrapsOwnAncestor(element, to)
 	}
 
-	// The element is recreated rather than moved out of a movable ancestor that the target puts inside it.
+	// The element is recreated rather than moved out of a movable ancestor that the target puts inside it,
+	// when that ancestor can be morphed into its target. An ancestor holding options may not move, so its
+	// descendants aren't checked.
 	const morphRoot = scenario.shape === "list" ? root.firstChild : root
 	const wrapsOwnAncestor = (element: Element, to: Element): boolean => {
 		for (let ancestor = element.parentElement; ancestor && ancestor !== morphRoot; ancestor = ancestor.parentElement) {
 			const id = ancestor.id
 			if (!id || ancestor.localName === "option" || ancestor.localName === "optgroup") continue
 			if (root.querySelectorAll(`[id="${id}"]`).length !== 1 || target.querySelectorAll(`[id="${id}"]`).length !== 1) continue
-			if (to.querySelector(`[id="${id}"]`)) return true
+			const match = to.querySelector(`[id="${id}"]`)
+			if (!match) continue
+			if (ancestor.querySelector("option")) return true
+			if (match.localName !== ancestor.localName || match.getAttribute("is") !== ancestor.getAttribute("is")) continue
+			return true
 		}
 		return false
 	}
@@ -324,9 +330,12 @@ function outsideCheckedness(expected: Document, formId: string): string {
 
 // Live elements whose \`is\` differs from that of the target element with their id. A customized
 // built-in's definition is fixed when it's created, so these must be recreated.
+// A node list morph's root is morphed into the first target node instead, so it's left out.
 function redefinedElements(host: HTMLElement, scenario: Case): Array<Element> {
 	const target = parse(scenario.toHtml)
+	const listRoot = scenario.shape === "list" ? host.firstChild!.firstChild : null
 	return [...host.querySelectorAll("[id]")].filter((element) => {
+		if (element === listRoot) return false
 		const to = target.id === element.id ? target : target.querySelector(`[id="${element.id}"]`)
 		return to !== null && to.localName === element.localName && to.getAttribute("is") !== element.getAttribute("is")
 	})
