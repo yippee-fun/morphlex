@@ -842,3 +842,75 @@ test("an option wrapper with the user's pick skips a target whose matching optio
 	expect(select.querySelectorAll("div")[1]).toBe(wrapper)
 	expect(select.selectedOptions[0]).toBe(picked)
 })
+
+test("inside a select, a wrapper holding a nested select's pick pairs with the target holding that select", () => {
+	const outer = document.createElement("select")
+	outer.name = "o"
+	const root = document.createElement("div")
+	root.innerHTML = `<span><select name="i"><option value="a">a</option><option value="b">b</option></select></span>`
+	outer.append(root)
+	document.body.append(outer)
+	const wrapper = root.querySelector("span")!
+	const inner = root.querySelector("select")!
+	inner.value = "b"
+	const picked = inner.selectedOptions[0]!
+
+	const to = document.createElement("div")
+	to.innerHTML = `<span class="x"><option value="b">b</option></span><span class="x"><select name="i"><option value="a">a</option><option value="b">b</option></select></span>`
+	morph(root, to, { preserveChanges: true })
+	outer.remove()
+
+	expect(root.querySelectorAll("span")[1]).toBe(wrapper)
+	expect(inner.selectedOptions[0]).toBe(picked)
+})
+
+test("a ticked checkbox stays when the target keeps only one of it and an identical untouched checkbox", () => {
+	const box = `<input type="checkbox" name="t" value="a">`
+	const from = form(`${box}${box}`)
+	const ticked = from.querySelectorAll("input")[1]!
+	ticked.checked = true
+
+	morph(from, form(box), { preserveChanges: true })
+
+	expect(from.querySelectorAll("input").length).toBe(1)
+	expect(from.querySelector("input")).toBe(ticked)
+	expect(ticked.checked).toBe(true)
+})
+
+test("ticked checkboxes stay when the target keeps fewer of them than identical untouched ones", () => {
+	const box = `<input type="checkbox" name="t" value="a">`
+	const from = form(`${box}${box}${box}${box}`)
+	const [first, second] = from.querySelectorAll("input")
+	first!.checked = true
+	second!.checked = true
+
+	morph(from, form(`${box}${box}`), { preserveChanges: true })
+
+	expect([...from.querySelectorAll("input")]).toEqual([first, second])
+	expect(new FormData(from).getAll("t")).toEqual(["a", "a"])
+})
+
+test("a ticked label doesn't take the target of an untouched label that only looks the same", () => {
+	const box = `<input type="checkbox" name="t" value="a">`
+	const from = form(`<label>${box}<b>x</b></label><label>${box}<i>x</i></label>`)
+	const untouched = from.querySelectorAll("label")[1]!
+	check(from.querySelector("label")!, "a")
+
+	morph(from, form(`<label>${box}<i>x</i></label>`), { preserveChanges: true })
+
+	expect([...from.querySelectorAll("label")]).toEqual([untouched])
+})
+
+test("identical ticked labels keep a label each while a target holds their tick", () => {
+	const box = (value: string) => `<input type="checkbox" name="t" value="${value}">`
+	const from = form(`<label>${box("a")}x</label>`.repeat(3))
+	for (const input of from.querySelectorAll("input")) input.checked = true
+	const first = from.querySelector("label")!
+
+	morph(from, form(`<label>${box("a")}y</label><label>${box("b")}y</label><label>${box("c")}y</label>`), {
+		preserveChanges: true,
+	})
+
+	expect(from.querySelector("label")).toBe(first)
+	expect(new FormData(from).getAll("t")).toEqual(["a"])
+})
