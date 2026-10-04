@@ -91,3 +91,39 @@ test("a new node can remove the sibling after it when it's added", () => {
 	expect(host.innerHTML).toBe(`<div><i></i><span>new</span></div>`)
 	host.remove()
 })
+
+test("a new node that moves itself and removes the node it was added before keeps the rest in order", () => {
+	const elsewhere = mount("")
+	const host = mount(`<div><b></b><p id="a"></p></div>`)
+
+	morph(host.firstElementChild!, `<div><b></b><i></i><span>new</span><em>new</em><p id="a"></p></div>`, {
+		afterNodeAdded: (node) => {
+			if (node.nodeName !== "I") return
+			elsewhere.append(node)
+			host.querySelector("p")!.remove()
+		},
+	})
+
+	expect(host.innerHTML).toBe(`<div><b></b><span>new</span><em>new</em></div>`)
+	expect(elsewhere.innerHTML).toBe(`<i></i>`)
+	host.remove()
+	elsewhere.remove()
+})
+
+test("a new first node that moves itself and removes the node it was added before keeps the rest in order", () => {
+	const elsewhere = mount("")
+	const host = mount(`<div><p id="a"></p></div>`)
+
+	morph(host.firstElementChild!, `<div><i></i><span>new</span><em>new</em><p id="a"></p></div>`, {
+		afterNodeAdded: (node) => {
+			if (node.nodeName !== "I") return
+			elsewhere.append(node)
+			host.querySelector("p")!.remove()
+		},
+	})
+
+	expect(host.innerHTML).toBe(`<div><span>new</span><em>new</em></div>`)
+	expect(elsewhere.innerHTML).toBe(`<i></i>`)
+	host.remove()
+	elsewhere.remove()
+})

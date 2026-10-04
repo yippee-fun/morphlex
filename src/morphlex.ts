@@ -1241,7 +1241,14 @@ class Morph {
 		}
 
 		let insertionPoint: ChildNode | null = parent.firstChild
+		// The last node placed in the parent, so the next one can go after it.
+		let placed: ChildNode | null = null
 		for (let i = 0; i < toChildNodes.length; i++) {
+			// A callback can move or remove the insertion point. Then the next node goes after the last one placed.
+			if (insertionPoint && insertionPoint.parentNode !== parent) {
+				insertionPoint = placed?.parentNode === parent ? placed.nextSibling : parent.firstChild
+			}
+
 			const node = toChildNodes[i]!
 			const matchInd = matches[i]
 			if (matchInd !== undefined) {
@@ -1255,7 +1262,10 @@ class Morph {
 				}
 				// Read this before the morph, which can replace the match. A match that moved itself
 				// elsewhere when it reconnected leaves the insertion point where it was.
-				if (match.parentNode === parent) insertionPoint = match.nextSibling
+				if (match.parentNode === parent) {
+					placed = match
+					insertionPoint = match.nextSibling
+				}
 
 				if (operation === Operation.EqualNode) {
 				} else if (operation === Operation.SameElement) {
@@ -1272,7 +1282,10 @@ class Morph {
 			} else {
 				this.#addNode(parent, node, insertionPoint)
 				// A new node can move or remove itself when it's added, and then the insertion point stays.
-				if (node.parentNode === parent) insertionPoint = node.nextSibling
+				if (node.parentNode === parent) {
+					placed = node
+					insertionPoint = node.nextSibling
+				}
 			}
 		}
 
