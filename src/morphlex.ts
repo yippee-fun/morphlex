@@ -174,8 +174,8 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
 	try {
 		const morpher = new Morph(options, clobbered)
+		if (select) morpher.setEnclosingSelect(select, selection!)
 		morpher.morph(from, to)
-		if (select) morpher.syncEnclosingSelect(select, selection!)
 	} finally {
 		if (flagged) clearDirtyFlags(flagged)
 	}
@@ -224,8 +224,8 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const flagged = flagDirtyInputs(fromElement)
 		try {
 			const morpher = new Morph(options, clobbered)
+			if (select) morpher.setEnclosingSelect(select, selection!)
 			morpher.morphChildren(fromElement, toElement)
-			if (select) morpher.syncEnclosingSelect(select, selection!)
 		} finally {
 			clearDirtyFlags(flagged)
 		}
@@ -641,6 +641,14 @@ class Morph {
 	#preserveChanges: boolean
 	// Only a target with a checked input can add a checked radio, so other morphs skip looking for one.
 	#targetChecksInputs = false
+	// Whitespace left alone because it may not render differently. Whether it does depends on the
+	// parent's final style, which selectors like `:has()` tie to the finished tree, so it's checked
+	// when the morph settles.
+	#whitespaceToCheck: Array<[ChildNode, ChildNode, ParentNode | null]> | null = null
+	// Set while the root select's sync still follows the settling, since a style can depend on the selection.
+	#whitespaceHeld = false
+	// The select around a morph rooted inside it, and what its markup selected before the morph.
+	#enclosingSelect: [HTMLSelectElement, Array<HTMLOptionElement | null>] | null = null
 
 	constructor(options: Options = {}, clobbered: Set<Element> | null = null) {
 		this.#options = options
@@ -739,6 +747,11 @@ class Morph {
 			this.#radiosToSync = null
 			this.#syncRadioGroups(radios)
 		}
+
+		this.#syncEnclosingSelect()
+
+		// Last, since a parent's style can depend on any of the above, such as with `:has(:checked)`.
+		if (!this.#whitespaceHeld) this.#checkWhitespace()
 	}
 
 	// Completing a move morphs the element, which can claim more elements, so keep going until none are left.
@@ -776,6 +789,7 @@ class Morph {
 		// Fast path: if nodes are exactly the same object, skip morphing
 		if (from === to) return
 		if (isEqualNode(from, to)) return
+		if (this.#isInterchangeableWhitespace(from, to)) return
 
 		if (from.nodeType === ELEMENT_NODE_TYPE && to.nodeType === ELEMENT_NODE_TYPE) {
 			if (canMorphElementInPlace(from as Element, to as Element)) {
@@ -785,6 +799,43 @@ class Morph {
 			}
 		} else {
 			this.#morphOtherNode(from, to)
+		}
+	}
+
+	// Whitespace the browser collapses looks the same whatever it holds. Spaces and line breaks aren't
+	// interchangeable, since some browsers drop a line break between CJK characters.
+	#isInterchangeableWhitespace(from: ChildNode, to: ChildNode): boolean {
+		if (from.nodeType !== TEXT_NODE_TYPE || to.nodeType !== TEXT_NODE_TYPE) return false
+
+		const fromValue = from.nodeValue!
+		const toValue = to.nodeValue!
+		if (!isCollapsibleSpace(fromValue) || !isCollapsibleSpace(toValue)) return false
+		if (hasSegmentBreak(fromValue) !== hasSegmentBreak(toValue)) return false
+
+		;(this.#whitespaceToCheck ??= []).push([from, to, from.parentNode])
+		return true
+	}
+
+	// Update the whitespace left alone where its parent keeps whitespace after all.
+	#checkWhitespace(): void {
+		const pairs = this.#whitespaceToCheck
+		if (!pairs) return
+		this.#whitespaceToCheck = null
+
+		const collapses: Map<Element, boolean> = new Map()
+		for (let i = 0; i < pairs.length; i++) {
+			const [from, to, parent] = pairs[i]!
+			// A callback removed it after it was placed, as it can remove any node the morph has placed.
+			if (from.parentNode !== parent) continue
+
+			// Slotted text takes its style from the slot it's shown in.
+			const element = (from as Text).assignedSlot ?? from.parentElement
+			let elementCollapses = element ? collapses.get(element) : false
+			if (elementCollapses === undefined) {
+				elementCollapses = collapsesWhitespace(element!)
+				collapses.set(element!, elementCollapses)
+			}
+			if (!elementCollapses) this.#morphOtherNode(from, to)
 		}
 	}
 
@@ -1395,15 +1446,32 @@ class Morph {
 			}
 		}
 
-		this.#settleIfRoot(from)
-		if (isSelectElement(from)) this.#syncDefaultSelection(from)
+		if (isSelectElement(from)) {
+			const held = this.#whitespaceHeld
+			this.#whitespaceHeld = true
+			this.#settleIfRoot(from)
+			this.#syncDefaultSelection(from)
+			this.#whitespaceHeld = held
+			if (from === this.#root && !held) this.#checkWhitespace()
+		} else {
+			this.#settleIfRoot(from)
+		}
 
 		this.#options.afterChildrenVisited?.(from)
 	}
 
-	// A morph inside a select never visits the select, so sync it afterwards if the morph
+	// A morph inside a select never visits the select, so sync it when the morph settles if the morph
 	// changed what the markup selects. A vetoed morph changes nothing, so it leaves it alone.
-	syncEnclosingSelect(select: HTMLSelectElement, selection: Array<HTMLOptionElement | null>): void {
+	setEnclosingSelect(select: HTMLSelectElement, selection: Array<HTMLOptionElement | null>): void {
+		this.#enclosingSelect = [select, selection]
+	}
+
+	#syncEnclosingSelect(): void {
+		const enclosing = this.#enclosingSelect
+		if (!enclosing) return
+		this.#enclosingSelect = null
+
+		const [select, selection] = enclosing
 		if (this.#preserveChanges) return
 
 		const newSelection = markupSelectionOf(select)
@@ -2073,6 +2141,34 @@ function isWhitespaceTextNode(node: Node): boolean {
 	}
 
 	return true
+}
+
+// Only spaces, tabs and line breaks collapse in CSS. A form feed is shown as a glyph.
+function isCollapsibleSpace(string: string): boolean {
+	if (!string) return false
+
+	for (let i = 0; i < string.length; i++) {
+		const code = string.charCodeAt(i)
+		if (code !== 32 && code !== 9 && code !== 10 && code !== 13) return false
+	}
+
+	return true
+}
+
+function hasSegmentBreak(string: string): boolean {
+	return string.includes("\n") || string.includes("\r")
+}
+
+// Only a connected element has computed styles, so a detached one is treated as preserving whitespace,
+// as is an unknown value. So is a custom element, including a customized built-in, without an open
+// shadow root, since a closed one hides the slot the text is shown in.
+function collapsesWhitespace(element: Element): boolean {
+	const view = element.ownerDocument.defaultView
+	if (!view || !element.isConnected) return false
+	if ((element.localName.includes("-") || element.hasAttribute("is")) && !element.shadowRoot) return false
+
+	const whiteSpace = view.getComputedStyle(element).whiteSpace
+	return whiteSpace === "normal" || whiteSpace === "nowrap"
 }
 
 // HTML's ASCII whitespace: tab, LF, FF, CR and space. Unlike `String.prototype.trim`, this excludes
