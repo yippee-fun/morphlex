@@ -170,7 +170,7 @@ The contents of a `<template>` element are compared and, if they differ, replace
 
 ### Whitespace
 
-A text node that's only whitespace is left alone when the new one is also only whitespace and the difference wouldn't show, so reindented markup doesn't change the page. That's when the parent's `white-space` is `normal` or `nowrap`, and either both have a line break or neither does, since some browsers drop a line break between Chinese, Japanese or Korean characters. Whitespace is always updated inside `<pre>` or anything else that keeps it, and inside a detached element, whose style isn't known. A text node's `textContent` can then differ from the target's.
+A text node that's only whitespace is left alone when the new one is also only whitespace and the difference wouldn't show, so reindented markup doesn't change the page. That's when the parent's `white-space` is `normal` or `nowrap`, and either both have a line break or neither does, since some browsers drop a line break between Chinese, Japanese or Korean characters. Whitespace is always updated inside `<pre>` or anything else that keeps it, and inside a detached element or a custom element without an open shadow root, whose style isn't known. A text node's `textContent` can then differ from the target's.
 
 ### Whitespace in strings
 

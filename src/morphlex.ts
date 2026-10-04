@@ -730,11 +730,12 @@ class Morph {
 	// Whitespace the browser collapses looks the same whatever it holds. Spaces and line breaks aren't
 	// interchangeable, since some browsers drop a line break between CJK characters.
 	#isInterchangeableWhitespace(from: ChildNode, to: ChildNode): boolean {
-		if (!isWhitespaceTextNode(from) || !isWhitespaceTextNode(to)) return false
+		if (from.nodeType !== TEXT_NODE_TYPE || to.nodeType !== TEXT_NODE_TYPE) return false
 
 		const fromValue = from.nodeValue!
 		const toValue = to.nodeValue!
-		if (!fromValue || !toValue || hasSegmentBreak(fromValue) !== hasSegmentBreak(toValue)) return false
+		if (!isCollapsibleSpace(fromValue) || !isCollapsibleSpace(toValue)) return false
+		if (hasSegmentBreak(fromValue) !== hasSegmentBreak(toValue)) return false
 
 		;(this.#whitespaceToCheck ??= []).push([from, to, from.parentNode])
 		return true
@@ -1881,15 +1882,29 @@ function isWhitespaceTextNode(node: Node): boolean {
 	return true
 }
 
+// Only spaces, tabs and line breaks collapse in CSS. A form feed is shown as a glyph.
+function isCollapsibleSpace(string: string): boolean {
+	if (!string) return false
+
+	for (let i = 0; i < string.length; i++) {
+		const code = string.charCodeAt(i)
+		if (code !== 32 && code !== 9 && code !== 10 && code !== 13) return false
+	}
+
+	return true
+}
+
 function hasSegmentBreak(string: string): boolean {
 	return string.includes("\n") || string.includes("\r")
 }
 
 // Only a connected element has computed styles, so a detached one is treated as preserving whitespace,
-// as is an unknown value.
+// as is an unknown value. So is a custom element without an open shadow root, since a closed one hides
+// the slot the text is shown in.
 function collapsesWhitespace(element: Element): boolean {
 	const view = element.ownerDocument.defaultView
 	if (!view || !element.isConnected) return false
+	if (element.localName.includes("-") && !element.shadowRoot) return false
 
 	const whiteSpace = view.getComputedStyle(element).whiteSpace
 	return whiteSpace === "normal" || whiteSpace === "nowrap"

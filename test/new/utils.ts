@@ -110,10 +110,10 @@ export function isSameTree(live: Node, target: Node, ignoreOpen = false): boolea
 	return true
 }
 
-// Whitespace the browser collapses renders the same whatever it holds, as long as both have a
+// Spaces, tabs and line breaks the browser collapses render the same whatever they hold, as long as both have a
 // line break or neither does.
 function isInterchangeableWhitespace(live: Node, target: Node): boolean {
-	const whitespace = /^[ \t\n\f\r]+$/
+	const whitespace = /^[ \t\n\r]+$/
 	const lineBreak = /[\n\r]/
 	const liveValue = live.nodeValue ?? ""
 	const targetValue = target.nodeValue ?? ""

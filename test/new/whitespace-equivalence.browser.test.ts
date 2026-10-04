@@ -218,3 +218,32 @@ test("slotted whitespace is judged by its slot's style", () => {
 
 	expect(host.childNodes[1]!.nodeValue).toBe(" ")
 })
+
+test("a form feed isn't interchangeable with a space", () => {
+	const from = attached(`<p style="white-space: normal"><b>A</b> <b>B</b></p>`)
+
+	morph(from, `<p style="white-space: normal"><b>A</b>\f<b>B</b></p>`)
+
+	expect(from.childNodes[1]!.nodeValue).toBe("\f")
+})
+
+test("whitespace in a custom element that may have a closed shadow root is updated", () => {
+	const host = attached(`<x-box style="white-space: normal"><b>A</b>  <b>B</b></x-box>`)
+	host.attachShadow({ mode: "closed" }).innerHTML = `<slot style="white-space: pre"></slot>`
+
+	morph(host, `<x-box style="white-space: normal"><b>A</b> <b>B</b></x-box>`)
+
+	expect(host.childNodes[1]!.nodeValue).toBe(" ")
+})
+
+test("whitespace in a custom element with an open shadow root follows its slot", () => {
+	const host = attached(`<x-box style="white-space: normal"><b>A</b>  <b>B</b></x-box>`)
+	const shadow = host.attachShadow({ mode: "open" })
+	shadow.innerHTML = `<slot style="white-space: normal"></slot>`
+	// happy-dom doesn't implement `assignedSlot`, so give it the slot the browser would.
+	Object.defineProperty(host.childNodes[1]!, "assignedSlot", { value: shadow.firstChild })
+
+	morph(host, `<x-box style="white-space: normal"><b>A</b> <b>B</b></x-box>`)
+
+	expect(host.childNodes[1]!.nodeValue).toBe("  ")
+})
