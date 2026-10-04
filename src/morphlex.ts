@@ -799,32 +799,44 @@ class ChoiceMatching {
 }
 
 class Morph {
-	readonly #idArrayMap: IdArrayMap = new WeakMap()
-	readonly #idSetMap: IdSetMap = new WeakMap()
 	readonly #options: Options
-	readonly #clobbered: Set<Element> | null
-	#vetoedControls: Set<Element> | null = null
-	// Nodes whose visit or children's visit was vetoed.
-	#vetoedNodes: Array<Node> | null = null
-	// Radios whose checkedness the morph reset or whose radio group a move changed. Their groups are
-	// synced to the markup when the morph settles, because moves complete out of document order.
-	#radiosToSync: Set<HTMLInputElement> | null = null
-	// Checked radios that moved unchecked, so they couldn't uncheck the rest of a group they joined.
-	#radiosUncheckedForMove: Set<HTMLInputElement> | null = null
-	// Radios unchecked by a radio checked again straight after changing form, and that radio. They're
-	// checked again when the morph settles if that radio has left their group by then.
-	#displacedRadios: Map<HTMLInputElement, HTMLInputElement> | null = null
+	#preserveChanges: boolean
+	// Pending moves and removals are settled when the root's children have been visited, or when
+	// the root is replaced, so the root's own callbacks see the finished DOM.
+	#root: Node | null = null
 	// The morph's own nodes are inside this node, between these two siblings when there are any.
 	#scope: Node | null = null
-	// The live node whose subtree discards user changes because of `morphlex-clobber`, while the rest of
-	// the morph preserves them.
-	#clobberedScope: Node | null = null
 	#scopeStart: Node | null = null
 	#scopeEnd: Node | null = null
-	// Selects synced to their markup, synced again when the morph settles, after options have moved or gone.
-	#syncedSelects: Set<HTMLSelectElement> | null = null
-	// Live elements by id, and how often each id appears in the target. An element whose id appears
-	// once in each tree is moved to wherever the target puts that id, even under another parent.
+	// The target's root nodes, which bound the search for an option's select.
+	readonly #targetRoots: Set<Node> = new Set()
+	// Nodes whose visit or children's visit was vetoed, and controls with a vetoed attribute update.
+	#vetoedNodes: Array<Node> | null = null
+	#vetoedControls: Set<Element> | null = null
+
+	// Discarding user changes: the `morphlex-clobber` elements, them and their ancestors, and the live node whose
+	// subtree discards user changes while the rest of the morph preserves them.
+	readonly #clobbered: Set<Element> | null
+	#clobberedHolders: Set<Element> | null = null
+	#clobberedScope: Node | null = null
+
+	// Keeping user changes: elements flagged `morphlex-dirty` and their ancestors, which can't equal their
+	// targets, so they're compared without the flag. The flagged elements themselves are kept too, since a nested
+	// morph from a callback can clear their flags.
+	readonly #dirtyElements: Set<Element> | null = null
+	readonly #flagged: Set<Element> = new Set()
+	readonly #targetChoices: Map<Element, { counts: Map<string, number>; size: number }> = new Map()
+	// The select keying the target's options in a morph rooted at or inside a select, which the target's options
+	// don't have.
+	readonly #keySelect: HTMLSelectElement | null
+	// The live select each target select is morphed into, so the target's options are keyed by the live select,
+	// whose attributes a veto can keep.
+	readonly #liveSelects: Map<Element, HTMLSelectElement> = new Map()
+
+	// Moving elements across parents: live elements by id, and how often each id appears in the target. An element
+	// whose id appears once in each tree is moved to wherever the target puts that id, even under another parent.
+	readonly #idArrayMap: IdArrayMap = new WeakMap()
+	readonly #idSetMap: IdSetMap = new WeakMap()
 	readonly #liveElementsById: Map<string, Element | null> = new Map()
 	readonly #targetIdCounts: Map<string, number> = new Map()
 	readonly #targetElementsById: Map<string, Element> = new Map()
@@ -838,34 +850,29 @@ class Morph {
 	readonly #movesInProgress: Set<PendingMove> = new Set()
 	// The latest pending move whose target holds each id.
 	readonly #movesByTargetId: Map<string, PendingMove> = new Map()
-	// Pending moves and removals are settled when the root's children have been visited, or when
-	// the root is replaced, so the root's own callbacks see the finished DOM.
-	#root: Node | null = null
-	// The target's root nodes, which bound the search for an option's select.
-	readonly #targetRoots: Set<Node> = new Set()
-	// The `morphlex-clobber` elements and their ancestors.
-	#clobberedHolders: Set<Element> | null = null
-	#preserveChanges: boolean
+
+	// Selects synced to their markup, synced again when the morph settles, after options have moved or gone.
+	#syncedSelects: Set<HTMLSelectElement> | null = null
+	// The select around a morph rooted inside it, and what its markup selected before the morph.
+	#enclosingSelect: [HTMLSelectElement, Array<HTMLOptionElement | null>] | null = null
+
+	// Radios whose checkedness the morph reset or whose radio group a move changed. Their groups are
+	// synced to the markup when the morph settles, because moves complete out of document order.
+	#radiosToSync: Set<HTMLInputElement> | null = null
+	// Checked radios that moved unchecked, so they couldn't uncheck the rest of a group they joined.
+	#radiosUncheckedForMove: Set<HTMLInputElement> | null = null
+	// Radios unchecked by a radio checked again straight after changing form, and that radio. They're
+	// checked again when the morph settles if that radio has left their group by then.
+	#displacedRadios: Map<HTMLInputElement, HTMLInputElement> | null = null
 	// Only a target with a checked input can add a checked radio, so other morphs skip looking for one.
 	#targetChecksInputs = false
-	// Elements flagged `morphlex-dirty` and their ancestors. These can't equal their targets, so they're compared without the flag.
-	readonly #dirtyElements: Set<Element> | null = null
-	// The flagged elements themselves. A nested morph from a callback can clear their flags, so they're kept here.
-	readonly #flagged: Set<Element> = new Set()
-	// The select keying the target's options in a morph rooted at or inside a select, which the target's options
-	// don't have.
-	readonly #keySelect: HTMLSelectElement | null
-	// The live select each target select is morphed into, so the target's options are keyed by the live select,
-	// whose attributes a veto can keep.
-	readonly #liveSelects: Map<Element, HTMLSelectElement> = new Map()
-	readonly #targetChoices: Map<Element, { counts: Map<string, number>; size: number }> = new Map()
+
 	// Items of exclusive accordions (`details` with a name) the morph wants open, with their `open` value.
 	// Inserting an open item, or giving one a name, closes it while another in its group is open, so the
+	// noted items are opened again when the morph settles.
 	#openDetails: Map<Element, string> | null = null
 	// Only a target with an open `details` can add one, so other morphs skip looking for one.
 	#targetOpensDetails = false
-	// The select around a morph rooted inside it, and what its markup selected before the morph.
-	#enclosingSelect: [HTMLSelectElement, Array<HTMLOptionElement | null>] | null = null
 
 	constructor(
 		options: Options = {},
