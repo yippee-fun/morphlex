@@ -493,9 +493,9 @@ function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNo
 }
 /* v8 ignore stop */
 
-// Radios that a change to a form unchecked by removing their `checked` attribute, so they're checked
-// again the same way and keep following the markup.
-const uncheckedByAttribute = new WeakSet<HTMLInputElement>()
+// Radios that a change to a form unchecked by removing their `checked` attribute, with its value, so
+// they're checked again the same way and keep following the markup.
+const uncheckedByAttribute = new WeakMap<HTMLInputElement, string>()
 
 /* v8 ignore start -- moveBefore keeps focus and other state, but only some browsers have it */
 function moveInto(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): void {
@@ -1406,13 +1406,14 @@ class Morph {
 	// Setting `.checked` stops a radio from following its `checked` attribute. So a radio that's checked
 	// again straight after, and still follows the attribute, is unchecked by removing the attribute.
 	#uncheckRadio(radio: HTMLInputElement): void {
-		if (!this.#defersRadio(radio) && radio.hasAttribute("checked")) {
+		const value = this.#defersRadio(radio) ? null : radio.getAttribute("checked")
+		if (value !== null) {
 			radio.removeAttribute("checked")
 			if (!radio.checked) {
-				uncheckedByAttribute.add(radio)
+				uncheckedByAttribute.set(radio, value)
 				return
 			}
-			radio.setAttribute("checked", "")
+			radio.setAttribute("checked", value)
 		}
 		radio.checked = false
 	}
@@ -1424,8 +1425,11 @@ class Morph {
 		if (!radios) return
 		for (let i = 0; i < radios.length; i++) {
 			const radio = radios[i]!
-			if (uncheckedByAttribute.delete(radio)) radio.setAttribute("checked", "")
-			else if (!this.#defersRadio(radio)) radio.checked = true
+			const value = uncheckedByAttribute.get(radio)
+			if (value !== undefined) {
+				uncheckedByAttribute.delete(radio)
+				radio.setAttribute("checked", value)
+			} else if (!this.#defersRadio(radio)) radio.checked = true
 			else (this.#radiosUncheckedForMove ??= new Set()).add(radio)
 		}
 	}

@@ -722,3 +722,15 @@ test("with preserveChanges, a radio the user checked outside a clobbered element
 	expect(radio(host, "y").checked).toBe(true)
 	host.remove()
 })
+
+test("a radio outside the morph keeps the value of its checked attribute when its form moves", () => {
+	const host = mount(
+		`<div><span id="s"><form id="f"></form></span><b></b></div><input id="y" type="radio" name="r" form="f" checked="checked">`,
+	)
+
+	morph(host.firstElementChild!, parse(`<div><b><span id="s"><form id="f"></form></span></b></div>`))
+
+	expect(radio(host, "y").getAttribute("checked")).toBe("checked")
+	expect(radio(host, "y").checked).toBe(true)
+	host.remove()
+})
