@@ -41,7 +41,23 @@ const TAGS = [
 const SVG_TAGS = ["g", "circle", "text", "title", "a", "rect"] as const
 const VOID_TAGS = ["input", "img"]
 const IDS = ["a", "b", "c", "d", "e", "f"]
-const ATTRIBUTES = ["class", "data-x", "title", "name", "href", "value", "type", "checked", "selected", "open", "disabled"]
+const ATTRIBUTES = [
+	"class",
+	"data-x",
+	"title",
+	"name",
+	"href",
+	"value",
+	"type",
+	"checked",
+	"selected",
+	"open",
+	"disabled",
+	"@click",
+	":class",
+	"x-on:click.prevent",
+	"xlink:href",
+]
 const INPUT_TYPES = ["text", "checkbox", "radio", "hidden"]
 const ATTRIBUTE_VALUES = ["", "1", "2", "on"]
 const TEXTS = ["", " ", "\n  ", "hello", "world", " ", "x y", "123"]
