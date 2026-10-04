@@ -1248,8 +1248,9 @@ class Morph {
 					moveBefore(parent, match, insertionPoint)
 					if (outsideRadios) for (const radio of outsideRadios) radio.checked = true
 				}
-				// Read this before the morph, which can replace the match.
-				insertionPoint = match.nextSibling
+				// Read this before the morph, which can replace the match. A match that moved itself
+				// elsewhere when it reconnected leaves the insertion point where it was.
+				if (match.parentNode === parent) insertionPoint = match.nextSibling
 
 				if (operation === Operation.EqualNode) {
 				} else if (operation === Operation.SameElement) {
@@ -1264,7 +1265,9 @@ class Morph {
 					this.#morphOneToOne(match, node)
 				}
 			} else {
-				if (this.#addNode(parent, node, insertionPoint)) insertionPoint = node.nextSibling
+				this.#addNode(parent, node, insertionPoint)
+				// A new node can move or remove itself when it's added, and then the insertion point stays.
+				if (node.parentNode === parent) insertionPoint = node.nextSibling
 			}
 		}
 
@@ -1416,26 +1419,24 @@ class Morph {
 		from.content.replaceChildren(to.content)
 	}
 
-	// Add a new node, or claim the live element with its id. Returns whether the new node was inserted.
-	#addNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): boolean {
+	// Add a new node, or claim the live element with its id.
+	#addNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): void {
 		const placeholder = isElement(node) ? this.#claimMovableElement(node, parent) : null
 		if (placeholder) {
 			parent.insertBefore(placeholder, insertionPoint)
-			return false
+		} else {
+			this.#insertNewNode(parent, node, insertionPoint)
 		}
-
-		return this.#insertNewNode(parent, node, insertionPoint)
 	}
 
-	#insertNewNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null, approved = false): boolean {
-		if (!approved && !(this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true)) return false
+	#insertNewNode(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null, approved = false): void {
+		if (!approved && !(this.#options.beforeNodeAdded?.(parent, node, insertionPoint) ?? true)) return
 
 		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, parent)
 		parent.insertBefore(node, insertionPoint)
 		if (this.#targetChecksInputs && !this.#preserveChanges && isElement(node)) this.#noteAddedRadios(node)
 		this.#options.afterNodeAdded?.(node)
-		return true
 	}
 
 	// Put the live element where its placeholder is and morph it into the target, unless a veto
