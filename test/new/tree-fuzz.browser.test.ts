@@ -41,7 +41,23 @@ const TAGS = [
 const SVG_TAGS = ["g", "circle", "text", "title", "a", "rect"] as const
 const VOID_TAGS = ["input", "img"]
 const IDS = ["a", "b", "c", "d", "e", "f"]
-const ATTRIBUTES = ["class", "data-x", "title", "name", "href", "value", "type", "checked", "selected", "open", "disabled"]
+const ATTRIBUTES = [
+	"class",
+	"data-x",
+	"title",
+	"name",
+	"href",
+	"value",
+	"type",
+	"checked",
+	"selected",
+	"open",
+	"disabled",
+	"@click",
+	":class",
+	"x-on:click.prevent",
+	"xlink:href",
+]
 const INPUT_TYPES = ["text", "checkbox", "radio", "hidden"]
 const ATTRIBUTE_VALUES = ["", "1", "2", "on"]
 const TEXTS = ["", " ", "\n  ", "hello", "world", " ", "x y", "123"]
@@ -134,6 +150,44 @@ test("morphing without preserveChanges resets every user change on a control it 
 		for (const change of changes) {
 			if (isKept(host, change) && readChange(change.control) !== readDefault(change.control)) fail(host)
 		}
+	})
+})
+
+test("adding a node at the end makes only that one mutation", () => {
+	check((scenario, fail) => {
+		const host = mount(scenario.fromHtml)
+		const target = parse(scenario.fromHtml)
+		target.append(document.createElement("hr"))
+
+		if (countMutations(host, () => morph(host.firstChild!, target)) !== 1) fail(host)
+	})
+})
+
+test("removing the last node makes only that one mutation", () => {
+	check((scenario, fail) => {
+		const host = mount(scenario.fromHtml)
+		const target = parse(scenario.fromHtml)
+		if (!target.lastChild) return
+		target.lastChild.remove()
+
+		if (countMutations(host, () => morph(host.firstChild!, target)) !== 1) fail(host)
+	})
+})
+
+test("changing one attribute makes only that one mutation", () => {
+	check((scenario, fail) => {
+		const host = mount(scenario.fromHtml)
+		const target = parse(scenario.fromHtml)
+		// Unnamed form controls, and elements with an empty name, href or src, are replaced when they
+		// differ. And a changed element with an identical sibling swaps places with it. So leave them
+		// and their descendants alone.
+		const replaced = "input, textarea, select, [name=''], [href=''], [src='']"
+		const elements = [target, ...target.querySelectorAll("*")].filter(
+			(element) => !element.closest(replaced) && !hasEqualSiblingUpTo(element, target),
+		)
+		elements[scenario.seed % elements.length]!.setAttribute("data-changed", "")
+
+		if (countMutations(host, () => morph(host.firstChild!, target)) !== 1) fail(host)
 	})
 })
 
@@ -315,6 +369,25 @@ function mount(html: string): HTMLElement {
 	host.append(parse(html))
 	document.body.append(host)
 	return host
+}
+
+function hasEqualSiblingUpTo(element: Element, root: Element): boolean {
+	for (let node: Element = element; node !== root; node = node.parentElement!) {
+		for (const sibling of node.parentElement!.children) {
+			if (sibling !== node && sibling.isEqualNode(node)) return true
+		}
+	}
+	return false
+}
+
+// Counts the mutations a morph makes, apart from the `morphlex-dirty` sentinel.
+function countMutations(host: HTMLElement, morph: () => void): number {
+	const observer = new MutationObserver(() => {})
+	observer.observe(host, { subtree: true, childList: true, attributes: true, characterData: true })
+	morph()
+	const records = observer.takeRecords().filter((record) => record.attributeName !== "morphlex-dirty")
+	observer.disconnect()
+	return records.length
 }
 
 // Like `isEqualNode`, but also compares template contents.

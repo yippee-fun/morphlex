@@ -88,3 +88,167 @@ test("&nbsp; text nodes are removed when target has no text between elements", (
 	expect(from.childNodes).toHaveLength(2)
 	expect(from.textContent).toBe("AB")
 })
+
+test("unchanged whitespace is kept when a sibling changes", () => {
+	const from = dom(`<div>\n<span>1</span>\n<span>2</span>\n</div>`)
+	const whitespace = Array.from(from.childNodes).filter((node) => node.nodeType === Node.TEXT_NODE)
+	const added: Array<Node> = []
+	const removed: Array<Node> = []
+
+	morph(from, dom(`<div>\n<span>1</span>\n<span>3</span>\n</div>`), {
+		afterNodeAdded: (node) => void added.push(node),
+		afterNodeRemoved: (node) => void removed.push(node),
+	})
+
+	expect(added).toEqual([])
+	expect(removed).toEqual([])
+	expect(from.outerHTML).toBe(`<div>\n<span>1</span>\n<span>3</span>\n</div>`)
+	expect(Array.from(from.childNodes).filter((node) => node.nodeType === Node.TEXT_NODE)).toEqual(whitespace)
+})
+
+test("whitespace that changes is updated in place", () => {
+	const from = dom(`<div><span>1</span>\n<span>2</span></div>`)
+	const whitespace = from.childNodes[1]
+
+	morph(from, dom(`<div><span>1</span>\n\t<span>3</span></div>`))
+
+	expect(from.outerHTML).toBe(`<div><span>1</span>\n\t<span>3</span></div>`)
+	expect(from.childNodes[1]).toBe(whitespace)
+})
+
+test("a vetoed visit keeps whitespace that changes", () => {
+	const from = dom(`<div><span>1</span>\n<span>2</span></div>`)
+
+	morph(from, dom(`<div><span>1</span>\n\t<span>3</span></div>`), {
+		beforeNodeVisited: (node) => !(node.nodeType === Node.TEXT_NODE && node.parentNode === from),
+	})
+
+	expect(from.outerHTML).toBe(`<div><span>1</span>\n<span>3</span></div>`)
+})
+
+test("removing an element removes only it and one whitespace node", () => {
+	const from = dom(`<div>\n<a></a>\n<b></b>\n</div>`)
+	const added: Array<Node> = []
+	const removed: Array<string> = []
+
+	morph(from, dom(`<div>\n<b></b>\n</div>`), {
+		afterNodeAdded: (node) => void added.push(node),
+		afterNodeRemoved: (node) => void removed.push(node.nodeName),
+	})
+
+	expect(from.outerHTML).toBe(`<div>\n<b></b>\n</div>`)
+	expect(added).toEqual([])
+	expect(removed.sort()).toEqual(["#text", "A"])
+})
+
+test("reordered elements keep their whitespace in the right places", () => {
+	const from = dom(`<div>\n<a id="a"></a>\n<b id="b"></b>\n</div>`)
+
+	morph(from, dom(`<div>\n<b id="b"></b>\n<a id="a"></a>\n</div>`))
+
+	expect(from.outerHTML).toBe(`<div>\n<b id="b"></b>\n<a id="a"></a>\n</div>`)
+})
+
+test("whitespace a callback already removed isn't removed again", () => {
+	const from = dom(`<div><p>1</p> </div>`)
+	const removed: Array<Node> = []
+
+	morph(from, dom(`<div><p>2</p></div>`), {
+		afterNodeVisited: (node) => {
+			if (node.nodeName === "P") node.nextSibling?.remove()
+		},
+		afterNodeRemoved: (node) => void removed.push(node),
+	})
+
+	expect(from.outerHTML).toBe(`<div><p>2</p></div>`)
+	expect(removed).toEqual([])
+})
+
+test("a callback that removes the whitespace after the node it visits doesn't stop the morph", () => {
+	const from = dom(`<div><p>1</p> </div>`)
+
+	morph(from, dom(`<div><p>2</p><span></span></div>`), {
+		afterNodeVisited: (node) => {
+			if (node.nodeName === "P") node.nextSibling?.remove()
+		},
+	})
+
+	expect(from.outerHTML).toBe(`<div><p>2</p><span></span></div>`)
+})
+
+test("a callback that removes the node it visits and the whitespace after it doesn't stop the morph", () => {
+	const from = dom(`<div><p>1</p> <b></b></div>`)
+
+	morph(from, dom(`<div><p>2</p><span></span><b></b></div>`), {
+		afterNodeVisited: (node) => {
+			if (node.nodeName === "P") {
+				node.nextSibling?.remove()
+				;(node as Element).remove()
+			}
+		},
+	})
+
+	expect(from.outerHTML).toBe(`<div><span></span><b></b></div>`)
+})
+
+test("a callback that removes the whitespace after a node keeps later nodes after the earlier ones", () => {
+	const from = dom(`<div><i></i><p>1</p> <b></b></div>`)
+
+	morph(from, dom(`<div><i></i><p>2</p><span></span><b></b></div>`), {
+		afterNodeVisited: (node) => {
+			if (node.nodeName === "P") {
+				node.nextSibling?.remove()
+				;(node as Element).remove()
+			}
+		},
+	})
+
+	expect(from.outerHTML).toBe(`<div><i></i><span></span><b></b></div>`)
+})
+
+test("a callback that removes the whitespace after a replaced node keeps later nodes after it", () => {
+	const from = dom(`<div><button is="x-a"></button> </div>`)
+
+	morph(from, dom(`<div><button is="x-b"></button><span></span></div>`), {
+		afterNodeVisited: (_from, to) => {
+			if (to.nodeName === "BUTTON") to.nextSibling?.remove()
+		},
+	})
+
+	expect(from.outerHTML).toBe(`<div><button is="x-b"></button><span></span></div>`)
+})
+
+test("a callback that removes the whitespace after a node keeps later nodes after a claimed element", () => {
+	const from = dom(`<div><section><i id="x"></i></section><div id="list"><p>1</p> <b></b></div></div>`)
+
+	morph(from, dom(`<div><section></section><div id="list"><i id="x"></i><p>2</p><span></span><b></b></div></div>`), {
+		afterNodeVisited: (node) => {
+			if (node.nodeName === "P") {
+				node.nextSibling?.remove()
+				;(node as Element).remove()
+			}
+		},
+	})
+
+	expect(from.querySelector("#list")!.innerHTML).toBe(`<i id="x"></i><span></span><b></b>`)
+})
+
+test("whitespace stays in front of an element whose removal was vetoed", () => {
+	const from = dom(`<div><b></b> </div>`)
+
+	morph(from, dom(`<div> </div>`), {
+		beforeNodeRemoved: (node) => node.nodeName !== "B",
+	})
+
+	expect(from.outerHTML).toBe(`<div> <b></b></div>`)
+})
+
+test("whitespace stays in front of a movable element whose removal was vetoed", () => {
+	const from = dom(`<div><i id="x"></i> </div>`)
+
+	morph(from, dom(`<div> <b id="x"></b></div>`), {
+		beforeNodeRemoved: (node) => node.nodeName !== "I",
+	})
+
+	expect(from.outerHTML).toBe(`<div> <b id="x"></b><i id="x"></i></div>`)
+})
