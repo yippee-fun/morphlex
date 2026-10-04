@@ -584,23 +584,24 @@ test("a checked radio whose form attribute changes or goes stays checked", () =>
 })
 
 test("a checked radio naming a form whose id changes or goes stays checked", () => {
+	// happy-dom keeps finding a form by the id it had before its `Attr` changed, so these ids are used nowhere else.
 	const host = mount(
-		`<form id="f"><input id="i" type="radio" name="p" form="f" checked></form><input id="y" type="radio" name="r" form="f"><input id="z" type="radio" name="q" form="h" checked>`,
+		`<form id="m"><input id="i" type="radio" name="p" form="m" checked></form><input id="y" type="radio" name="r" form="m"><input id="z" type="radio" name="q" form="o" checked>`,
 	)
 	radio(host, "y").checked = true
 	const form = host.querySelector("form")!
 
-	morph(form, parse(`<form id="g"><input id="i" type="radio" name="p" form="f" checked></form>`))
-	expect(form.id).toBe("g")
+	morph(form, parse(`<form id="n"><input id="i" type="radio" name="p" form="m" checked></form>`))
+	expect(form.id).toBe("n")
 	expect(checkedIds(host)).toBe("i y z")
 
-	form.id = "f"
-	morph(form, parse(`<form><input id="i" type="radio" name="p" form="f" checked></form>`))
+	form.id = "m"
+	morph(form, parse(`<form><input id="i" type="radio" name="p" form="m" checked></form>`))
 	expect(form.hasAttribute("id")).toBe(false)
 	expect(radio(host, "y").checked).toBe(true)
 
-	form.id = "f"
-	morph(form, parse(`<form id=""><input id="i" type="radio" name="p" form="f" checked></form>`))
+	form.id = "m"
+	morph(form, parse(`<form id=""><input id="i" type="radio" name="p" form="m" checked></form>`))
 	expect(form.id).toBe("")
 	expect(radio(host, "y").checked).toBe(true)
 	host.remove()
