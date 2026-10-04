@@ -930,3 +930,48 @@ test("a radio that loses its form and stays keeps the group it joined", () => {
 	expect(checkedIds(host)).toBe("y")
 	host.remove()
 })
+
+test.skipIf(!groupsRadiosByForm())(
+	"a radio that leaves its form and loses its check gives the group back to the radio it passed",
+	() => {
+		const host = mount(
+			`<form id="f"></form><div><input id="y" type="radio" name="r" form="f" checked></div><input id="a" type="radio" name="r" checked>`,
+		)
+
+		morph(host.querySelector("div")!, parse(`<div><input id="y" type="radio" name="r"></div>`), { preserveChanges: true })
+
+		expect(checkedIds(host)).toBe("a")
+		host.remove()
+	},
+)
+
+test.skipIf(!groupsRadiosByForm())("a radio the markup unchecks stays unchecked after a radio passed through its group", () => {
+	const host = mount(
+		`<div><form id="f"></form><input id="y" type="radio" name="r" form="f" checked><input id="b" type="radio" name="r" checked></div>`,
+	)
+
+	morph(
+		host.firstElementChild!,
+		parse(
+			`<div><form id="g"></form><input id="y" type="radio" name="r" form="g" checked><input id="b" type="radio" name="r"></div>`,
+		),
+		{ preserveChanges: true },
+	)
+
+	expect(checkedIds(host)).toBe("y")
+	host.remove()
+})
+
+test("a form claimed out of a live target from another root leaves the radios there checked", () => {
+	const shadowHost = mount(``)
+	const shadow = shadowHost.attachShadow({ mode: "open" })
+	shadow.innerHTML = `<div id="source"><section><form id="f"></form></section></div><form id="f"></form><input id="y" type="radio" name="r" form="f" checked><input id="a" type="radio" name="r" checked>`
+	const host = mount(`<div><form id="f"></form></div>`)
+
+	morphInner(host.firstElementChild!, shadow.getElementById("source")!)
+
+	expect(shadow.getElementById("y")).toHaveProperty("checked", true)
+	expect(shadow.getElementById("a")).toHaveProperty("checked", true)
+	host.remove()
+	shadowHost.remove()
+})
