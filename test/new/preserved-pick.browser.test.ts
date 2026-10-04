@@ -204,3 +204,55 @@ test("a select with the user's pick isn't paired with another select that has th
 	expect(new FormData(from).get("x")).toBe("b")
 	expect(new FormData(from).get("y")).toBe("a")
 })
+
+test("a wrapped select with the user's pick isn't paired with another wrapped select that has the same options", () => {
+	const options = `<option value="a">a</option><option value="b">b</option>`
+	const from = form(`<div><select name="x">${options}</select></div>`)
+	from.querySelector("select")!.value = "b"
+
+	morph(
+		from,
+		form(`<div><select name="y">${options}</select></div><div class="new"><select name="x">${options}</select></div>`),
+		{
+			preserveChanges: true,
+		},
+	)
+
+	expect(new FormData(from).get("x")).toBe("b")
+	expect(new FormData(from).get("y")).toBe("a")
+})
+
+test("a checkbox without a value keeps the user's tick when the target spells out its value", () => {
+	const from = form(`<input type="checkbox" name="t" value="a"><input type="checkbox" name="t">`)
+	const on = from.querySelector<HTMLInputElement>("input:not([value])")!
+	on.checked = true
+
+	morph(
+		from,
+		form(
+			`<input type="checkbox" name="t" value="c"><input type="checkbox" name="t" value="a"><input type="checkbox" name="t" value="on">`,
+		),
+		{
+			preserveChanges: true,
+		},
+	)
+
+	expect(new FormData(from).getAll("t")).toEqual(["on"])
+	expect(from.querySelector('[value="on"]')).toBe(on)
+})
+
+test("a radio whose name and value contain spaces keeps its own pick", () => {
+	const from = form(`<input type="radio" name="a b" value="c"><input type="radio" name="a" value="b c">`)
+	check(from, "b c")
+
+	morph(
+		from,
+		form(`<input type="radio" name="a b" value="c" class="new"><input type="radio" name="a" value="b c" class="new">`),
+		{
+			preserveChanges: true,
+		},
+	)
+
+	expect(new FormData(from).get("a")).toBe("b c")
+	expect(new FormData(from).get("a b")).toBe(null)
+})

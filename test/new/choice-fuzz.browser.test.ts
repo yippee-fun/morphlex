@@ -59,9 +59,13 @@ function createScenario(seed: number) {
 	const pickable = fromValues.filter((value) => !defaults.has(value) && value !== implicit)
 	const pick = pickable[randomInt(random, 0, pickable.length - 1)]!
 
-	// An untouched group with the same values and another name, which the target may move before the user's group.
+	// An untouched group with the same values and another name, which the target may add or move before the user's group.
 	const decoy = random() < 0.4
 	const decoyFirst = random() < 0.5
+	const decoyAdded = random() < 0.5
+	// Both groups may sit in anonymous wrappers, and the target may change the user's one.
+	const boxed = random() < 0.5
+	const boxChanged = random() < 0.5
 
 	const group = (
 		name: string,
@@ -73,24 +77,28 @@ function createScenario(seed: number) {
 		if (kind === "select" || kind === "multiple") {
 			return `<select name="${name}"${kind === "multiple" ? " multiple" : ""}>${items.join("")}</select>`
 		}
-		return name === "g" ? items.join("") : `<fieldset>${items.join("")}</fieldset>`
+		return name === "g" || boxed ? items.join("") : `<fieldset>${items.join("")}</fieldset>`
 	}
+	const box = (html: string, changed: boolean) => (boxed ? `<div${changed ? ' class="changed"' : ""}>${html}</div>` : html)
 
 	const render = (
 		values: Array<string>,
 		isDefault: (value: string) => boolean,
 		hasClass: (value: string) => boolean,
-		withDecoyFirst: boolean,
+		isTarget: boolean,
 	) => {
-		const groups = [group("g", values, isDefault, hasClass)]
-		if (decoy) {
-			const decoyGroup = group(
-				"d",
-				fromValues,
-				() => false,
-				() => false,
+		const groups = [box(group("g", values, isDefault, hasClass), isTarget && boxChanged)]
+		if (decoy && (isTarget || !decoyAdded)) {
+			const decoyGroup = box(
+				group(
+					"d",
+					fromValues,
+					() => false,
+					() => false,
+				),
+				false,
 			)
-			if (withDecoyFirst) groups.unshift(decoyGroup)
+			if (isTarget && decoyFirst) groups.unshift(decoyGroup)
 			else groups.push(decoyGroup)
 		}
 		return `<form>${groups.join("")}</form>`
@@ -109,7 +117,7 @@ function createScenario(seed: number) {
 			toValues,
 			(value) => defaults.has(value) || addedDefaults.has(value),
 			(value) => classed.has(value),
-			decoyFirst,
+			true,
 		),
 		interact(form: HTMLFormElement) {
 			if (kind === "radio") {

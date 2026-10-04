@@ -1954,11 +1954,11 @@ function trimFragmentEdgeWhitespace(fragment: DocumentFragment): void {
 	}
 }
 
-// What choosing this element means: an option's value, or a checkbox or radio's type, name and value.
+// What choosing this element means: an option's value in its select, or a checkbox or radio's type, name and value.
 function choiceOf(element: Element): string | null {
-	if (isOptionElement(element)) return element.value
+	if (isOptionElement(element)) return JSON.stringify([selectOf(element)?.getAttribute("name") ?? null, element.value])
 	if (isInputElement(element) && (element.type === "checkbox" || element.type === "radio")) {
-		return `${element.type} ${element.getAttribute("name")} ${element.getAttribute("value")}`
+		return JSON.stringify([element.type, element.name, element.value])
 	}
 	return null
 }
