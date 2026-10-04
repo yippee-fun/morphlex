@@ -322,20 +322,51 @@ function isDirtyInput(input: HTMLInputElement): boolean {
 
 let probeDocument: Document | null = null
 
+// A clone keeps an input's value and dirty value flag. Cloning into a document without
+// custom elements keeps a customized built-in from upgrading.
+function probeClone(input: HTMLInputElement): HTMLInputElement {
+	probeDocument ??= input.ownerDocument.implementation.createHTMLDocument("")
+	return probeDocument.importNode(input) as HTMLInputElement
+}
+
 // The browser sanitizes `.value` for many input types, so it can differ from the `value`
 // attribute when the user changed nothing: a range with no value reads "50", and email
 // inputs trim spaces. Only the browser knows if the user changed it. A clone keeps that
 // dirty flag, and while it's unset a text input's value follows its `value` attribute.
-// Cloning into a document without custom elements keeps a customized built-in from upgrading.
 // A file input ignores its `value` attribute and has a value only once the user picks a file.
 function hasDirtyValue(input: HTMLInputElement): boolean {
 	if (input.type === "file") return input.value !== ""
-	probeDocument ??= input.ownerDocument.implementation.createHTMLDocument("")
-	const clone = probeDocument.importNode(input) as HTMLInputElement
+	const clone = probeClone(input)
 	clone.type = "text"
 	const probe = clone.value === "a" ? "b" : "a"
 	clone.defaultValue = probe
 	return clone.value !== probe
+}
+
+// The attributes besides `type` and `value` that the browser sanitizes an input's value with.
+const SANITIZING_ATTRIBUTES = ["min", "max", "step", "multiple"]
+
+// An untouched input can still differ from its target, because the browser sanitizes its value
+// as attributes change: a range that gains `max="10"` clamps 50 to 10, while the parsed target
+// shows 5. Setting the `value` attribute again sanitizes it afresh, without marking it as changed
+// the way assigning `.value` would. Try it on a clone first, so it only happens when it helps.
+function resanitizeValue(input: HTMLInputElement, value: string | null, shown: string): boolean {
+	const clone = probeClone(input)
+	setValueAttribute(clone, value)
+	/* v8 ignore start -- happy-dom doesn't sanitize values, so an untouched input always matches its target there */
+	if (clone.value !== shown) return false
+	setValueAttribute(input, value)
+	return true
+	/* v8 ignore stop */
+}
+
+function setValueAttribute(input: HTMLInputElement, value: string | null): void {
+	if (value === null) {
+		input.setAttribute("value", "")
+		input.removeAttribute("value")
+	} else {
+		input.setAttribute("value", value)
+	}
 }
 
 // The browser turns carriage returns into line feeds in a textarea's `.value`.
@@ -888,8 +919,8 @@ class Morph {
 			}
 
 			// Checkbox and radio values aren't user-editable, and assigning them writes the value attribute.
-			// The browser sanitizes both values, so compare with what the target's markup shows. Assigning
-			// marks the value as changed, so only assign when it differs, such as a range clamped by `max`.
+			// The browser sanitizes both values, so compare with what the target's markup shows. A vetoed
+			// update to an attribute that sanitizes the value leaves them different on purpose.
 			const type = from.type
 			const value = to.getAttribute("value")
 			const target = to as HTMLInputElement
@@ -898,10 +929,11 @@ class Morph {
 				type !== "checkbox" &&
 				type !== "radio" &&
 				type === target.type &&
-				from.getAttribute("value") === value
+				from.getAttribute("value") === value &&
+				SANITIZING_ATTRIBUTES.every((name) => from.getAttribute(name) === to.getAttribute(name))
 			) {
 				const shown = isDirtyInput(target) ? (value ?? "") : target.value
-				if (from.value !== shown) from.value = shown
+				if (from.value !== shown && !resanitizeValue(from, value, shown)) from.value = shown
 			}
 		} else if (isOptionElement(from)) {
 			const selected = to.hasAttribute("selected")

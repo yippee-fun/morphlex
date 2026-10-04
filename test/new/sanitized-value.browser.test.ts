@@ -232,3 +232,27 @@ test("a vetoed type change doesn't take the target's value", () => {
 	expect(input.type).toBe("text")
 	expect(input.value).toBe("")
 })
+
+test("resetting a clamped range doesn't mark it as changed", () => {
+	const from = dom(`<div><input id="r" type="range"></div>`)
+	const input = from.querySelector("input")!
+
+	morph(from, `<div><input id="r" max="10" type="range"></div>`)
+	morph(from, `<div><input id="r" max="10" type="range" value="2"></div>`, { preserveChanges: true })
+
+	expect(from.querySelector("input")).toBe(input)
+	expect(input.value).toBe("2")
+})
+
+test("a vetoed max keeps an untouched range's value", () => {
+	const from = dom(`<div><input id="r" type="range"></div>`)
+	const input = from.querySelector("input")!
+	const value = input.value
+
+	morph(from, `<div><input id="r" max="10" type="range"></div>`, {
+		beforeAttributeUpdated: (_element, name) => name !== "max",
+	})
+
+	expect(input.hasAttribute("max")).toBe(false)
+	expect(input.value).toBe(value)
+})
