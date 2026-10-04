@@ -1,6 +1,8 @@
 /** @type {import("@stryker-mutator/api/core").PartialStrykerOptions} */
 export default {
 	testRunner: "vitest",
+	// Stryker looks for plugins next to its own package, which aube's isolated node_modules layout hides, so resolve the runner from here.
+	plugins: [import.meta.resolve("@stryker-mutator/vitest-runner")],
 	vitest: { configFile: "vitest.config.ts" },
 	mutate: ["src/morphlex.ts"],
 	coverageAnalysis: "perTest",
