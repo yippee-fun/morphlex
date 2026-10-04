@@ -45,6 +45,7 @@
 		"jsr": "^0.13.5",
 		"oxlint": "^1.86.0",
 		"oxlint-tsgolint": "^7.0.2003",
+		"playwright": "^1.63.0",
 		"prettier": "^3.9.9",
 		"rolldown": "^1.2.12",
 		"typescript": "^7.0.2",
