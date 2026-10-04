@@ -1451,7 +1451,7 @@ class Morph {
 		// An element doesn't move out of an ancestor whose visit can still be vetoed: one that's claimed,
 		// or one that a pending move will reach. Those moves complete first. A cycle of moves goes in order.
 		this.#movesInProgress.add(move)
-		for (let ancestor = live.parentElement; ancestor; ) {
+		for (let ancestor = live.parentElement; ancestor;) {
 			const first = this.#claimedElements.get(ancestor) ?? this.#moveReaching(ancestor)
 			if (first && !this.#movesInProgress.has(first)) {
 				this.#completeMove(first)
