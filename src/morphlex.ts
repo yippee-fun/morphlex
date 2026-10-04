@@ -1183,13 +1183,12 @@ class Morph {
 			choiceCandidates.sort((a, b) => b[1].length - a[1].length)
 
 			for (const [identified, sameAttributes, allChoices] of CHOICE_PASSES) {
-				for (const [candidateIndex, choices] of choiceCandidates) {
-					if (!candidateElementActive[candidateIndex]) continue
+				// The targets each candidate can take in this pass, smallest first when it needs all of its choices.
+				const eligible = choiceCandidates.map(([candidateIndex, choices]) => {
+					const targets: Array<number> = []
+					if (!candidateElementActive[candidateIndex]) return targets
 					const candidate = fromChildNodes[candidateIndex] as Element
 
-					// When it needs all of its choices, it takes the target holding the fewest, leaving bigger ones for others.
-					let best: number | undefined
-					let bestSize = Infinity
 					for (let i = 0; i < unmatchedElementIndices.length; i++) {
 						const unmatchedIndex = unmatchedElementIndices[i]!
 						if (!unmatchedElementActive[unmatchedIndex]) continue
@@ -1198,25 +1197,46 @@ class Morph {
 						const element = toChildNodes[unmatchedIndex] as Element
 
 						if (
+							hasSameIs(candidate, element) &&
 							(this.#flagged.has(candidate) || identified !== canSoftMatchByTagName(element, this.#idArrayMap.has(element))) &&
 							this.#holdsChoices(choices, element, allChoices) &&
 							(!sameAttributes || hasSameAttributes(candidate, element, STYLING_ATTRIBUTES))
 						) {
-							const size = allChoices ? this.#targetChoicesOf(element).size : 0
-							if (size < bestSize) {
-								best = unmatchedIndex
-								bestSize = size
-							}
-							if (!allChoices) break
+							targets.push(unmatchedIndex)
 						}
 					}
 
-					if (best !== undefined) {
-						matches[best] = candidateIndex
-						op[best] = Operation.SameElement
-						candidateElementActive[candidateIndex] = 0
-						unmatchedElementActive[best] = 0
+					if (allChoices) {
+						targets.sort(
+							(a, b) =>
+								this.#targetChoicesOf(toChildNodes[a] as Element).size - this.#targetChoicesOf(toChildNodes[b] as Element).size,
+						)
 					}
+					return targets
+				})
+
+				// Pair as many candidates with targets as possible, so one taking a target can't leave another without any.
+				const owners: Map<number, number> = new Map()
+				const assign = (k: number, seen: Set<number>): boolean => {
+					for (const target of eligible[k]!) {
+						if (seen.has(target)) continue
+						seen.add(target)
+						const owner = owners.get(target)
+						if (owner === undefined || assign(owner, seen)) {
+							owners.set(target, k)
+							return true
+						}
+					}
+					return false
+				}
+				for (let k = 0; k < eligible.length; k++) assign(k, new Set())
+
+				for (const [target, k] of owners) {
+					const candidateIndex = choiceCandidates[k]![0]
+					matches[target] = candidateIndex
+					op[target] = Operation.SameElement
+					candidateElementActive[candidateIndex] = 0
+					unmatchedElementActive[target] = 0
 				}
 			}
 		}

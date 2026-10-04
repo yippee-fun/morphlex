@@ -447,3 +447,44 @@ test("a wrapper with the user's tick takes the smallest target holding it", () =
 	expect(from.firstElementChild!.firstElementChild).toBe(input)
 	expect(new FormData(from).getAll("t")).toEqual(["a"])
 })
+
+test("equal-sized wrappers with the user's ticks each find a target holding all of them", () => {
+	const box = (value: string) => `<input type="checkbox" name="t" value="${value}">`
+	const from = form(`<div>${box("a")}${box("b")}</div><div>${box("a")}${box("c")}</div>`)
+	for (const input of from.querySelectorAll("input")) input.checked = true
+
+	morph(
+		from,
+		form(
+			`<div class="changed">${box("a")}${box("b")}${box("c")}</div><div class="changed">${box("a")}${box("b")}${box("d")}</div>`,
+		),
+		{ preserveChanges: true },
+	)
+
+	expect(new FormData(from).getAll("t")).toEqual(["a", "c", "a", "b"])
+})
+
+test("a customized label with the user's tick only takes a target with the same is", () => {
+	const checkbox = (value: string) => `<input type="checkbox" name="t" value="${value}">`
+	const from = form(`<label is="x-a">${checkbox("a")}</label>`)
+	const input = check(from, "a")
+
+	morph(from, form(`<label is="x-a" data-new>${checkbox("a")}${checkbox("b")}</label><label is="x-b">${checkbox("a")}</label>`), {
+		preserveChanges: true,
+	})
+
+	expect(from.querySelector('[is="x-a"] input')).toBe(input)
+	expect(input.checked).toBe(true)
+})
+
+test("when two labels with the user's tick want one target, the first keeps it", () => {
+	const checkbox = `<input type="checkbox" name="t" value="a">`
+	const from = form(`<label>${checkbox}</label><label>${checkbox}</label>`)
+	const [first] = Array.from(from.querySelectorAll("input"))
+	for (const input of from.querySelectorAll("input")) input.checked = true
+
+	morph(from, form(`<label class="changed">${checkbox}</label>`), { preserveChanges: true })
+
+	expect(from.querySelector("input")).toBe(first)
+	expect(new FormData(from).getAll("t")).toEqual(["a"])
+})
