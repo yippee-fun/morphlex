@@ -597,3 +597,45 @@ test("morphing a select's options keeps the user's pick when the target select h
 	expect(select.value).toBe("b")
 	expect(select.selectedOptions[0]!.text).toBe("B!")
 })
+
+test("an unnamed select keeps the user's pick when the target spells out an empty name", () => {
+	const from = form(`<select><option value="a">a</option><option value="b">b</option></select>`)
+	const select = from.querySelector("select")!
+	select.value = "b"
+
+	morph(from, form(`<select name=""><option value="a">a</option><option value="b">B!</option></select>`), {
+		preserveChanges: true,
+	})
+
+	expect(from.querySelector("select")).toBe(select)
+	expect(select.value).toBe("b")
+})
+
+test("a select is paired with the target holding the user's pick rather than the option they left", () => {
+	const from = form(`<select name="s"><option value="a">a</option><option value="b">b</option></select>`)
+	const select = from.querySelector("select")!
+	select.value = "b"
+
+	morph(
+		from,
+		form(
+			`<select name="s" class="x"><option value="a">a</option></select><select name="s" class="x"><option value="b">b</option></select>`,
+		),
+		{ preserveChanges: true },
+	)
+
+	expect(from.querySelectorAll("select")[1]).toBe(select)
+	expect(select.value).toBe("b")
+})
+
+test("labels that only differ inside keep their own ticks when they're reordered", () => {
+	const label = (k: string) => `<label><input type="checkbox" name="t" value="a" data-k="${k}"></label>`
+	const from = form(`${label("1")}${label("2")}${label("3")}`)
+	for (const input of from.querySelectorAll("input")) input.checked = true
+	const [one, two, three] = from.querySelectorAll("label")
+
+	morph(from, form(`${label("2")}${label("3")}${label("1")}`), { preserveChanges: true })
+
+	expect(Array.from(from.querySelectorAll("label"))).toEqual([two, three, one])
+	expect(new FormData(from).getAll("t")).toEqual(["a", "a", "a"])
+})

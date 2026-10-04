@@ -1052,6 +1052,7 @@ class Morph {
 		const dirtyElements = this.#dirtyElements
 		if (dirtyElements) {
 			const candidatesByShape: Map<string, Array<number>> = new Map()
+			const firstActive: Map<Array<number>, number> = new Map()
 			for (let c = 0; c < candidateElementIndices.length; c++) {
 				const candidateIndex = candidateElementIndices[c]!
 				const candidate = fromChildNodes[candidateIndex] as Element
@@ -1069,7 +1070,11 @@ class Morph {
 				const candidates = candidatesByShape.get(shapeOf(element))
 				if (!candidates) continue
 
-				for (let c = 0; c < candidates.length; c++) {
+				// Skip the bucket's candidates that are already taken, so identical siblings don't rescan them.
+				let c = firstActive.get(candidates) ?? 0
+				while (c < candidates.length && !candidateElementActive[candidates[c]!]) c++
+				firstActive.set(candidates, c)
+				for (; c < candidates.length; c++) {
 					const candidateIndex = candidates[c]!
 					if (!candidateElementActive[candidateIndex]) continue
 					const candidate = fromChildNodes[candidateIndex] as Element
@@ -1655,7 +1660,8 @@ class Morph {
 		if (!this.#dirtyElements?.has(element)) return null
 		const choices: Array<string> = []
 		for (const control of [element, ...element.querySelectorAll("input, option")]) {
-			const choice = this.#flagged.has(control) ? this.#choiceOf(control) : null
+			if (!this.#flagged.has(control) || (control !== element && isLeftOption(control))) continue
+			const choice = this.#choiceOf(control)
 			if (choice !== null) choices.push(choice)
 		}
 		return choices.length ? choices : null
@@ -2100,7 +2106,7 @@ function choiceOf(element: Element, enclosingSelect: HTMLSelectElement | null): 
 	if (isOptionElement(element)) {
 		const select = enclosingSelect ?? selectOf(element)
 		return JSON.stringify([
-			select?.getAttribute("name") ?? null,
+			select?.getAttribute("name") ?? "",
 			select?.getAttribute("form") ?? null,
 			select?.hasAttribute("multiple"),
 			element.value,
@@ -2133,6 +2139,12 @@ function hasSameAttributes(from: Element, to: Element, ignored: ReadonlyArray<st
 		if (namespaceURI !== null || (name !== "morphlex-dirty" && !ignored.includes(name))) count--
 	}
 	return count === 0
+}
+
+// An option the user moved a single select away from. What holds it is matched by the option they picked
+// instead, though the option itself still keeps its own target.
+function isLeftOption(element: Element): boolean {
+	return isOptionElement(element) && !element.selected && !selectOf(element)?.multiple
 }
 
 // What elements equal apart from `morphlex-dirty` have in common: their name, attributes and text.
