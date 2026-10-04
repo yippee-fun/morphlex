@@ -1428,6 +1428,7 @@ class Morph {
 	// one the markup unchecks doesn't uncheck the rest of its new group first.
 	#checkRadios(radios: Array<HTMLInputElement> | null): void {
 		if (!radios) return
+		const groups: RadioGroups = new Map()
 		for (let i = 0; i < radios.length; i++) {
 			const radio = radios[i]!
 			if (this.#defersRadio(radio) && !uncheckedByAttribute.has(radio)) {
@@ -1435,9 +1436,13 @@ class Morph {
 				continue
 			}
 
+			// A radio that changes form again, say when the morph changes a form's id and then the radio's
+			// `form` attribute, leaves the group it passed through, so it gives back what it took there.
+			this.#restoreDisplacedBy(radio)
+
 			// A radio outside the morph that joins a group with a checked radio inside it leaves that one
 			// checked, as when the page is parsed with the radio from the markup coming later.
-			const group = radioGroupOf(radio, new Map())
+			const group = radioGroupOf(radio, groups)
 			const checkedInMorph = this.#inScope(radio) ? undefined : group.find((member) => member.checked && this.#inScope(member))
 			const checked = group.filter((member) => member.checked)
 
@@ -1462,18 +1467,24 @@ class Morph {
 	#restoreDisplacedRadios(node: Node): void {
 		const displacing = this.#displacingRadios
 		if (!displacing) return
-		for (const [radio, displaced] of displacing) {
-			if (!node.contains(radio)) continue
-			displacing.delete(radio)
-			for (let i = 0; i < displaced.length; i++) {
-				const member = displaced[i]!
-				/* v8 ignore next -- happy-dom puts radios with and without a form in one group, so tests can't get here */
-				if (radioGroupOf(member, new Map()).some((other) => other.checked)) continue
-				const value = member.getAttribute("checked")
-				if (value !== null) member.setAttribute("checked", value)
-				/* v8 ignore next -- happy-dom doesn't check a radio again when its checked attribute is set */
-				if (!member.checked) member.checked = true
-			}
+		for (const radio of displacing.keys()) {
+			if (node.contains(radio)) this.#restoreDisplacedBy(radio)
+		}
+	}
+
+	#restoreDisplacedBy(radio: HTMLInputElement): void {
+		const displaced = this.#displacingRadios?.get(radio)
+		if (!displaced) return
+		this.#displacingRadios!.delete(radio)
+		const groups: RadioGroups = new Map()
+		for (let i = 0; i < displaced.length; i++) {
+			const member = displaced[i]!
+			/* v8 ignore next -- happy-dom puts radios with and without a form in one group, so tests can't get here */
+			if (radioGroupOf(member, groups).some((other) => other.checked)) continue
+			const value = member.getAttribute("checked")
+			if (value !== null) member.setAttribute("checked", value)
+			/* v8 ignore next -- happy-dom doesn't check a radio again when its checked attribute is set */
+			if (!member.checked) member.checked = true
 		}
 	}
 
@@ -1566,9 +1577,14 @@ class Morph {
 
 		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, parent)
-		const radios = this.#uncheckRadiosNamingFormsIn(node, (parent as Node).getRootNode())
+		const root = (parent as Node).getRootNode()
+		const radios = this.#uncheckRadiosNamingFormsIn(node, root)
+		// A live target coming from another document or shadow root takes its forms away from the radios there.
+		const sourceRoot = node.getRootNode()
+		const sourceRadios = node.isConnected && sourceRoot !== root ? this.#uncheckRadiosNamingFormsIn(node, sourceRoot) : null
 		parent.insertBefore(node, insertionPoint)
 		this.#checkRadios(radios)
+		this.#checkRadios(sourceRadios)
 		if (this.#targetChecksInputs && !this.#preserveChanges && isElement(node)) this.#noteAddedRadios(node)
 		this.#options.afterNodeAdded?.(node)
 		return true

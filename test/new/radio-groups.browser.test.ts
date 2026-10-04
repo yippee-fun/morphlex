@@ -849,3 +849,40 @@ test.skipIf(!groupsRadiosByForm())(
 		host.remove()
 	},
 )
+
+test("a form and the radio naming it changing id together leave the group without a form alone", () => {
+	const grouped = groupsRadiosByForm()
+	for (const preserveChanges of [true, false]) {
+		const host = mount(
+			`<div><form id="f"></form><input id="y" type="radio" name="r" form="f" checked></div><input id="a" type="radio" name="r">`,
+		)
+		radio(host, "y").checked = true
+		radio(host, "a").checked = true
+
+		morph(
+			host.firstElementChild!,
+			parse(`<div><form id="g"></form><input id="y" type="radio" name="r" form="g" checked></div>`),
+			{
+				preserveChanges,
+			},
+		)
+
+		// happy-dom puts both radios in one group, so there it only runs the morph.
+		if (grouped) expect(checkedIds(host)).toBe("y a")
+		host.remove()
+	}
+})
+
+test("a form moving in from another root leaves the radios it leaves behind checked", () => {
+	const shadowHost = mount(``)
+	const shadow = shadowHost.attachShadow({ mode: "open" })
+	shadow.innerHTML = `<div id="source"><form id="f"></form></div><form id="f"></form><input id="y" type="radio" name="r" form="f" checked><input id="a" type="radio" name="r" checked>`
+	const host = mount(`<div></div>`)
+
+	morphInner(host.firstElementChild!, shadow.getElementById("source")!)
+
+	expect(shadow.getElementById("y")).toHaveProperty("checked", true)
+	expect(shadow.getElementById("a")).toHaveProperty("checked", true)
+	host.remove()
+	shadowHost.remove()
+})
