@@ -577,6 +577,8 @@ interface Focus {
 	selection: [number, number, "forward" | "backward" | "none"] | null
 	// The document's selection inside any other element.
 	range: [Node, number, Node, number] | null
+	// Whether another element took focus while a move ran, such as from a custom element's lifecycle callback.
+	taken: boolean
 }
 
 function focusOf(node: Node): Focus | null {
@@ -600,7 +602,7 @@ function focusOf(node: Node): Focus | null {
 		}
 	}
 
-	return { element, selection, range }
+	return { element, selection, range, taken: false }
 }
 
 // The focus a move of the node would take: the focused element when the node holds it or the selection inside it.
@@ -627,14 +629,13 @@ function focusHoldersIn(root: Node): Set<Node> | null {
 // Put back the focus and selection a move just took. Focus that another element took meanwhile, such as from a
 // custom element's lifecycle callback or a focus handler, stays there. Returns whether to try again when the morph
 // settles, because the element can't be focused where it is yet and nothing else has focus.
-function restoreFocus({ element, selection, range }: Focus): boolean {
+function restoreFocus({ element, selection, range, taken }: Focus): boolean {
 	const root = getRootNode(element)
 	const document = ownerDocumentOf(element)!
 	/* v8 ignore else -- happy-dom loses focus whenever the focused element moves */
 	if (activeElementIn(root) !== element) {
-		if (!isFocusLost(document)) return false
-		// A form's field can shadow `focus`, so it's taken from the form's prototype.
-		;(Object.getPrototypeOf(element) as HTMLElement).focus.call(element, { preventScroll: true })
+		if (taken || !isFocusLost(document)) return false
+		focusElement(element)
 		if (activeElementIn(root) !== element) return isFocusLost(document)
 	}
 
@@ -654,6 +655,20 @@ function restoreFocus({ element, selection, range }: Focus): boolean {
 		}
 	} catch {}
 	return false
+}
+
+// A custom element can define its own `focus` and a form's field can shadow it, so this calls the platform's own,
+// the one furthest along the prototype chain.
+function focusElement(element: Element): void {
+	let platform: object = element
+	for (
+		let prototype = Object.getPrototypeOf(element) as object | null;
+		prototype;
+		prototype = Object.getPrototypeOf(prototype) as object | null
+	) {
+		if (Object.hasOwn(prototype, "focus")) platform = prototype
+	}
+	Reflect.apply(Reflect.get(platform, "focus") as HTMLElement["focus"], element, [{ preventScroll: true }])
 }
 
 function isFocusLost(document: Document): boolean {
@@ -991,6 +1006,7 @@ class Morph {
 	// Focus a move took to where it couldn't be put back straight away, such as into a closed `details` that the
 	// morph opens later. It's tried again when the morph settles.
 	#unrestoredFocus: Focus | null = null
+	#watchedFocus: Focus | null = null
 
 	constructor(
 		options: Options = {},
@@ -1979,7 +1995,7 @@ class Morph {
 
 				if (!shouldNotMove[matchInd]) {
 					const outsideRadios = this.#uncheckRadiosNamingFormsIn(match, getRootNode(match))
-					const focus = focusHeldBy(match)
+					const focus = this.#watchFocus(match)
 					moveBefore(parent, match, insertionPoint)
 					if (focus) this.#restoreFocus(focus)
 					this.#checkRadios(outsideRadios)
@@ -2017,8 +2033,24 @@ class Morph {
 		}
 	}
 
-	/* v8 ignore start -- happy-dom focuses any element */
+	// The focus a move of the node takes, watched until the move is done, so focus that another element takes during it
+	// stays there, even on the body, which also has focus when the move loses it.
+	#watchFocus(node: Node): Focus | null {
+		const focus = focusHeldBy(node)
+		if (!focus) return null
+		this.#watchedFocus = focus
+		EventTarget.prototype.addEventListener.call(ownerDocumentOf(focus.element)!, "focusin", this.#noteFocusTaken, true)
+		return focus
+	}
+
+	readonly #noteFocusTaken = (): void => {
+		this.#watchedFocus!.taken = true
+	}
+
 	#restoreFocus(focus: Focus): void {
+		this.#watchedFocus = null
+		removeEventListener(ownerDocumentOf(focus.element)!, "focusin", this.#noteFocusTaken)
+		/* v8 ignore start -- happy-dom focuses any element */
 		if (!restoreFocus(focus)) return
 		// Try again when the morph settles, unless another element takes focus first, such as from a callback.
 		const document = ownerDocumentOf(focus.element)!
@@ -2482,7 +2514,7 @@ class Morph {
 		// checked again straight away, since they're the target's own state, not markup the morph resets.
 		const sourceRadios = isConnected(node) ? this.#uncheckRadiosNamingFormsIn(node, getRootNode(node), true) : null
 		// A live target can hold the focused element, which its claimed descendants take out of it next.
-		const focus = focusHeldBy(node)
+		const focus = this.#watchFocus(node)
 		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, parent)
 		if (this.#targetOpensDetails && isElement(node)) this.#noteAddedDetails(node)
@@ -2534,7 +2566,7 @@ class Morph {
 		if (!inCycle && this.#liveElementsById.get(idOf(target)) === live && !contains(live, parent)) {
 			this.#liveElementsById.delete(idOf(target))
 			const outsideRadios = this.#uncheckRadiosForMove(live, parent)
-			const focus = focusHeldBy(live)
+			const focus = this.#watchFocus(live)
 			moveInto(parent, live, placeholder)
 			if (focus) this.#restoreFocus(focus)
 			remove(placeholder)

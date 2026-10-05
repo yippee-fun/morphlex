@@ -638,3 +638,52 @@ test("focus that a focus handler sends elsewhere when the moved input gets it ba
 
 	host.remove()
 })
+
+test("a focused custom element whose own focus method throws keeps focus when it moves", () => {
+	class OwnFocus extends HTMLElement {
+		override focus(): void {
+			throw new Error("not this one")
+		}
+	}
+	if (!customElements.get("x-own-focus")) customElements.define("x-own-focus", OwnFocus)
+	const host = mount(`<div id="s1"><x-own-focus id="x" tabindex="0">x</x-own-focus></div><div id="s2"></div>`)
+	const element = host.querySelector<HTMLElement>("#x")!
+	HTMLElement.prototype.focus.call(element)
+
+	morphInner(host, `<div><div id="s1"></div><div id="s2"><x-own-focus id="x" tabindex="0">x</x-own-focus></div></div>`)
+
+	expect(element.parentElement!.id).toBe("s2")
+	expect(document.activeElement).toBe(element)
+
+	host.remove()
+})
+
+test("focus that a custom element's callback gives a focusable body during the move stays there", () => {
+	class FocusBody extends HTMLElement {
+		connectedCallback() {
+			if (this.hasAttribute("armed")) document.body.focus()
+		}
+		connectedMoveCallback() {
+			this.connectedCallback()
+		}
+	}
+	if (!customElements.get("x-focus-body")) customElements.define("x-focus-body", FocusBody)
+	const host = mount(`<div id="s1"><x-focus-body id="t"><input id="x" value="hello"></x-focus-body></div><div id="s2"></div>`)
+	const input = host.querySelector("input")!
+	document.body.tabIndex = -1
+	input.focus()
+	host.querySelector("#t")!.setAttribute("armed", "")
+
+	try {
+		morphInner(
+			host,
+			`<div><div id="s1"></div><div id="s2"><x-focus-body id="t" armed><input id="x" value="hello"></x-focus-body></div></div>`,
+		)
+
+		expect(input.parentElement!.parentElement!.id).toBe("s2")
+		expect(document.activeElement).toBe(document.body)
+	} finally {
+		document.body.removeAttribute("tabindex")
+		host.remove()
+	}
+})
