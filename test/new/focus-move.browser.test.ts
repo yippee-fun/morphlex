@@ -483,3 +483,110 @@ test("a selection that ends in a child of a focused contenteditable stays when o
 
 	host.remove()
 })
+
+test("a focused input that a live target's own id match takes out keeps focus", () => {
+	const host = mount(`<section><div><input id="x" value="hello"></div></section>`)
+	const section = host.firstElementChild!
+	const wrapper = section.firstElementChild!
+	const input = host.querySelector("input")!
+	input.focus()
+	input.setSelectionRange(1, 4)
+
+	morph(section, wrapper)
+
+	expect(host.firstElementChild).toBe(wrapper)
+	expect(host.querySelector("input")).toBe(input)
+	expect(document.activeElement).toBe(input)
+	expect([input.selectionStart, input.selectionEnd]).toEqual([1, 4])
+
+	host.remove()
+})
+
+// The textarea moves into an accordion item that's closed while the morph moves it in, and opened when it settles.
+const intoAccordion = {
+	from: `<div id="root"><label id="i0"><span id="i1"><textarea id="i2" class="b"></textarea><details class="a" name="h" open=""></details><button id="i3"></button></span></label><section id="i4"></section><button></button></div>`,
+	to: `<div id="root"><details class="a" name="h" open=""><label id="i0"><span id="i1"><textarea id="i2" class="b"></textarea><button></button><button id="i3"></button></span></label></details><section id="i4"></section></div>`,
+}
+
+test("a focused textarea that moves into an item the morph opens later is focused once it's open", () => {
+	const host = mount(intoAccordion.from)
+	const textarea = host.querySelector("textarea")!
+	textarea.focus()
+
+	morph(host.firstElementChild!, intoAccordion.to)
+
+	expect(host.querySelector("textarea")).toBe(textarea)
+	expect(document.activeElement).toBe(textarea)
+
+	host.remove()
+})
+
+test("focus that a callback sends to a focusable body stays there, even when the moved element couldn't take it back yet", () => {
+	const host = mount(intoAccordion.from)
+	const textarea = host.querySelector("textarea")!
+	const span = host.querySelector("#i1")!
+	document.body.tabIndex = -1
+	textarea.focus()
+
+	morph(host.firstElementChild!, intoAccordion.to, {
+		afterNodeVisited: (from) => {
+			if (from === span) document.body.focus()
+		},
+	})
+
+	expect(document.activeElement).toBe(document.body)
+
+	document.body.removeAttribute("tabindex")
+	host.remove()
+})
+
+test("the caret in an editable body stays in a child that moves", () => {
+	const host = mount(`<div id="s1"><p id="a">hello</p></div><div id="s2"></div>`)
+	const text = host.querySelector("#a")!.firstChild!
+	document.body.contentEditable = "true"
+	document.body.focus()
+	getSelection()!.setBaseAndExtent(text, 1, text, 3)
+
+	morphInner(host, `<div><div id="s1"></div><div id="s2"><p id="a">hello</p></div></div>`)
+
+	const selection = getSelection()!
+	expect(text.parentElement!.parentElement!.id).toBe("s2")
+	expect([selection.anchorNode, selection.anchorOffset, selection.focusNode, selection.focusOffset]).toEqual([text, 1, text, 3])
+
+	document.body.removeAttribute("contenteditable")
+	host.remove()
+})
+
+test("a focused input that a custom element's callback retypes during the move doesn't stop the morph", () => {
+	class Retype extends HTMLElement {
+		connectedCallback() {
+			if (this.hasAttribute("armed")) this.querySelector("input")!.type = "number"
+		}
+		connectedMoveCallback() {
+			this.connectedCallback()
+		}
+	}
+	if (!customElements.get("x-retype")) customElements.define("x-retype", Retype)
+	const host = mount(`<div id="s1"><x-retype id="r"><input id="x" value="5"></x-retype></div><div id="s2"></div>`)
+	const input = host.querySelector("input")!
+	input.focus()
+	input.setSelectionRange(0, 1)
+	host.querySelector("#r")!.setAttribute("armed", "")
+	let settled = false
+
+	morphInner(
+		host,
+		`<div><div id="s1"></div><div id="s2"><x-retype id="r" armed><input id="x" value="5" type="number"></x-retype></div></div>`,
+		{
+			afterChildrenVisited: (node) => {
+				if (node === host) settled = true
+			},
+		},
+	)
+
+	expect(input.parentElement!.parentElement!.id).toBe("s2")
+	expect(input.type).toBe("number")
+	expect(settled).toBe(true)
+
+	host.remove()
+})

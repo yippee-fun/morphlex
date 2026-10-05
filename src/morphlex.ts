@@ -581,8 +581,8 @@ interface Focus {
 
 function focusOf(node: Node): Focus | null {
 	let element = (node.getRootNode() as Partial<DocumentOrShadowRoot>).activeElement
-	// The body is active when nothing is focused.
-	if (!element || element === element.ownerDocument.body) return null
+	// The body is active when nothing is focused, unless it's editable and holds the caret.
+	if (!element || (element === element.ownerDocument.body && !(element as HTMLElement).isContentEditable)) return null
 	while (element.shadowRoot?.activeElement) element = element.shadowRoot.activeElement
 
 	let selection: Focus["selection"] = null
@@ -632,17 +632,21 @@ function restoreFocus({ element, selection, range }: Focus): boolean {
 		if (root.activeElement !== element) return false
 	}
 
-	if (selection) {
-		// Firefox's moveBefore keeps the selection, and setting it again keeps it when the morph sets a new value.
-		const control = element as HTMLInputElement | HTMLTextAreaElement
-		const [start, end, direction] = selection
-		/* v8 ignore next -- happy-dom resets the selection when it focuses the control again */
-		if (control.selectionStart !== start || control.selectionEnd !== end || control.selectionDirection !== direction) {
-			control.setSelectionRange(start, end, direction)
+	// A custom element's lifecycle callback can run during the move and change the control's type or the selected
+	// text, so the selection may no longer fit.
+	try {
+		if (selection) {
+			// Firefox's moveBefore keeps the selection, and setting it again keeps it when the morph sets a new value.
+			const control = element as HTMLInputElement | HTMLTextAreaElement
+			const [start, end, direction] = selection
+			/* v8 ignore next -- happy-dom resets the selection when it focuses the control again */
+			if (control.selectionStart !== start || control.selectionEnd !== end || control.selectionDirection !== direction) {
+				control.setSelectionRange(start, end, direction)
+			}
+		} else if (range) {
+			element.ownerDocument.getSelection()!.setBaseAndExtent(...range)
 		}
-	} else if (range) {
-		element.ownerDocument.getSelection()!.setBaseAndExtent(...range)
-	}
+	} catch {}
 	return true
 }
 
@@ -1105,8 +1109,8 @@ class Morph {
 		const focus = this.#unrestoredFocus
 		if (focus) {
 			this.#unrestoredFocus = null
-			const { activeElement, body } = focus.element.ownerDocument
-			if (activeElement === body) restoreFocus(focus)
+			focus.element.ownerDocument.removeEventListener("focusin", this.#dropUnrestoredFocus, true)
+			restoreFocus(focus)
 		}
 		/* v8 ignore stop */
 	}
@@ -1897,13 +1901,23 @@ class Morph {
 		}
 	}
 
-	// The matches, keeping only those in order with the child holding the focused element, so the longest
-	// increasing subsequence includes that child and its siblings move around it.
+	/* v8 ignore start -- happy-dom focuses any element */
 	#restoreFocus(focus: Focus): void {
-		/* v8 ignore next -- happy-dom focuses any element */
-		if (!restoreFocus(focus)) this.#unrestoredFocus = focus
+		if (restoreFocus(focus)) return
+		// Try again when the morph settles, unless another element takes focus first, such as from a callback.
+		const { ownerDocument } = focus.element
+		if (this.#unrestoredFocus) ownerDocument.removeEventListener("focusin", this.#dropUnrestoredFocus, true)
+		this.#unrestoredFocus = focus
+		ownerDocument.addEventListener("focusin", this.#dropUnrestoredFocus, { capture: true, once: true })
 	}
 
+	readonly #dropUnrestoredFocus = (): void => {
+		this.#unrestoredFocus = null
+	}
+	/* v8 ignore stop */
+
+	// The matches, keeping only those in order with the child holding the focused element, so the longest
+	// increasing subsequence includes that child and its siblings move around it.
 	#pinFocused(parent: Element, siblings: Siblings): Array<number | undefined> {
 		const { from, matches } = siblings
 		const holders = this.#focusHolders
@@ -2350,12 +2364,12 @@ class Morph {
 		// and inside it, including forms that live elements claim out of it next. Those inside it are
 		// checked again straight away, since they're the target's own state, not markup the morph resets.
 		const sourceRadios = node.isConnected ? this.#uncheckRadiosNamingFormsIn(node, node.getRootNode(), true) : null
+		// A live target can hold the focused element, which its claimed descendants take out of it next.
+		const focus = focusHeldBy(node)
 		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, parent)
 		if (this.#targetOpensDetails && isElement(node)) this.#noteAddedDetails(node)
 		const radios = this.#uncheckRadiosNamingFormsIn(node, (parent as Node).getRootNode())
-		// A live target can hold the focused element.
-		const focus = focusHeldBy(node)
 		parent.insertBefore(node, insertionPoint)
 		if (focus) this.#restoreFocus(focus)
 		this.#checkRadios(radios)
