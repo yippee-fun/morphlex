@@ -286,3 +286,123 @@ test("a morph in a parsed document without a body, where the root is active, has
 
 	expect([...live.documentElement.children].map((child) => child.id)).toEqual(["b", "a"])
 })
+
+test("a focused input that a callback gives a type without a selection keeps focus when it moves", () => {
+	const host = mount(`<div id="s1"><input id="x" value="5"></div><div id="s2"></div>`)
+	const input = host.querySelector("input")!
+	input.focus()
+	input.setSelectionRange(0, 1)
+
+	morphInner(host, `<div><div id="s1"></div><div id="s2"><input id="x" value="5" class="moved"></div></div>`, {
+		afterNodeVisited: (from) => {
+			if (from === input) input.type = "number"
+		},
+	})
+
+	expect(input.parentElement!.id).toBe("s2")
+	expect(input.type).toBe("number")
+	expect(document.activeElement).toBe(input)
+
+	host.remove()
+})
+
+test("an input focused inside a shadow root keeps focus and its selection when its host moves", () => {
+	const host = mount(`<div id="s1"><div id="h"></div></div><div id="s2"></div>`)
+	const shadowHost = host.querySelector("#h")!
+	const shadow = shadowHost.attachShadow({ mode: "open" })
+	shadow.innerHTML = `<input value="hello">`
+	const input = shadow.querySelector("input")!
+	input.focus()
+	input.setSelectionRange(1, 4)
+
+	morphInner(host, `<div><div id="s1"></div><div id="s2"><div id="h"></div></div></div>`)
+
+	expect(shadowHost.parentElement!.id).toBe("s2")
+	expect(shadow.activeElement).toBe(input)
+	expect([input.selectionStart, input.selectionEnd]).toEqual([1, 4])
+
+	host.remove()
+})
+
+test("a focused input inside a live target that replaces the root's child keeps focus", () => {
+	const host = mount(`<section><div><input value="hello"></div></section>`)
+	const section = host.firstElementChild!
+	const wrapper = section.firstElementChild!
+	const input = host.querySelector("input")!
+	input.focus()
+	input.setSelectionRange(1, 4)
+
+	morph(section, wrapper)
+
+	expect(host.firstElementChild).toBe(wrapper)
+	expect(document.activeElement).toBe(input)
+	expect([input.selectionStart, input.selectionEnd]).toEqual([1, 4])
+
+	host.remove()
+})
+
+test("a focused input that a callback moves into a sibling keeps focus when that sibling moves", () => {
+	const host = mount(`<ul><li id="a"><input value="hello"></li><li id="b">b</li><li id="c">c</li></ul>`)
+	const ul = host.firstElementChild!
+	const a = host.querySelector("#a")!
+	const c = host.querySelector("#c")!
+	const input = host.querySelector("input")!
+	input.focus()
+	input.setSelectionRange(1, 4)
+
+	morph(ul, `<ul><li id="a" class="first"><input value="hello"></li><li id="c">c</li><li id="b">b</li></ul>`, {
+		afterNodeVisited: (from) => {
+			if (from === a) {
+				c.append(input)
+				input.focus()
+				input.setSelectionRange(1, 4)
+			}
+		},
+		// Keep the input where the callback put it.
+		beforeChildrenVisited: (parent) => parent !== c,
+	})
+
+	expect(input.parentElement).toBe(c)
+	expect([...ul.children].map((child) => child.id)).toEqual(["a", "c", "b"])
+	expect(document.activeElement).toBe(input)
+	expect([input.selectionStart, input.selectionEnd]).toEqual([1, 4])
+
+	host.remove()
+})
+
+test("a focused input that a callback takes out of the document isn't focused again", () => {
+	const host = mount(`<ul><li id="a"><input value="hello"></li><li id="b">b</li><li id="c">c</li></ul>`)
+	const ul = host.firstElementChild!
+	const a = host.querySelector("#a")!
+	const input = host.querySelector("input")!
+	const fragment = document.createDocumentFragment()
+	input.focus()
+
+	morph(ul, `<ul><li id="a" class="first"><input value="hello"></li><li id="c">c</li><li id="b">b</li></ul>`, {
+		afterNodeVisited: (from) => {
+			if (from === a) fragment.append(input)
+		},
+	})
+
+	expect([...ul.children].map((child) => child.id)).toEqual(["a", "c", "b"])
+	expect(input.parentNode).toBe(fragment)
+	expect(document.activeElement).not.toBe(input)
+
+	host.remove()
+})
+
+test("a focused input outside the morph is left alone", () => {
+	const host = mount(`<input value="hello"><ul><li id="a">a</li><li id="b">b</li></ul>`)
+	const ul = host.querySelector("ul")!
+	const input = host.querySelector("input")!
+	input.focus()
+	input.setSelectionRange(1, 4)
+
+	morph(ul, `<ul><li id="b">b</li><li id="a">a</li></ul>`)
+
+	expect([...ul.children].map((child) => child.id)).toEqual(["b", "a"])
+	expect(document.activeElement).toBe(input)
+	expect([input.selectionStart, input.selectionEnd]).toEqual([1, 4])
+
+	host.remove()
+})

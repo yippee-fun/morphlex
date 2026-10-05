@@ -570,9 +570,10 @@ function moveInto(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode
 
 // The focused element inside a morph, the nodes holding it, and its selection. Browsers without `moveBefore`
 // lose focus when it moves, Chromium's resets a text control's selection, and none keeps the document's
-// selection inside it.
+// selection inside it. A focused element inside a shadow root is held by its host.
 interface Focus {
 	element: Element
+	// The nodes holding the element when the morph starts, which keep their place among their siblings.
 	holders: Set<Node>
 	moved: boolean
 	// A text control's selection, and the value it was made in.
@@ -582,12 +583,14 @@ interface Focus {
 }
 
 function focusIn(root: Node): Focus | null {
-	const element = (root.getRootNode() as Partial<DocumentOrShadowRoot>).activeElement
+	let element = (root.getRootNode() as Partial<DocumentOrShadowRoot>).activeElement
 	// The body is active when nothing is focused.
-	if (!element || element === element.ownerDocument.body || !root.contains(element)) return null
+	if (!element || element === element.ownerDocument.body) return null
+	while (element.shadowRoot?.activeElement) element = element.shadowRoot.activeElement
 
 	const holders = new Set<Node>()
-	for (let node: Node | null = element; node; node = node.parentNode) holders.add(node)
+	for (let node: Node | null = element; node; node = parentOrHost(node)) holders.add(node)
+	if (!holders.has(root)) return null
 
 	let selection: Focus["selection"] = null
 	let range: Focus["range"] = null
@@ -622,7 +625,8 @@ function restoreFocus({ element, moved, selection, range }: Focus): void {
 	if (selection) {
 		const control = element as HTMLInputElement | HTMLTextAreaElement
 		const [start, end, direction, value] = selection
-		if (control.value === value) control.setSelectionRange(start, end, direction)
+		// The morph can change an input's type to one without a selection.
+		if (control.selectionStart !== null && control.value === value) control.setSelectionRange(start, end, direction)
 	} else if (range) {
 		const [anchorNode, anchorOffset, focusNode, focusOffset] = range
 		if (
@@ -634,6 +638,17 @@ function restoreFocus({ element, moved, selection, range }: Focus): void {
 			element.ownerDocument.getSelection()!.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset)
 		}
 	}
+}
+
+function holds(node: Node, element: Node): boolean {
+	for (let holder: Node | null = element; holder; holder = parentOrHost(holder)) {
+		if (holder === node) return true
+	}
+	return false
+}
+
+function parentOrHost(node: Node): Node | null {
+	return node.parentNode ?? (node.nodeType === DOCUMENT_FRAGMENT_NODE_TYPE ? ((node as ShadowRoot).host ?? null) : null)
 }
 
 function nodeLength(node: Node): number {
@@ -1888,9 +1903,10 @@ class Morph {
 		)
 	}
 
+	// A callback can move the focused element, so this asks where it is now.
 	#noteMove(node: Node): void {
 		const focus = this.#focus
-		if (focus && focus.holders.has(node)) focus.moved = true
+		if (focus && !focus.moved && holds(node, focus.element)) focus.moved = true
 	}
 
 	// A morph inside a select never visits the select, so sync it when the morph settles if the morph
@@ -2329,6 +2345,8 @@ class Morph {
 		this.#placeMovableDescendants(node, parent)
 		if (this.#targetOpensDetails && isElement(node)) this.#noteAddedDetails(node)
 		const radios = this.#uncheckRadiosNamingFormsIn(node, (parent as Node).getRootNode())
+		// A live target can hold the focused element.
+		this.#noteMove(node)
 		parent.insertBefore(node, insertionPoint)
 		this.#checkRadios(radios)
 		this.#checkRadios(sourceRadios, true)
