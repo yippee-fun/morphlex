@@ -1867,7 +1867,8 @@ class Morph {
 		}
 
 		// The untouched candidates that can trade targets, the ones taken by a target they didn't equal, and the
-		// target of each.
+		// target of each. A candidate whose id no other sibling has is identical to none of them.
+		const { candidateElementsById } = siblings
 		const candidates: Array<number> = []
 		const changed: Array<number> = []
 		const targetOf: Array<number> = []
@@ -1875,6 +1876,8 @@ class Morph {
 			const target = unmatchedElements[i]!
 			const candidate = matches[target]
 			if (candidate === undefined || dirtyElements?.has(from[candidate] as Element)) continue
+			const id = idOf(from[candidate] as Element)
+			if (id !== "" && candidateElementsById.get(id)!.length === 1) continue
 			candidates.push(candidate)
 			targetOf[candidate] = target
 			if (op[target] !== Operation.EqualNode) changed.push(candidate)
