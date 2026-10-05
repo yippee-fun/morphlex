@@ -1321,6 +1321,7 @@ class Morph {
 		}
 		this.#matchElementsByAttributes(siblings)
 		this.#matchElementsByKind(siblings)
+		this.#orderIdenticalCandidates(siblings)
 		this.#matchEqualNodes(siblings)
 		this.#matchNodesByType(siblings)
 		for (let i = 0; i < siblings.from.length; i++) {
@@ -1666,6 +1667,60 @@ class Morph {
 					siblings.take(target, candidateIndex, Operation.SameElement)
 					break
 				}
+			}
+		}
+	}
+
+	// The isEqualNode pass gives a target the first equal candidate, which can be the identical sibling of a
+	// changed element's live node, and the changed target then takes the sibling's place, so the two swap.
+	// Identical candidates are interchangeable, so give each set of them to its targets in order instead, unless
+	// that leaves fewer nodes in place. Elements holding the user's changes aren't identical to anything.
+	#orderIdenticalCandidates(siblings: Siblings): void {
+		const { from, unmatchedElements, matches, op } = siblings
+		const dirtyElements = this.#dirtyElements
+		// The candidates that can trade targets, the ones taken by a target they didn't equal, and the target of each.
+		const candidates: Array<number> = []
+		const changed: Array<number> = []
+		const targetOf: Array<number> = []
+		for (let i = 0; i < unmatchedElements.length; i++) {
+			const target = unmatchedElements[i]!
+			const candidate = matches[target]
+			if (candidate === undefined || dirtyElements?.has(from[candidate] as Element)) continue
+			candidates.push(candidate)
+			targetOf[candidate] = target
+			if (op[target] !== Operation.EqualNode) changed.push(candidate)
+		}
+		if (!changed.length) return
+
+		const candidatesByText = changed.length * candidates.length > 1024 ? bucketByTextContent(from, candidates) : null
+		const grouped: Set<number> = new Set()
+		let inPlace = -1
+		for (let i = 0; i < changed.length; i++) {
+			const candidate = changed[i]!
+			if (grouped.has(candidate)) continue
+			const element = from[candidate]!
+			const identical = (candidatesByText ? candidatesByText.get(element.textContent!)! : candidates).filter(
+				(other) => other === candidate || isEqualNode(from[other]!, element),
+			)
+			if (identical.length < 2) continue
+
+			identical.sort((a, b) => a - b)
+			const targets = identical.map((other) => targetOf[other]!).sort((a, b) => a - b)
+			let crossed = false
+			for (let t = 0; t < identical.length; t++) {
+				grouped.add(identical[t]!)
+				if (matches[targets[t]!] !== identical[t]) crossed = true
+			}
+			if (!crossed) continue
+
+			if (inPlace === -1) inPlace = longestIncreasingSubsequence(matches).length
+			const previous = targets.map((target) => matches[target]!)
+			for (let t = 0; t < targets.length; t++) matches[targets[t]!] = identical[t]!
+			const nowInPlace = longestIncreasingSubsequence(matches).length
+			if (nowInPlace < inPlace) {
+				for (let t = 0; t < targets.length; t++) matches[targets[t]!] = previous[t]!
+			} else {
+				inPlace = nowInPlace
 			}
 		}
 	}
