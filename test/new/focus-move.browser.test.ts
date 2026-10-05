@@ -711,3 +711,80 @@ test("a focused live target from another document leaves no listener behind ther
 		host.remove()
 	}
 })
+
+test("focus that a focus handler sends to a focusable body when the moved input gets it back stays there", () => {
+	const host = mount(`<div id="s1"><input id="x" value="hello"></div><div id="s2"></div>`)
+	const input = host.querySelector("input")!
+	document.body.tabIndex = -1
+	input.focus()
+	input.addEventListener("focus", () => document.body.focus(), { once: true })
+
+	try {
+		morphInner(host, `<div><div id="s1"></div><div id="s2"><input id="x" value="hello"></div></div>`)
+
+		expect(input.parentElement!.id).toBe("s2")
+		// Browsers with moveBefore keep focus on the input, so they never focus it again.
+		expect(document.activeElement).toBe("moveBefore" in Element.prototype ? input : document.body)
+	} finally {
+		document.body.removeAttribute("tabindex")
+		host.remove()
+	}
+})
+
+test("focus that a custom element's callback gives a focusable body while a live target arrives from another document stays there", () => {
+	// Firefox can hold back the focus events of a focus change between frames, and then the morph can't tell the
+	// callback's focus from focus the move lost.
+	let focusEvents = false
+	class FocusBodyOnArrival extends HTMLElement {
+		connectedCallback() {
+			const noteFocusEvent = () => (focusEvents = true)
+			document.addEventListener("focusin", noteFocusEvent, true)
+			document.body.focus()
+			document.removeEventListener("focusin", noteFocusEvent, true)
+		}
+	}
+	if (!customElements.get("x-focus-body-on-arrival")) customElements.define("x-focus-body-on-arrival", FocusBodyOnArrival)
+	const frame = document.createElement("iframe")
+	document.body.append(frame)
+	const frameDocument = frame.contentDocument!
+	frameDocument.body.innerHTML = `<div><x-focus-body-on-arrival><input id="x" value="hello"></x-focus-body-on-arrival></div>`
+	const wrapper = frameDocument.body.firstElementChild!
+	frame.focus()
+	frameDocument.querySelector<HTMLInputElement>("#x")!.focus()
+	const host = mount(`<section><p>old</p></section>`)
+	document.body.tabIndex = -1
+
+	try {
+		morph(host.firstElementChild!.firstElementChild!, wrapper)
+
+		expect(host.querySelector("#x")).not.toBeNull()
+		expect(document.activeElement).toBe(focusEvents ? document.body : host.querySelector("#x"))
+	} finally {
+		document.body.removeAttribute("tabindex")
+		frame.remove()
+		host.remove()
+	}
+})
+
+test("a focused element in a document without a body keeps focus when it moves", () => {
+	const frame = document.createElement("iframe")
+	document.body.append(frame)
+	const frameDocument = frame.contentDocument!
+	const svg = (markup: string) =>
+		new DOMParser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg">${markup}</svg>`, "image/svg+xml").documentElement
+	const root = frameDocument.importNode(svg(`<g id="s1"><rect id="x" tabindex="0"/></g><g id="s2"/>`), true)
+	frameDocument.documentElement.remove()
+	frameDocument.append(root)
+	const rect = frameDocument.getElementById("x") as unknown as SVGElement
+	frame.focus()
+	rect.focus()
+
+	try {
+		morphInner(root, frameDocument.importNode(svg(`<g id="s1"/><g id="s2"><rect id="x" tabindex="0"/></g>`), true))
+
+		expect((rect.parentNode as Element).id).toBe("s2")
+		expect(frameDocument.activeElement).toBe(rect)
+	} finally {
+		frame.remove()
+	}
+})
