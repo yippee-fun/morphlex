@@ -568,6 +568,78 @@ function moveInto(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode
 }
 /* v8 ignore stop */
 
+// The focused element inside a morph, the nodes holding it, and its selection. Browsers without `moveBefore`
+// lose focus when it moves, Chromium's resets a text control's selection, and none keeps the document's
+// selection inside it.
+interface Focus {
+	element: Element
+	holders: Set<Node>
+	moved: boolean
+	// A text control's selection, and the value it was made in.
+	selection: [number, number, "forward" | "backward" | "none", string] | null
+	// The document's selection inside any other element.
+	range: [Node, number, Node, number] | null
+}
+
+function focusIn(root: Node): Focus | null {
+	const element = (root.getRootNode() as Partial<DocumentOrShadowRoot>).activeElement
+	// The body is active when nothing is focused.
+	if (!element || element === element.ownerDocument.body || !root.contains(element)) return null
+
+	const holders = new Set<Node>()
+	for (let node: Node | null = element; node; node = node.parentNode) holders.add(node)
+
+	let selection: Focus["selection"] = null
+	let range: Focus["range"] = null
+	if ((isInputElement(element) || isTextAreaElement(element)) && element.selectionStart !== null) {
+		selection = [element.selectionStart, element.selectionEnd!, element.selectionDirection!, element.value]
+	} else {
+		// A document without a browsing context, such as a parsed one, has no selection, but happy-dom gives it one.
+		/* v8 ignore next */
+		const { anchorNode, anchorOffset, focusNode, focusOffset } = element.ownerDocument.getSelection() ?? {}
+		if (anchorNode && focusNode && element.contains(anchorNode) && element.contains(focusNode)) {
+			range = [anchorNode, anchorOffset!, focusNode, focusOffset!]
+		}
+	}
+
+	return { element, holders, moved: false, selection, range }
+}
+
+// Focus and select a focused element again if a move lost them, unless focus has gone to another element.
+// A text control's selection is only restored while it holds the same value, since a new value moves the caret.
+function restoreFocus({ element, moved, selection, range }: Focus): void {
+	if (!moved || !element.isConnected) return
+
+	const root = element.getRootNode() as Node & Partial<DocumentOrShadowRoot>
+	/* v8 ignore else -- happy-dom loses focus whenever the focused element moves */
+	if (root.activeElement !== element) {
+		const { activeElement, body } = element.ownerDocument
+		if (activeElement !== body) return
+		;(element as HTMLElement).focus({ preventScroll: true })
+		if (root.activeElement !== element) return
+	}
+
+	if (selection) {
+		const control = element as HTMLInputElement | HTMLTextAreaElement
+		const [start, end, direction, value] = selection
+		if (control.value === value) control.setSelectionRange(start, end, direction)
+	} else if (range) {
+		const [anchorNode, anchorOffset, focusNode, focusOffset] = range
+		if (
+			element.contains(anchorNode) &&
+			element.contains(focusNode) &&
+			anchorOffset <= nodeLength(anchorNode) &&
+			focusOffset <= nodeLength(focusNode)
+		) {
+			element.ownerDocument.getSelection()!.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset)
+		}
+	}
+}
+
+function nodeLength(node: Node): number {
+	return isParentNode(node) ? node.childNodes.length : (node as CharacterData).length
+}
+
 interface PendingMove {
 	live: Element
 	target: Element
@@ -874,6 +946,10 @@ class Morph {
 	// Only a target with an open `details` can add one, so other morphs skip looking for one.
 	#targetOpensDetails = false
 
+	// The focused element inside the root, which stays where it is when it can, and gets focus and its
+	// selection back when the morph settles if a move took them.
+	#focus: Focus | null = null
+
 	constructor(
 		options: Options = {},
 		clobbered: Set<Element> | null = null,
@@ -898,6 +974,7 @@ class Morph {
 
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
 		this.#root = from
+		this.#focus = focusIn(from)
 		// A detached root has no siblings, so it's its own scope.
 		this.#scope = from.parentNode ?? from
 		this.#scopeStart = from.previousSibling
@@ -925,6 +1002,7 @@ class Morph {
 
 	morphChildren(from: Element, to: Element): void {
 		this.#root = from
+		this.#focus = focusIn(from)
 		this.#scope = from
 		this.#targetRoots.add(to)
 		this.#mapIdSets(from)
@@ -1001,6 +1079,12 @@ class Morph {
 		}
 
 		this.#syncEnclosingSelect()
+
+		const focus = this.#focus
+		if (focus) {
+			this.#focus = null
+			restoreFocus(focus)
+		}
 	}
 
 	// Open each item the morph wants open but the browser closed, in document order, so the first one wins
@@ -1710,7 +1794,7 @@ class Morph {
 		const { from, to, matches, op } = siblings
 
 		// The nodes in the longest increasing subsequence of matches don't need to move.
-		const lisIndices = longestIncreasingSubsequence(matches)
+		const lisIndices = longestIncreasingSubsequence(this.#pinFocused(parent, siblings))
 		const shouldNotMove: Array<boolean> = new Array(from.length)
 		for (let i = 0; i < lisIndices.length; i++) {
 			shouldNotMove[matches[lisIndices[i]!]!] = true
@@ -1751,6 +1835,7 @@ class Morph {
 
 				if (!shouldNotMove[matchInd]) {
 					const outsideRadios = this.#uncheckRadiosNamingFormsIn(match, match.getRootNode())
+					this.#noteMove(match)
 					moveBefore(parent, match, insertionPoint)
 					this.#checkRadios(outsideRadios)
 				}
@@ -1785,6 +1870,27 @@ class Morph {
 				if (whitespace.parentNode === parent) this.#removeNode(whitespace)
 			}
 		}
+	}
+
+	// The matches, keeping only those in order with the child holding the focused element, so the longest
+	// increasing subsequence includes that child and its siblings move around it.
+	#pinFocused(parent: Element, siblings: Siblings): Array<number | undefined> {
+		const { from, matches } = siblings
+		const holders = this.#focus?.holders
+		if (!holders?.has(parent)) return matches
+
+		const pinnedIndex = matches.findIndex((match) => match !== undefined && holders.has(from[match]!))
+		if (pinnedIndex === -1) return matches
+
+		const pinned = matches[pinnedIndex]!
+		return matches.map((match, i) =>
+			(i < pinnedIndex ? match < pinned : i > pinnedIndex ? match > pinned : true) ? match : undefined,
+		)
+	}
+
+	#noteMove(node: Node): void {
+		const focus = this.#focus
+		if (focus && focus.holders.has(node)) focus.moved = true
 	}
 
 	// A morph inside a select never visits the select, so sync it when the morph settles if the morph
@@ -2269,6 +2375,7 @@ class Morph {
 		if (!inCycle && this.#liveElementsById.get(target.id) === live && !live.contains(parent)) {
 			this.#liveElementsById.delete(target.id)
 			const outsideRadios = this.#uncheckRadiosForMove(live, parent)
+			this.#noteMove(live)
 			moveInto(parent, live, placeholder)
 			placeholder.remove()
 			this.#checkRadios(outsideRadios)

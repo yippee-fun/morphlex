@@ -103,6 +103,33 @@ test("preserveChanges keeps what the user typed into every control that moves, u
 	})
 })
 
+test("a focused text control that moves keeps focus and its selection, and the result still matches the target", () => {
+	check((scenario, fail) => {
+		const host = mount(scenario.fromHtml)
+		const element = [...movableElements(host, scenario).values()].find(isTextControl)
+		if (!element) return
+		element.focus()
+		if (document.activeElement !== element) return
+		element.setSelectionRange(1, 2)
+		const value = element.value
+		const selection = `${element.selectionStart}-${element.selectionEnd}`
+
+		run(host, scenario)
+
+		const target = closeLaterAccordionItems(parse(scenario.toHtml))
+		if (scenario.shape === "one" ? !isSameTree(host.firstChild!, target) : !isSameChildren(host.firstChild!, target)) {
+			fail(host, "result differs from target")
+		}
+		if (document.activeElement !== element) {
+			// It may be somewhere it can't be focused, like a closed details.
+			element.focus()
+			if (document.activeElement === element) fail(host, `#${element.id} lost focus`)
+		} else if (element.value === value && `${element.selectionStart}-${element.selectionEnd}` !== selection) {
+			fail(host, `#${element.id} has selection ${element.selectionStart}-${element.selectionEnd}, not ${selection}`)
+		}
+	})
+})
+
 // Option wrappers with ids nest differently in each tree, inside an element that moves to another parent.
 test("a select inside a moving element shows what its markup says, while its option wrappers move", () => {
 	let failures = 0
