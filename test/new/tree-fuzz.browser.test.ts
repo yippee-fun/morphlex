@@ -182,12 +182,9 @@ test("changing one attribute makes only that one mutation", () => {
 		const host = mount(scenario.fromHtml)
 		const target = parse(scenario.fromHtml)
 		// Unnamed form controls, and elements with an empty name, href or src, are replaced when they
-		// differ. And a changed element with an identical sibling swaps places with it. So leave them
-		// and their descendants alone.
+		// differ. So leave them and their descendants alone.
 		const replaced = "input, textarea, select, [name=''], [href=''], [src='']"
-		const elements = [target, ...target.querySelectorAll("*")].filter(
-			(element) => !element.closest(replaced) && !hasEqualSiblingUpTo(element, target),
-		)
+		const elements = [target, ...target.querySelectorAll("*")].filter((element) => !element.closest(replaced))
 		elements[scenario.seed % elements.length]!.setAttribute("data-changed", "")
 
 		if (countMutations(host, () => morph(host.firstChild!, target)) !== 1) fail(host)
@@ -460,15 +457,6 @@ function mount(html: string): HTMLElement {
 	host.append(parse(html))
 	document.body.append(host)
 	return host
-}
-
-function hasEqualSiblingUpTo(element: Element, root: Element): boolean {
-	for (let node: Element = element; node !== root; node = node.parentElement!) {
-		for (const sibling of node.parentElement!.children) {
-			if (sibling !== node && sibling.isEqualNode(node)) return true
-		}
-	}
-	return false
 }
 
 // Counts the mutations a morph makes, apart from the `morphlex-dirty` sentinel.
