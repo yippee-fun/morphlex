@@ -1321,9 +1321,9 @@ class Morph {
 		}
 		this.#matchElementsByAttributes(siblings)
 		this.#matchElementsByKind(siblings)
-		this.#orderIdenticalCandidates(siblings)
 		this.#matchEqualNodes(siblings)
 		this.#matchNodesByType(siblings)
+		this.#orderIdenticalCandidates(siblings)
 		for (let i = 0; i < siblings.from.length; i++) {
 			if (siblings.candidateActive[i]) this.#removeNode(siblings.from[i]!)
 		}
@@ -1674,12 +1674,14 @@ class Morph {
 	// The isEqualNode pass gives a target the first equal candidate, which can be the identical sibling of a
 	// changed element's live node, and the changed target then takes the sibling's place, so the two swap.
 	// Identical candidates are interchangeable, so give each set of them to its targets in order instead, unless
-	// that leaves fewer nodes in place. An element holding the user's changes isn't equal to anything, so it
-	// trades with the untouched siblings of its shape that took equal targets instead.
+	// that leaves fewer nodes in place. This runs after the other nodes are matched, since they count too.
+	// An element holding the user's changes isn't equal to anything, so it trades with the untouched siblings of
+	// its shape that took equal targets instead.
 	#orderIdenticalCandidates(siblings: Siblings): void {
 		const { from, to, unmatchedElements, matches, op } = siblings
 		const dirtyElements = this.#dirtyElements
-		let inPlace = -1
+		const ordered = matches.slice()
+		let reordered = false
 
 		if (dirtyElements) {
 			// The changed elements, and the untouched candidates that took an equal target, unless it discards the
@@ -1687,13 +1689,11 @@ class Morph {
 			const candidates: Array<number> = []
 			const changed: Array<number> = []
 			const targetOf: Array<number> = []
-			const shapes: Array<string> = []
 			for (let i = 0; i < unmatchedElements.length; i++) {
 				const target = unmatchedElements[i]!
 				const candidate = matches[target]
 				if (candidate === undefined) continue
-				const element = from[candidate] as Element
-				if (dirtyElements.has(element)) {
+				if (dirtyElements.has(from[candidate] as Element)) {
 					changed.push(candidate)
 				} else if (op[target] !== Operation.EqualNode || this.#holdsClobbered(to[target] as Element)) {
 					continue
@@ -1703,18 +1703,13 @@ class Morph {
 			}
 			if (changed.length && candidates.length > changed.length) {
 				// A changed element's shape spans its whole subtree, so only work it out for a likely sibling.
+				const shapes: Array<string> = []
 				const shape = (index: number): string => (shapes[index] ??= shapeOf(from[index]!))
 				const same = (a: number, b: number): boolean =>
 					(from[a] as Element).localName === (from[b] as Element).localName &&
 					from[a]!.textContent === from[b]!.textContent &&
 					shape(a) === shape(b)
-				inPlace = this.#orderSets(siblings, candidates, changed, targetOf, same, inPlace)
-				// Equal targets skip the morph, which a changed element needs.
-				for (let i = 0; i < unmatchedElements.length; i++) {
-					const target = unmatchedElements[i]!
-					const candidate = matches[target]
-					if (candidate !== undefined && dirtyElements.has(from[candidate] as Element)) op[target] = Operation.SameElement
-				}
+				reordered = orderSets(from, ordered, candidates, changed, targetOf, same)
 			}
 		}
 
@@ -1725,60 +1720,24 @@ class Morph {
 		const targetOf: Array<number> = []
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
-			const candidate = matches[target]
+			const candidate = ordered[target]
 			if (candidate === undefined || dirtyElements?.has(from[candidate] as Element)) continue
 			candidates.push(candidate)
 			targetOf[candidate] = target
 			if (op[target] !== Operation.EqualNode) changed.push(candidate)
 		}
-		if (changed.length) {
-			this.#orderSets(siblings, candidates, changed, targetOf, (a, b) => isEqualNode(from[a]!, from[b]!), inPlace)
+		if (changed.length && orderSets(from, ordered, candidates, changed, targetOf, (a, b) => isEqualNode(from[a]!, from[b]!))) {
+			reordered = true
 		}
-	}
 
-	// Give each set of candidates that `same` finds interchangeable, one of which is changed, to their targets in
-	// order, unless that leaves fewer nodes in place than `inPlace` (-1 when not yet measured). Returns the number
-	// left in place.
-	#orderSets(
-		siblings: Siblings,
-		candidates: Array<number>,
-		changed: Array<number>,
-		targetOf: Array<number>,
-		same: (a: number, b: number) => boolean,
-		inPlace: number,
-	): number {
-		const { from, matches } = siblings
-		// Interchangeable elements have equal text content, so with many siblings, compare within its bucket.
-		const candidatesByText = changed.length * candidates.length > 1024 ? bucketByTextContent(from, candidates) : null
-		const grouped: Set<number> = new Set()
-		for (let i = 0; i < changed.length; i++) {
-			const candidate = changed[i]!
-			if (grouped.has(candidate)) continue
-			const identical = (candidatesByText ? candidatesByText.get(from[candidate]!.textContent!)! : candidates).filter(
-				(other) => other === candidate || same(candidate, other),
-			)
-			if (identical.length < 2) continue
-
-			identical.sort((a, b) => a - b)
-			const targets = identical.map((other) => targetOf[other]!).sort((a, b) => a - b)
-			let crossed = false
-			for (let t = 0; t < identical.length; t++) {
-				grouped.add(identical[t]!)
-				if (matches[targets[t]!] !== identical[t]) crossed = true
-			}
-			if (!crossed) continue
-
-			if (inPlace === -1) inPlace = longestIncreasingSubsequence(matches).length
-			const previous = targets.map((target) => matches[target]!)
-			for (let t = 0; t < targets.length; t++) matches[targets[t]!] = identical[t]!
-			const nowInPlace = longestIncreasingSubsequence(matches).length
-			if (nowInPlace < inPlace) {
-				for (let t = 0; t < targets.length; t++) matches[targets[t]!] = previous[t]!
-			} else {
-				inPlace = nowInPlace
-			}
+		// Ordering a set can cross other matches, so keep the order the passes chose if it leaves more nodes in place.
+		if (!reordered || longestIncreasingSubsequence(ordered).length < longestIncreasingSubsequence(matches).length) return
+		for (let i = 0; i < unmatchedElements.length; i++) {
+			const target = unmatchedElements[i]!
+			const candidate = (matches[target] = ordered[target]!)
+			// Equal targets skip the morph, which a changed element needs.
+			if (candidate !== undefined && dirtyElements?.has(from[candidate] as Element)) op[target] = Operation.SameElement
 		}
-		return inPlace
 	}
 
 	// Match the other nodes by isEqualNode.
@@ -2666,6 +2625,41 @@ function hasExcessAttributes(from: Element, to: Element): boolean {
 		if (!to.hasAttributeNS(namespaceURI, localName)) return true
 	}
 	return false
+}
+
+// Give each set of candidates that `same` finds interchangeable, one of which is changed, to their targets in
+// order in `matches`. Returns whether any target changed hands.
+function orderSets(
+	from: Array<ChildNode>,
+	matches: Array<number>,
+	candidates: Array<number>,
+	changed: Array<number>,
+	targetOf: Array<number>,
+	same: (a: number, b: number) => boolean,
+): boolean {
+	// Interchangeable elements have equal text content, so with many siblings, compare within its bucket.
+	const candidatesByText = changed.length * candidates.length > 1024 ? bucketByTextContent(from, candidates) : null
+	const grouped: Set<number> = new Set()
+	let reordered = false
+	for (let i = 0; i < changed.length; i++) {
+		const candidate = changed[i]!
+		if (grouped.has(candidate)) continue
+		const identical = (candidatesByText ? candidatesByText.get(from[candidate]!.textContent!)! : candidates).filter(
+			(other) => other === candidate || same(candidate, other),
+		)
+		if (identical.length < 2) continue
+
+		identical.sort((a, b) => a - b)
+		const targets = identical.map((other) => targetOf[other]!).sort((a, b) => a - b)
+		for (let t = 0; t < identical.length; t++) {
+			grouped.add(identical[t]!)
+			if (matches[targets[t]!] !== identical[t]) {
+				matches[targets[t]!] = identical[t]!
+				reordered = true
+			}
+		}
+	}
+	return reordered
 }
 
 function bucketByTextContent(nodes: Array<ChildNode>, indices: Array<number>): Map<string, Array<number>> {

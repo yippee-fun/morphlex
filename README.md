@@ -6,9 +6,9 @@ Morphlex is a DOM morphing library that transforms one DOM tree to match another
 
 ## What makes Morphlex different?
 
-1. No cascading mutations from inserts. Simple inserts should be one DOM operation.
-2. No cascading mutations from removes. Simple removes should be one DOM operation.
-3. No cascading mutations from partial sorts. Morphlex finds the longest increasing subsequence for near perfect partial sorts.
+1. No cascading mutations from inserts. Each inserted node is one DOM operation.
+2. No cascading mutations from removes. Each removed node is one DOM operation.
+3. No cascading mutations from partial sorts. Morphlex finds the longest increasing subsequence, so it moves the fewest elements it can.
 4. It uses [`moveBefore`](https://developer.mozilla.org/en-US/docs/Web/API/Element/moveBefore) when available, preserving state.
 5. It uses [`isEqualNode`](https://developer.mozilla.org/en-US/docs/Web/API/Node/isEqualNode), but in a way that is sensitive to the value of form inputs.
 6. It uses id sets, inspired by Idiomorph, so ids nested deep inside an element can help to identify it.
@@ -51,7 +51,7 @@ morphDocument(document, await response.text())
 ```
 
 - **`morph(from, to, options?)`** morphs `from` into `to`. The target can be a node, a `NodeList` or a string. If it has several nodes, the first is morphed into `from` and the rest are inserted after it. If it has none, `from` is removed.
-- **`morphInner(from, to, options?)`** morphs the children of `from` into the children of `to`, leaving the attributes of `from` alone. Both must be elements with the same tag name. A string target must contain exactly one element.
+- **`morphInner(from, to, options?)`** morphs the children of `from` into the children of `to`, leaving the attributes of `from` alone. Both must be elements with the same tag name and namespace. A string target must contain exactly one element.
 - **`morphDocument(from, to, options?)`** morphs the `<html>` element of one document into another. A string target is parsed with `DOMParser`.
 
 Morphlex throws if it needs to replace or insert next to a node that has no parent, for example when morphing a detached `<div>` into a `<span>`.
@@ -108,7 +108,7 @@ This can be useful for preserving UI state that your backend does not track. `pr
 
 When a node can’t be morphed in place and has to be replaced, `beforeNodeRemoved` is called first, then `beforeNodeAdded` only if the removal was allowed. Returning `false` from either one leaves the original node where it is, even when the replacement is an element that would move in from elsewhere.
 
-An element with a unique id can move to a new parent during a morph, and it moves once the rest of the morph is done. Until then, callbacks for other nodes, including `afterNodeAdded`, may see an empty comment where the element will go, or the element still in its old place. The after callbacks for the node you passed to `morph` see the finished DOM.
+An element with a unique id can move to a new parent during a morph (except `<option>` and `<optgroup>` elements, whose selection belongs to their `<select>`), and it moves once the rest of the morph is done. Until then, callbacks for other nodes, including `afterNodeAdded`, may see an empty comment where the element will go, or the element still in its old place. The after callbacks for the node you passed to `morph` see the finished DOM.
 
 ## Preserving changes
 
@@ -151,18 +151,22 @@ If `beforeAttributeUpdated` returns `false` for one of these attributes, Morphle
 When morphing the children of an element, Morphlex pairs each new child with an existing one, trying these in order:
 
 1. An existing node that is already identical.
-2. An element with the same `id`.
-3. An element that contains one of the same `id`s somewhere inside it.
-4. An element with the same non-empty `name`, `href` or `src` attribute.
-5. Any element with the same tag name, as long as neither element has an `id`, one of the attributes above, or ids inside it, and neither is a form control.
+2. An element that only differs by what the user changed in its form controls, unless the new element is or holds a `morphlex-clobber` element.
+3. An element with the same `id`.
+4. An element that contains one of the same `id`s somewhere inside it.
+5. With `preserveChanges`, a checkbox, radio or option the user changed is paired with one making the same choice, such as the same name and value in the same form, and an element such as a `<label>` holding one is paired with an element holding the same choice. This keeps the user’s pick in place when items are added or reordered around it.
+6. An element with the same non-empty `name`, `href` or `src` attribute.
+7. Any element with the same tag name, as long as neither element has an `id`, one of the attributes above, or ids inside it, and neither is a form control.
+
+When a new child’s unique `id` belongs to a live element under another parent that can be morphed into it, the new child isn’t paired here. That element moves to the new child’s place instead (see [Options](#options)).
 
 Elements are only paired with elements of the same tag name and namespace. Text and comment nodes are paired with nodes of the same type, except text nodes that are only whitespace. Those are never paired with other nodes. Existing whitespace that sits where the new children have whitespace is kept, with its text updated if it differs. Other whitespace is removed or inserted fresh.
 
 Paired nodes are morphed in place, existing nodes that weren’t paired are removed, and new nodes that weren’t paired are inserted. Morphlex then moves the fewest nodes it can to get them in the right order, using `moveBefore` where the browser supports it so moved elements keep their state.
 
-Form controls are never paired by tag name alone, so give them an `id` or `name`. Otherwise a control the user has changed can be replaced with a fresh one, and its value is lost even with `preserveChanges`. In general, stable `id`s are the best way to help Morphlex match elements, especially in lists that get reordered.
+Form controls are never paired by tag name alone, so give them an `id` or `name`. Otherwise a control the user has changed can be replaced with a fresh one when its markup changes, and its value is lost even with `preserveChanges`. In general, stable `id`s are the best way to help Morphlex match elements, especially in lists that get reordered.
 
-The element you pass to `morph` is replaced rather than morphed in place if its tag name differs from the target, if it’s a form control whose `id` differs, or if it’s an `<input>` whose `type` differs.
+The element you pass to `morph` is replaced rather than morphed in place if its tag name, namespace or `is` attribute differs from the target, if it’s a form control whose `id` differs, or if it’s an `<input>` whose `type` differs. Elements paired during a morph already share a tag name and namespace, and are replaced only when their `is` attribute differs.
 
 ### Templates
 
