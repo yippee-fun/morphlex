@@ -50,7 +50,7 @@ The root's id counts towards uniqueness, but the root never moves. `morphInner` 
 
 ### Identical siblings
 
-The `isEqualNode` pass gives each target the first free equal element, so when an element changes and a sibling is identical to its old version, the unchanged target takes the changed element's live node and the two would swap places. Identical live elements are interchangeable, so after the element passes, each set of them is given to its targets in order, unless that leaves fewer nodes in place than the order the passes chose. Elements holding the user's changes are never identical to anything.
+The `isEqualNode` pass gives each target the first free equal element, so when an element changes and a sibling is identical to its old version, the unchanged target takes the changed element's live node and the two would swap places. Identical live elements are interchangeable, so once every sibling is matched, each set of them is given to its targets in order, unless that leaves fewer nodes in place than the order the passes chose (checked once for all the sets, so many sets stay fast). Elements holding the user's changes are never identical to anything.
 
 ### Whitespace between elements
 

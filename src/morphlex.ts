@@ -1321,9 +1321,9 @@ class Morph {
 		}
 		this.#matchElementsByAttributes(siblings)
 		this.#matchElementsByKind(siblings)
-		this.#orderIdenticalCandidates(siblings)
 		this.#matchEqualNodes(siblings)
 		this.#matchNodesByType(siblings)
+		this.#orderIdenticalCandidates(siblings)
 		for (let i = 0; i < siblings.from.length; i++) {
 			if (siblings.candidateActive[i]) this.#removeNode(siblings.from[i]!)
 		}
@@ -1674,7 +1674,8 @@ class Morph {
 	// The isEqualNode pass gives a target the first equal candidate, which can be the identical sibling of a
 	// changed element's live node, and the changed target then takes the sibling's place, so the two swap.
 	// Identical candidates are interchangeable, so give each set of them to its targets in order instead, unless
-	// that leaves fewer nodes in place. Elements holding the user's changes aren't identical to anything.
+	// that leaves fewer nodes in place. This runs after the other nodes are matched, since they count too.
+	// Elements holding the user's changes aren't identical to anything.
 	#orderIdenticalCandidates(siblings: Siblings): void {
 		const { from, unmatchedElements, matches, op } = siblings
 		const dirtyElements = this.#dirtyElements
@@ -1694,7 +1695,7 @@ class Morph {
 
 		const candidatesByText = changed.length * candidates.length > 1024 ? bucketByTextContent(from, candidates) : null
 		const grouped: Set<number> = new Set()
-		let inPlace = -1
+		let ordered: Array<number> | null = null
 		for (let i = 0; i < changed.length; i++) {
 			const candidate = changed[i]!
 			if (grouped.has(candidate)) continue
@@ -1706,22 +1707,15 @@ class Morph {
 
 			identical.sort((a, b) => a - b)
 			const targets = identical.map((other) => targetOf[other]!).sort((a, b) => a - b)
-			let crossed = false
 			for (let t = 0; t < identical.length; t++) {
 				grouped.add(identical[t]!)
-				if (matches[targets[t]!] !== identical[t]) crossed = true
+				if (matches[targets[t]!] !== identical[t]) (ordered ??= matches.slice())[targets[t]!] = identical[t]!
 			}
-			if (!crossed) continue
+		}
 
-			if (inPlace === -1) inPlace = longestIncreasingSubsequence(matches).length
-			const previous = targets.map((target) => matches[target]!)
-			for (let t = 0; t < targets.length; t++) matches[targets[t]!] = identical[t]!
-			const nowInPlace = longestIncreasingSubsequence(matches).length
-			if (nowInPlace < inPlace) {
-				for (let t = 0; t < targets.length; t++) matches[targets[t]!] = previous[t]!
-			} else {
-				inPlace = nowInPlace
-			}
+		// Ordering a set can cross other matches, so keep the order the passes chose if it leaves more nodes in place.
+		if (ordered && longestIncreasingSubsequence(ordered).length >= longestIncreasingSubsequence(matches).length) {
+			for (let target = 0; target < ordered.length; target++) matches[target] = ordered[target]!
 		}
 	}
 

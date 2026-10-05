@@ -56,3 +56,13 @@ test("changing elements in two sets of identical siblings doesn't swap either se
 	expect(morphCountingMutations(from, `<div><p class="x"></p><ul></ul><p></p><b class="x"></b><ol></ol><b></b></div>`)).toBe(2)
 	expect([...from.children]).toEqual(children)
 })
+
+test("identical siblings keep their targets when putting them in order would move text between them", () => {
+	const from = mount(`<div><span></span>A<span></span>B</div>`)
+	const [first, last] = from.children
+
+	// Given in order, both text nodes would move rather than one span.
+	expect(morphCountingMutations(from, `<div>A<span class="x"></span>B<span></span></div>`)).toBe(3)
+	expect(from.children[0]).toBe(last)
+	expect(from.children[1]).toBe(first)
+})
