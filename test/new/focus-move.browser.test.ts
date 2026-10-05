@@ -687,3 +687,27 @@ test("focus that a custom element's callback gives a focusable body during the m
 		host.remove()
 	}
 })
+
+test("a focused live target from another document leaves no listener behind there", () => {
+	const frame = document.createElement("iframe")
+	document.body.append(frame)
+	const frameDocument = frame.contentDocument!
+	frameDocument.body.innerHTML = `<div><input id="x" value="hello"></div><input id="other">`
+	const wrapper = frameDocument.body.firstElementChild!
+	frameDocument.querySelector<HTMLInputElement>("#x")!.focus()
+	const host = mount(`<section><p>old</p></section>`)
+	const errors: Array<unknown> = []
+	const onError = (event: ErrorEvent) => errors.push(event.error)
+	frame.contentWindow!.addEventListener("error", onError)
+
+	try {
+		morph(host.firstElementChild!.firstElementChild!, wrapper)
+		frameDocument.querySelector<HTMLInputElement>("#other")!.focus()
+
+		expect(host.querySelector("#x")).not.toBeNull()
+		expect(errors).toEqual([])
+	} finally {
+		frame.remove()
+		host.remove()
+	}
+})

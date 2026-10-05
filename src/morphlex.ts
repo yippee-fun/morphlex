@@ -579,6 +579,8 @@ interface Focus {
 	range: [Node, number, Node, number] | null
 	// Whether another element took focus while a move ran, such as from a custom element's lifecycle callback.
 	taken: boolean
+	// The document listened to for focus that another element takes. Moving the element can adopt it into another.
+	document: Document
 }
 
 function focusOf(node: Node): Focus | null {
@@ -602,7 +604,7 @@ function focusOf(node: Node): Focus | null {
 		}
 	}
 
-	return { element, selection, range, taken: false }
+	return { element, selection, range, taken: false, document }
 }
 
 // The focus a move of the node would take: the focused element when the node holds it or the selection inside it.
@@ -1142,7 +1144,7 @@ class Morph {
 		const focus = this.#unrestoredFocus
 		if (focus) {
 			this.#unrestoredFocus = null
-			removeEventListener(ownerDocumentOf(focus.element)!, "focusin", this.#dropUnrestoredFocus)
+			removeEventListener(focus.document, "focusin", this.#dropUnrestoredFocus)
 			restoreFocus(focus)
 		}
 		/* v8 ignore stop */
@@ -2039,7 +2041,7 @@ class Morph {
 		const focus = focusHeldBy(node)
 		if (!focus) return null
 		this.#watchedFocus = focus
-		EventTarget.prototype.addEventListener.call(ownerDocumentOf(focus.element)!, "focusin", this.#noteFocusTaken, true)
+		EventTarget.prototype.addEventListener.call(focus.document, "focusin", this.#noteFocusTaken, true)
 		return focus
 	}
 
@@ -2049,14 +2051,18 @@ class Morph {
 
 	#restoreFocus(focus: Focus): void {
 		this.#watchedFocus = null
-		removeEventListener(ownerDocumentOf(focus.element)!, "focusin", this.#noteFocusTaken)
+		removeEventListener(focus.document, "focusin", this.#noteFocusTaken)
 		/* v8 ignore start -- happy-dom focuses any element */
 		if (!restoreFocus(focus)) return
 		// Try again when the morph settles, unless another element takes focus first, such as from a callback.
-		const document = ownerDocumentOf(focus.element)!
-		if (this.#unrestoredFocus) removeEventListener(document, "focusin", this.#dropUnrestoredFocus)
+		const unrestored = this.#unrestoredFocus
+		if (unrestored) removeEventListener(unrestored.document, "focusin", this.#dropUnrestoredFocus)
+		focus.document = ownerDocumentOf(focus.element)!
 		this.#unrestoredFocus = focus
-		EventTarget.prototype.addEventListener.call(document, "focusin", this.#dropUnrestoredFocus, { capture: true, once: true })
+		EventTarget.prototype.addEventListener.call(focus.document, "focusin", this.#dropUnrestoredFocus, {
+			capture: true,
+			once: true,
+		})
 	}
 
 	readonly #dropUnrestoredFocus = (): void => {
