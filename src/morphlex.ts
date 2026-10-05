@@ -1673,15 +1673,13 @@ class Morph {
 
 	// The isEqualNode pass gives a target the first equal candidate, which can be the identical sibling of a
 	// changed element's live node, and the changed target then takes the sibling's place, so the two swap.
-	// Identical candidates are interchangeable, so give each set of them to its targets in order instead, unless
-	// that leaves fewer nodes in place. This runs after the other nodes are matched, since they count too.
+	// Identical candidates are interchangeable, so give each set of them to its targets in order instead, when that
+	// leaves more nodes in place. This runs after the other nodes are matched, since they count too.
 	// An element holding the user's changes isn't equal to anything, so it trades with the untouched siblings of
 	// its shape that took equal targets instead.
 	#orderIdenticalCandidates(siblings: Siblings): void {
 		const { from, to, unmatchedElements, matches, op } = siblings
 		const dirtyElements = this.#dirtyElements
-		const ordered = matches.slice()
-		let reordered = false
 
 		if (dirtyElements) {
 			// The changed elements, and the untouched candidates that took an equal target, unless it discards the
@@ -1715,7 +1713,20 @@ class Morph {
 					if (bucket) bucket.push(candidate)
 					else candidatesByShape.set(shape, [candidate])
 				}
-				reordered = orderSets(ordered, changed, targetOf, (candidate) => candidatesByShape.get(shapes[candidate]!)!)
+				const ordered = matches.slice()
+				// Keep the order the passes chose if ordering leaves fewer nodes in place. Unlike untouched siblings, on a
+				// tie the changed element keeps its position, so the user's text stays in its box.
+				if (
+					orderSets(ordered, changed, targetOf, (candidate) => candidatesByShape.get(shapes[candidate]!)!) &&
+					longestIncreasingSubsequence(ordered).length >= longestIncreasingSubsequence(matches).length
+				) {
+					for (let i = 0; i < unmatchedElements.length; i++) {
+						const target = unmatchedElements[i]!
+						const candidate = (matches[target] = ordered[target]!)
+						// Equal targets skip the morph, which a changed element needs.
+						if (candidate !== undefined && dirtyElements.has(from[candidate] as Element)) op[target] = Operation.SameElement
+					}
+				}
 			}
 		}
 
@@ -1726,7 +1737,7 @@ class Morph {
 		const targetOf: Array<number> = []
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
-			const candidate = ordered[target]
+			const candidate = matches[target]
 			if (candidate === undefined || dirtyElements?.has(from[candidate] as Element)) continue
 			candidates.push(candidate)
 			targetOf[candidate] = target
@@ -1739,16 +1750,15 @@ class Morph {
 				(candidatesByText ? candidatesByText.get(from[candidate]!.textContent!)! : candidates).filter(
 					(other) => other === candidate || isEqualNode(from[other]!, from[candidate]!),
 				)
-			if (orderSets(ordered, changed, targetOf, identicalTo)) reordered = true
-		}
-
-		// Ordering a set can cross other matches, so keep the order the passes chose if it leaves more nodes in place.
-		if (!reordered || longestIncreasingSubsequence(ordered).length < longestIncreasingSubsequence(matches).length) return
-		for (let i = 0; i < unmatchedElements.length; i++) {
-			const target = unmatchedElements[i]!
-			const candidate = (matches[target] = ordered[target]!)
-			// Equal targets skip the morph, which a changed element needs.
-			if (candidate !== undefined && dirtyElements?.has(from[candidate] as Element)) op[target] = Operation.SameElement
+			// Ordering a set can cross other matches, so keep the order the passes chose unless ordering leaves more
+			// nodes in place. On a tie, it's other nodes that move, and whitespace is reused around the nodes that stay.
+			const ordered = matches.slice()
+			if (
+				orderSets(ordered, changed, targetOf, identicalTo) &&
+				longestIncreasingSubsequence(ordered).length > longestIncreasingSubsequence(matches).length
+			) {
+				for (let target = 0; target < ordered.length; target++) matches[target] = ordered[target]!
+			}
 		}
 	}
 

@@ -111,3 +111,15 @@ test("typed text stays in place among many pairs of identical inputs", () => {
 	for (let i = 0; i < 300; i++) expect(inputs[2 * i + 1]!.value).toBe(`typed ${i}`)
 	form.parentElement!.remove()
 })
+
+test("typed text stays in its input when an element is added between it and an identical input", () => {
+	const form = mount(`<form><input class="q"><input class="q"><p></p></form>`)
+	const [first, second] = form.querySelectorAll("input")
+	first!.value = "typed"
+
+	morph(form, `<form><input class="q"><p></p><input class="q"></form>`, { preserveChanges: true })
+
+	expect([...form.querySelectorAll("input")]).toEqual([first, second])
+	expect(first!.value).toBe("typed")
+	form.parentElement!.remove()
+})
