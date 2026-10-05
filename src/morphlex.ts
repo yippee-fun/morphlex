@@ -1682,20 +1682,17 @@ class Morph {
 		const dirtyElements = this.#dirtyElements
 
 		if (dirtyElements) {
-			// The changed elements, and the untouched candidates that took an equal target, unless it discards the
-			// user's changes.
+			// The changed elements, and the untouched candidates that took an equal target, unless the target discards
+			// the user's changes, so no changed element trades into it.
 			const candidates: Array<number> = []
 			const changed: Array<number> = []
 			const targetOf: Array<number> = []
 			for (let i = 0; i < unmatchedElements.length; i++) {
 				const target = unmatchedElements[i]!
 				const candidate = matches[target]
-				if (candidate === undefined) continue
-				if (dirtyElements.has(from[candidate] as Element)) {
-					changed.push(candidate)
-				} else if (op[target] !== Operation.EqualNode || this.#holdsClobbered(to[target] as Element)) {
-					continue
-				}
+				if (candidate === undefined || this.#holdsClobbered(to[target] as Element)) continue
+				if (dirtyElements.has(from[candidate] as Element)) changed.push(candidate)
+				else if (op[target] !== Operation.EqualNode) continue
 				candidates.push(candidate)
 				targetOf[candidate] = target
 			}

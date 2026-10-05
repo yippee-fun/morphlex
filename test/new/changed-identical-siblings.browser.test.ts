@@ -123,3 +123,20 @@ test("typed text stays in its input when an element is added between it and an i
 	expect(first!.value).toBe("typed")
 	form.parentElement!.remove()
 })
+
+test("a changed element doesn't trade places into a target that discards its changes", () => {
+	const form = mount(`<form><label><input name="a"></label><label><input name="a"></label><label><input name="a"></label></form>`)
+	const [first, second, third] = form.querySelectorAll("input")
+	first!.value = "first"
+	second!.value = "second"
+
+	morph(
+		form,
+		`<form><label class="c"><input name="a" morphlex-clobber></label><label><input name="a"></label><label><input name="a"></label></form>`,
+		{ preserveChanges: true },
+	)
+
+	expect(first!.value).toBe("first")
+	expect([...form.querySelectorAll("input")]).toEqual([second, first, third])
+	form.parentElement!.remove()
+})
