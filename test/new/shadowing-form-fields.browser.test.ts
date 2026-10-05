@@ -254,3 +254,46 @@ test("a document with an image named after each of its members is morphed", () =
 	expect(body.querySelector("form.b")).not.toBeNull()
 	expect(body.querySelectorAll("option")).toHaveLength(2)
 })
+
+test("a focused field in a form with a field for each of its members keeps focus and its caret when the form moves", () => {
+	const fields = shadowingFields()
+	const host = mount(
+		`<section><div id="a"><form id="one">${fields}<input id="x" value="hello"></form></div><div id="b"></div></section>`,
+	)
+	const x = host.querySelector<HTMLInputElement>("#x")!
+	x.focus()
+	x.setSelectionRange(1, 3)
+
+	morph(
+		host.firstElementChild!,
+		`<section><div id="a"></div><div id="b"><form id="one">${fields}<input id="x" value="hello"></form></div></section>`,
+	)
+
+	expect(host.querySelector("#b #x")).toBe(x)
+	expect(document.activeElement).toBe(x)
+	expect([x.selectionStart, x.selectionEnd]).toEqual([1, 3])
+	host.remove()
+})
+
+test("a focused field keeps focus when the document has images named after its members", () => {
+	const host = mount(`<section><div id="a"><input id="x" value="hello"></div><div id="b"></div></section>`)
+	const images = mount(
+		["activeElement", "body", "getSelection", "addEventListener", "removeEventListener"]
+			.map((name) => `<img name="${name}">`)
+			.join(""),
+	)
+	const x = host.querySelector<HTMLInputElement>("#x")!
+	x.focus()
+	x.setSelectionRange(1, 3)
+
+	try {
+		morph(host.firstElementChild!, `<section><div id="a"></div><div id="b"><input id="x" value="hello"></div></section>`)
+
+		expect(host.querySelector("#b #x")).toBe(x)
+		expect(x.matches(":focus")).toBe(true)
+		expect([x.selectionStart, x.selectionEnd]).toEqual([1, 3])
+	} finally {
+		images.remove()
+		host.remove()
+	}
+})
