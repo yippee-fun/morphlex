@@ -90,3 +90,17 @@ test.each([
 ])("morphing %s into %s", (fromHTML, toHTML, expected) => {
 	expect(morphChildren(fromHTML, toHTML)).toEqual(expected)
 })
+
+test.each([
+	[`<a href="">old</a>`, `<a href="">new</a>`],
+	[`<div name="">old</div>`, `<div name="">new</div>`],
+	[`<img src="">`, `<img src="" alt="new">`],
+	[`<a href="">old</a>`, `<a>new</a>`],
+	[`<a>old</a>`, `<a href="">new</a>`],
+])("an element with an empty name, href or src is morphed in place: %s to %s", (fromHTML, toHTML) => {
+	expect(morphChildren(fromHTML, toHTML)).toMatchObject({ original: [0], added: 0, removed: 0 })
+})
+
+test("an element with a non-empty href isn't paired with one whose href is empty", () => {
+	expect(morphChildren(`<a href="/x">old</a>`, `<a href="">new</a>`)).toMatchObject({ original: [-1], added: 1, removed: 1 })
+})
