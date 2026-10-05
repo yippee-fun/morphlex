@@ -1,6 +1,5 @@
 import { test } from "vitest"
 import { morph, morphInner } from "../../src/morphlex"
-import { isSameTree } from "./utils"
 
 // Random trees of mixed elements, text and comments, morphed into a mutated or unrelated
 // tree. Each test checks one property over every seed and reports the smallest failure.
@@ -21,7 +20,6 @@ const TAGS = [
 	"div",
 	"span",
 	"p",
-	"pre",
 	"ul",
 	"li",
 	"section",
@@ -92,7 +90,7 @@ test("preserveChanges without any user changes matches the target, apart from op
 	check((scenario, fail) => {
 		const host = mount(scenario.fromHtml)
 		morph(host.firstChild!, parse(scenario.toHtml), { preserveChanges: true })
-		if (!isSameTree(host.firstChild!, parse(scenario.toHtml), true)) fail(host)
+		if (!isSameTree(withoutOpen(host.firstChild!), withoutOpen(parse(scenario.toHtml)))) fail(host)
 	})
 })
 
@@ -481,6 +479,24 @@ function countMutations(host: HTMLElement, morph: () => void): number {
 	const records = observer.takeRecords().filter((record) => record.attributeName !== "morphlex-dirty")
 	observer.disconnect()
 	return records.length
+}
+
+// Like `isEqualNode`, but also compares template contents.
+function isSameTree(a: Node, b: Node): boolean {
+	if (!a.isEqualNode(b)) return false
+	if (a instanceof HTMLTemplateElement && !isSameTree(a.content, (b as HTMLTemplateElement).content)) return false
+
+	for (let index = 0; index < a.childNodes.length; index++) {
+		if (!isSameTree(a.childNodes[index]!, b.childNodes[index]!)) return false
+	}
+
+	return true
+}
+
+function withoutOpen(node: Node): Node {
+	const clone = node.cloneNode(true) as Element
+	for (const details of clone.querySelectorAll("details[open]")) details.removeAttribute("open")
+	return clone
 }
 
 function shuffle<T>(random: Random, items: Array<T>): Array<T> {
