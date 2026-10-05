@@ -622,14 +622,16 @@ function focusHoldersIn(root: Node): Set<Node> | null {
 	return holders.has(root) ? holders : null
 }
 
-// Put back the focus and selection a move just took, unless the element can't be focused where it is now.
+// Put back the focus and selection a move just took. Focus that another element took meanwhile, such as from a
+// custom element's lifecycle callback or a focus handler, stays there. Returns whether to try again when the morph
+// settles, because the element can't be focused where it is yet and nothing else has focus.
 function restoreFocus({ element, selection, range }: Focus): boolean {
 	const root = element.getRootNode() as Node & Partial<DocumentOrShadowRoot>
 	/* v8 ignore else -- happy-dom loses focus whenever the focused element moves */
 	if (root.activeElement !== element) {
+		if (!isFocusLost(element.ownerDocument)) return false
 		;(element as HTMLElement).focus({ preventScroll: true })
-		/* v8 ignore next -- happy-dom focuses any element */
-		if (root.activeElement !== element) return false
+		if (root.activeElement !== element) return isFocusLost(element.ownerDocument)
 	}
 
 	// A custom element's lifecycle callback can run during the move and change the control's type or the selected
@@ -647,7 +649,11 @@ function restoreFocus({ element, selection, range }: Focus): boolean {
 			element.ownerDocument.getSelection()!.setBaseAndExtent(...range)
 		}
 	} catch {}
-	return true
+	return false
+}
+
+function isFocusLost({ activeElement, body }: Document): boolean {
+	return activeElement === body || activeElement === null
 }
 
 function holds(node: Node, element: Node): boolean {
@@ -1903,7 +1909,7 @@ class Morph {
 
 	/* v8 ignore start -- happy-dom focuses any element */
 	#restoreFocus(focus: Focus): void {
-		if (restoreFocus(focus)) return
+		if (!restoreFocus(focus)) return
 		// Try again when the morph settles, unless another element takes focus first, such as from a callback.
 		const { ownerDocument } = focus.element
 		if (this.#unrestoredFocus) ownerDocument.removeEventListener("focusin", this.#dropUnrestoredFocus, true)

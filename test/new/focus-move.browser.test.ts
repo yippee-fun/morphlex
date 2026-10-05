@@ -590,3 +590,51 @@ test("a focused input that a custom element's callback retypes during the move d
 
 	host.remove()
 })
+
+test("focus that a custom element's callback gives another element during the move stays there", () => {
+	class TakeFocus extends HTMLElement {
+		connectedCallback() {
+			if (this.hasAttribute("armed")) document.querySelector<HTMLElement>("#other")!.focus()
+		}
+		connectedMoveCallback() {
+			this.connectedCallback()
+		}
+	}
+	if (!customElements.get("x-take-focus")) customElements.define("x-take-focus", TakeFocus)
+	const host = mount(
+		`<button id="other">other</button><div id="s1"><x-take-focus id="t"><input id="x" value="hello"></x-take-focus></div><div id="s2"></div>`,
+	)
+	const input = host.querySelector("input")!
+	const other = host.querySelector("#other")!
+	input.focus()
+	host.querySelector("#t")!.setAttribute("armed", "")
+
+	morphInner(
+		host,
+		`<div><button id="other">other</button><div id="s1"></div><div id="s2"><x-take-focus id="t" armed><input id="x" value="hello"></x-take-focus></div></div>`,
+	)
+
+	expect(input.parentElement!.parentElement!.id).toBe("s2")
+	expect(document.activeElement).toBe(other)
+
+	host.remove()
+})
+
+test("focus that a focus handler sends elsewhere when the moved input gets it back stays there", () => {
+	const host = mount(`<button id="other">other</button><div id="s1"><input id="x" value="hello"></div><div id="s2"></div>`)
+	const input = host.querySelector("input")!
+	const other = host.querySelector<HTMLElement>("#other")!
+	input.focus()
+	input.addEventListener("focus", () => other.focus(), { once: true })
+
+	morphInner(
+		host,
+		`<div><button id="other">other</button><div id="s1"></div><div id="s2"><input id="x" value="hello"></div></div>`,
+	)
+
+	expect(input.parentElement!.id).toBe("s2")
+	// Browsers with moveBefore keep focus on the input, so they never focus it again.
+	expect(document.activeElement).toBe("moveBefore" in Element.prototype ? input : other)
+
+	host.remove()
+})
