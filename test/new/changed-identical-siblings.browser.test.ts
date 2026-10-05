@@ -98,3 +98,16 @@ test("typed text stays in place among many identical inputs", () => {
 	expect(inputs[400]!.value).toBe("also typed")
 	form.parentElement!.remove()
 })
+
+test("typed text stays in place among many pairs of identical inputs", () => {
+	const pairs = Array.from({ length: 300 }, (_, i) => `<input name="a${i}"><input name="a${i}">`).join("")
+	const form = mount(`<form>${pairs}</form>`)
+	const inputs = [...form.querySelectorAll("input")]
+	for (let i = 0; i < 300; i++) inputs[2 * i + 1]!.value = `typed ${i}`
+
+	morph(form, `<form class="x">${pairs}</form>`, { preserveChanges: true })
+
+	expect([...form.querySelectorAll("input")]).toEqual(inputs)
+	for (let i = 0; i < 300; i++) expect(inputs[2 * i + 1]!.value).toBe(`typed ${i}`)
+	form.parentElement!.remove()
+})

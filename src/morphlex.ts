@@ -1702,14 +1702,20 @@ class Morph {
 				targetOf[candidate] = target
 			}
 			if (changed.length && candidates.length > changed.length) {
-				// A changed element's shape spans its whole subtree, so only work it out for a likely sibling.
+				// A shape spans the whole subtree, so it's only worked out for candidates with a changed element's name
+				// and text, and they're bucketed by it rather than compared pair by pair.
+				const keyOf = (index: number): string => `${(from[index] as Element).localName} ${from[index]!.textContent}`
+				const changedKeys = new Set(changed.map(keyOf))
 				const shapes: Array<string> = []
-				const shape = (index: number): string => (shapes[index] ??= shapeOf(from[index]!))
-				const same = (a: number, b: number): boolean =>
-					(from[a] as Element).localName === (from[b] as Element).localName &&
-					from[a]!.textContent === from[b]!.textContent &&
-					shape(a) === shape(b)
-				reordered = orderSets(from, ordered, candidates, changed, targetOf, same)
+				const candidatesByShape: Map<string, Array<number>> = new Map()
+				for (const candidate of candidates) {
+					if (!changedKeys.has(keyOf(candidate))) continue
+					const shape = (shapes[candidate] = shapeOf(from[candidate]!))
+					const bucket = candidatesByShape.get(shape)
+					if (bucket) bucket.push(candidate)
+					else candidatesByShape.set(shape, [candidate])
+				}
+				reordered = orderSets(ordered, changed, targetOf, (candidate) => candidatesByShape.get(shapes[candidate]!)!)
 			}
 		}
 
@@ -1726,8 +1732,14 @@ class Morph {
 			targetOf[candidate] = target
 			if (op[target] !== Operation.EqualNode) changed.push(candidate)
 		}
-		if (changed.length && orderSets(from, ordered, candidates, changed, targetOf, (a, b) => isEqualNode(from[a]!, from[b]!))) {
-			reordered = true
+		if (changed.length) {
+			// Equal nodes have equal text content, so with many siblings, compare within its bucket.
+			const candidatesByText = changed.length * candidates.length > 1024 ? bucketByTextContent(from, candidates) : null
+			const identicalTo = (candidate: number): Array<number> =>
+				(candidatesByText ? candidatesByText.get(from[candidate]!.textContent!)! : candidates).filter(
+					(other) => other === candidate || isEqualNode(from[other]!, from[candidate]!),
+				)
+			if (orderSets(ordered, changed, targetOf, identicalTo)) reordered = true
 		}
 
 		// Ordering a set can cross other matches, so keep the order the passes chose if it leaves more nodes in place.
@@ -2627,26 +2639,20 @@ function hasExcessAttributes(from: Element, to: Element): boolean {
 	return false
 }
 
-// Give each set of candidates that `same` finds interchangeable, one of which is changed, to their targets in
-// order in `matches`. Returns whether any target changed hands.
+// Give each changed candidate's set of interchangeable candidates, from `identicalTo`, to their targets in order in
+// `matches`. Returns whether any target changed hands.
 function orderSets(
-	from: Array<ChildNode>,
 	matches: Array<number>,
-	candidates: Array<number>,
 	changed: Array<number>,
 	targetOf: Array<number>,
-	same: (a: number, b: number) => boolean,
+	identicalTo: (candidate: number) => Array<number>,
 ): boolean {
-	// Interchangeable elements have equal text content, so with many siblings, compare within its bucket.
-	const candidatesByText = changed.length * candidates.length > 1024 ? bucketByTextContent(from, candidates) : null
 	const grouped: Set<number> = new Set()
 	let reordered = false
 	for (let i = 0; i < changed.length; i++) {
 		const candidate = changed[i]!
 		if (grouped.has(candidate)) continue
-		const identical = (candidatesByText ? candidatesByText.get(from[candidate]!.textContent!)! : candidates).filter(
-			(other) => other === candidate || same(candidate, other),
-		)
+		const identical = identicalTo(candidate)
 		if (identical.length < 2) continue
 
 		identical.sort((a, b) => a - b)
