@@ -151,10 +151,10 @@ If `beforeAttributeUpdated` returns `false` for one of these attributes, Morphle
 When morphing the children of an element, Morphlex pairs each new child with an existing one, trying these in order:
 
 1. An existing node that is already identical.
-2. An element that only differs by what the user changed in its form controls.
+2. An element that only differs by what the user changed in its form controls, unless the new element is or holds a `morphlex-clobber` element.
 3. An element with the same `id`.
 4. An element that contains one of the same `id`s somewhere inside it.
-5. With `preserveChanges`, a checkbox, radio or option the user changed is paired with one making the same choice (the same name and value), and an element such as a `<label>` holding one is paired with an element holding the same choice. This keeps the user’s pick in place when items are added or reordered around it.
+5. With `preserveChanges`, a checkbox, radio or option the user changed is paired with one making the same choice, such as the same name and value in the same form, and an element such as a `<label>` holding one is paired with an element holding the same choice. This keeps the user’s pick in place when items are added or reordered around it.
 6. An element with the same non-empty `name`, `href` or `src` attribute.
 7. Any element with the same tag name, as long as neither element has an `id`, one of the attributes above, or ids inside it, and neither is a form control.
 
@@ -166,7 +166,7 @@ Paired nodes are morphed in place, existing nodes that weren’t paired are remo
 
 Form controls are never paired by tag name alone, so give them an `id` or `name`. Otherwise a control the user has changed can be replaced with a fresh one when its markup changes, and its value is lost even with `preserveChanges`. In general, stable `id`s are the best way to help Morphlex match elements, especially in lists that get reordered.
 
-The element you pass to `morph` is replaced rather than morphed in place if its tag name, namespace or `is` attribute differs from the target, if it’s a form control whose `id` differs, or if it’s an `<input>` whose `type` differs. The same goes for any element paired during a morph.
+The element you pass to `morph` is replaced rather than morphed in place if its tag name, namespace or `is` attribute differs from the target, if it’s a form control whose `id` differs, or if it’s an `<input>` whose `type` differs. Elements paired during a morph already share a tag name and namespace, and are replaced only when their `is` attribute differs.
 
 ### Templates
 
