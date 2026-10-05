@@ -181,9 +181,8 @@ test("changing one attribute makes only that one mutation", () => {
 	check((scenario, fail) => {
 		const host = mount(scenario.fromHtml)
 		const target = parse(scenario.fromHtml)
-		// Unnamed form controls, and elements with an empty name, href or src, are replaced when they
-		// differ. So leave them and their descendants alone.
-		const replaced = "input, textarea, select, [name=''], [href=''], [src='']"
+		// Unnamed form controls are replaced when they differ. So leave them and their descendants alone.
+		const replaced = "input, textarea, select"
 		const elements = [target, ...target.querySelectorAll("*")].filter((element) => !element.closest(replaced))
 		elements[scenario.seed % elements.length]!.setAttribute("data-changed", "")
 

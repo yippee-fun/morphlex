@@ -2947,7 +2947,7 @@ function hasStableSoftMatchIdentity(element: Element, hasDescendantIdMarker: boo
 }
 
 function hasMatchKeyAttribute(element: Element): boolean {
-	return hasAttribute(element, "name") || hasAttribute(element, "href") || hasAttribute(element, "src")
+	return !!(getAttribute(element, "name") || getAttribute(element, "href") || getAttribute(element, "src"))
 }
 
 function isFormControl(element: Element): boolean {
