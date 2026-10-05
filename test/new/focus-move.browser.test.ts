@@ -99,19 +99,17 @@ test("a focused input that moves keeps the caret as the user typed it", () => {
 	host.remove()
 })
 
-test("a focused input whose value the morph resets doesn't get its old selection back", () => {
+test("a focused input whose value the morph resets keeps focus", () => {
 	const host = mount(`<div id="s1"><input id="x" value="hello"></div><div id="s2"></div>`)
 	const input = host.querySelector("input")!
 	input.focus()
 	input.setSelectionRange(1, 2)
-	const selections: Array<Array<unknown>> = []
-	input.setSelectionRange = (...args) => selections.push(args)
 
 	morphInner(host, `<div><div id="s1"></div><div id="s2"><input id="x" value="goodbye"></div></div>`)
 
+	expect(input.parentElement!.id).toBe("s2")
 	expect(document.activeElement).toBe(input)
 	expect(input.value).toBe("goodbye")
-	expect(selections).toEqual([])
 
 	host.remove()
 })
@@ -261,17 +259,19 @@ test("a moved contenteditable that loses the children around the caret doesn't g
 	host.remove()
 })
 
-test("a focused input that the morph moves and disables isn't focused again", () => {
-	const host = mount(`<div id="s1"><input id="x" value="hello"></div><div id="s2"></div>`)
-	const input = host.querySelector("input")!
-	input.focus()
-	input.setSelectionRange(1, 3)
+test("a focused element that can't take focus once it moves isn't forced to", () => {
+	const host = mount(`<div id="s1"><div id="x" tabindex="0">x</div></div><div id="s2"></div>`)
+	const element = host.querySelector<HTMLElement>("#x")!
+	element.focus()
 
-	morphInner(host, `<div><div id="s1"></div><div id="s2"><input id="x" value="hello" disabled></div></div>`)
+	morphInner(host, `<div><div id="s1" class="emptied"></div><div id="s2"><div id="x">x</div></div></div>`, {
+		beforeNodeVisited: (from) => {
+			if (from instanceof Element && from.id === "s1") element.removeAttribute("tabindex")
+			return true
+		},
+	})
 
-	expect(input.parentElement!.id).toBe("s2")
-	// Firefox's moveBefore keeps focus on the input, and it stays focused once disabled.
-	if (!("moveBefore" in Element.prototype)) expect(document.activeElement).not.toBe(input)
+	expect(element.parentElement!.id).toBe("s2")
 
 	host.remove()
 })
@@ -403,6 +403,83 @@ test("a focused input outside the morph is left alone", () => {
 	expect([...ul.children].map((child) => child.id)).toEqual(["b", "a"])
 	expect(document.activeElement).toBe(input)
 	expect([input.selectionStart, input.selectionEnd]).toEqual([1, 4])
+
+	host.remove()
+})
+
+test("a caret that a callback sets after the move stays where the callback put it", () => {
+	const host = mount(`<div id="s1"><input id="x" value="hello"></div><div id="s2"></div>`)
+	const input = host.querySelector("input")!
+	input.focus()
+	input.setSelectionRange(1, 4)
+
+	morphInner(host, `<div><div id="s1"></div><div id="s2"><input id="x" value="hello" class="moved"></div></div>`, {
+		afterNodeVisited: (from) => {
+			if (from === input) input.setSelectionRange(5, 5)
+		},
+	})
+
+	expect(document.activeElement).toBe(input)
+	expect([input.selectionStart, input.selectionEnd]).toEqual([5, 5])
+
+	host.remove()
+})
+
+test("the caret in a child of a focused contenteditable stays there when the child moves", () => {
+	const host = mount(`<div id="e" contenteditable="true"><p id="a">hello</p><div id="w"></div></div>`)
+	const editor = host.querySelector<HTMLElement>("#e")!
+	const paragraph = host.querySelector("#a")!
+	const text = paragraph.firstChild!
+	editor.focus()
+	getSelection()!.setBaseAndExtent(text, 1, text, 3)
+
+	morph(editor, `<div id="e" contenteditable="true"><div id="w"><p id="a">hello</p></div></div>`)
+
+	const selection = getSelection()!
+	expect(paragraph.parentElement!.id).toBe("w")
+	expect(document.activeElement).toBe(editor)
+	expect([selection.anchorNode, selection.anchorOffset, selection.focusNode, selection.focusOffset]).toEqual([text, 1, text, 3])
+
+	host.remove()
+})
+
+test("focus that a callback sends to a focusable body stays there", () => {
+	const host = mount(`<div id="s1"><input id="x" value="hello"></div><div id="s2"></div>`)
+	const input = host.querySelector("input")!
+	document.body.tabIndex = -1
+	input.focus()
+
+	morphInner(host, `<div><div id="s1" class="emptied"></div><div id="s2"><input id="x" value="hello"></div></div>`, {
+		afterNodeVisited: (from) => {
+			if (from instanceof Element && from.id === "s1") document.body.focus()
+		},
+	})
+
+	expect(input.parentElement!.id).toBe("s2")
+	expect(document.activeElement).toBe(document.body)
+
+	document.body.removeAttribute("tabindex")
+	host.remove()
+})
+
+test("a selection that ends in a child of a focused contenteditable stays when only that child moves", () => {
+	const host = mount(`<div id="e" contenteditable="true"><p id="a">hello</p><p id="b">world</p><div id="w"></div></div>`)
+	const editor = host.querySelector<HTMLElement>("#e")!
+	const first = host.querySelector("#a")!.firstChild!
+	const second = host.querySelector("#b")!.firstChild!
+	editor.focus()
+	getSelection()!.setBaseAndExtent(first, 1, second, 3)
+
+	morph(editor, `<div id="e" contenteditable="true"><p id="a">hello</p><div id="w"><p id="b">world</p></div></div>`)
+
+	const selection = getSelection()!
+	expect(second.parentElement!.parentElement!.id).toBe("w")
+	expect([selection.anchorNode, selection.anchorOffset, selection.focusNode, selection.focusOffset]).toEqual([
+		first,
+		1,
+		second,
+		3,
+	])
 
 	host.remove()
 })
