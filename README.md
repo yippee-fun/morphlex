@@ -6,9 +6,9 @@ Morphlex is a DOM morphing library that transforms one DOM tree to match another
 
 ## What makes Morphlex different?
 
-1. No cascading mutations from inserts. Simple inserts should be one DOM operation.
-2. No cascading mutations from removes. Simple removes should be one DOM operation.
-3. No cascading mutations from partial sorts. Morphlex finds the longest increasing subsequence for near perfect partial sorts.
+1. No cascading mutations from inserts. Each inserted node is one DOM operation.
+2. No cascading mutations from removes. Each removed node is one DOM operation.
+3. No cascading mutations from partial sorts. Morphlex finds the longest increasing subsequence, so it moves the fewest elements it can.
 4. It uses [`moveBefore`](https://developer.mozilla.org/en-US/docs/Web/API/Element/moveBefore) when available, preserving state.
 5. It uses [`isEqualNode`](https://developer.mozilla.org/en-US/docs/Web/API/Node/isEqualNode), but in a way that is sensitive to the value of form inputs.
 6. It uses id sets, inspired by Idiomorph, so ids nested deep inside an element can help to identify it.
