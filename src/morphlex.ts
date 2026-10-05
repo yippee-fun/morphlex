@@ -1826,24 +1826,36 @@ class Morph {
 			if (changed.length && candidates.length > changed.length) {
 				// A shape spans the whole subtree, so it's only worked out for candidates with a changed element's name
 				// and text, and they're bucketed by it rather than compared pair by pair.
-				const keyOf = (index: number): string => `${(from[index] as Element).localName} ${from[index]!.textContent}`
+				const keyOf = (index: number): string => `${localNameOf(from[index] as Element)} ${textContentOf(from[index]!)}`
 				const changedKeys = new Set(changed.map(keyOf))
-				const shapes: Array<string> = []
 				const candidatesByShape: Map<string, Array<number>> = new Map()
 				for (const candidate of candidates) {
 					if (!changedKeys.has(keyOf(candidate))) continue
-					const shape = (shapes[candidate] = shapeOf(from[candidate]!))
+					const shape = shapeOf(from[candidate]!)
 					const bucket = candidatesByShape.get(shape)
 					if (bucket) bucket.push(candidate)
 					else candidatesByShape.set(shape, [candidate])
 				}
+				// Each set takes its targets in order, except that the changed elements keep the order of their own
+				// targets among themselves, since a pass that matched them by the user's choices may have crossed them.
 				const ordered = matches.slice()
+				let reordered = false
+				for (const bucket of candidatesByShape.values()) {
+					bucket.sort((a, b) => a - b)
+					const targets = bucket.map((candidate) => targetOf[candidate]!).sort((a, b) => a - b)
+					const changedInBucket = bucket.filter((candidate) => dirtyElements.has(from[candidate] as Element))
+					changedInBucket.sort((a, b) => targetOf[a]! - targetOf[b]!)
+					for (let t = 0, c = 0; t < bucket.length; t++) {
+						const candidate = dirtyElements.has(from[bucket[t]!] as Element) ? changedInBucket[c++]! : bucket[t]!
+						if (ordered[targets[t]!] !== candidate) {
+							ordered[targets[t]!] = candidate
+							reordered = true
+						}
+					}
+				}
 				// Keep the order the passes chose if ordering leaves fewer nodes in place. Unlike untouched siblings, on a
 				// tie the changed element keeps its position, so the user's text stays in its box.
-				if (
-					orderSets(ordered, changed, targetOf, (candidate) => candidatesByShape.get(shapes[candidate]!)!) &&
-					longestIncreasingSubsequence(ordered).length >= longestIncreasingSubsequence(matches).length
-				) {
+				if (reordered && longestIncreasingSubsequence(ordered).length >= longestIncreasingSubsequence(matches).length) {
 					for (let i = 0; i < unmatchedElements.length; i++) {
 						const target = unmatchedElements[i]!
 						const candidate = (matches[target] = ordered[target]!)
@@ -1871,7 +1883,7 @@ class Morph {
 			// Equal nodes have equal text content, so with many siblings, compare within its bucket.
 			const candidatesByText = changed.length * candidates.length > 1024 ? bucketByTextContent(from, candidates) : null
 			const identicalTo = (candidate: number): Array<number> =>
-				(candidatesByText ? candidatesByText.get(from[candidate]!.textContent!)! : candidates).filter(
+				(candidatesByText ? candidatesByText.get(textContentOf(from[candidate]!)!)! : candidates).filter(
 					(other) => other === candidate || isEqualNode(from[other]!, from[candidate]!),
 				)
 			// Ordering a set can cross other matches, so keep the order the passes chose unless ordering leaves more
