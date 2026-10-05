@@ -66,3 +66,13 @@ test("identical siblings keep their targets when putting them in order would mov
 	expect(from.children[0]).toBe(last)
 	expect(from.children[1]).toBe(first)
 })
+
+test("identical siblings keep their targets when putting them in order would only move other elements", () => {
+	const from = mount(`<div><p></p><p></p><i>2</i> <b>3</b></div>`)
+	const [first, last] = from.children
+
+	// Either way two elements move, but in order the whitespace would be replaced too.
+	expect(morphCountingMutations(from, `<div><p class="x"></p><b>3</b><i>2</i> <p></p></div>`)).toBe(5)
+	expect(from.children[0]).toBe(last)
+	expect(from.children[3]).toBe(first)
+})

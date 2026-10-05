@@ -1673,8 +1673,8 @@ class Morph {
 
 	// The isEqualNode pass gives a target the first equal candidate, which can be the identical sibling of a
 	// changed element's live node, and the changed target then takes the sibling's place, so the two swap.
-	// Identical candidates are interchangeable, so give each set of them to its targets in order instead, unless
-	// that leaves fewer nodes in place. This runs after the other nodes are matched, since they count too.
+	// Identical candidates are interchangeable, so give each set of them to its targets in order instead, when that
+	// leaves more nodes in place. This runs after the other nodes are matched, since they count too.
 	// Elements holding the user's changes aren't identical to anything.
 	#orderIdenticalCandidates(siblings: Siblings): void {
 		const { from, unmatchedElements, matches, op } = siblings
@@ -1713,8 +1713,9 @@ class Morph {
 			}
 		}
 
-		// Ordering a set can cross other matches, so keep the order the passes chose if it leaves more nodes in place.
-		if (ordered && longestIncreasingSubsequence(ordered).length >= longestIncreasingSubsequence(matches).length) {
+		// Ordering a set can cross other matches, so keep the order the passes chose unless ordering leaves more nodes
+		// in place. On a tie, it's other nodes that move, and whitespace is reused around the nodes that stay.
+		if (ordered && longestIncreasingSubsequence(ordered).length > longestIncreasingSubsequence(matches).length) {
 			for (let target = 0; target < ordered.length; target++) matches[target] = ordered[target]!
 		}
 	}
