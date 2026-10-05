@@ -2,26 +2,11 @@ const SUPPORTS_MOVE_BEFORE = typeof Element !== "undefined" && "moveBefore" in E
 const ELEMENT_NODE_TYPE = 1
 const TEXT_NODE_TYPE = 3
 const DOCUMENT_NODE_TYPE = 9
+const DOCUMENT_FRAGMENT_NODE_TYPE = 11
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
 const CLOBBER_ATTRIBUTE = "morphlex-clobber"
 const DIRTY_ATTRIBUTE = "morphlex-dirty"
 const DETACHED_NODE_ERROR = "[Morphlex] Cannot replace a detached node. It needs a parent."
-
-const IS_PARENT_NODE_TYPE = [
-	0, //  0: (unused)
-	1, //  1: Element
-	0, //  2: Attribute (deprecated)
-	0, //  3: Text
-	0, //  4: CDATASection (deprecated)
-	0, //  5: EntityReference (deprecated)
-	0, //  6: Entity (deprecated)
-	0, //  7: ProcessingInstruction
-	0, //  8: Comment
-	1, //  9: Document
-	0, // 10: DocumentType
-	1, // 11: DocumentFragment
-	0, // 12: Notation (deprecated)
-]
 
 // The passes matching wrappers by choice, as [targets with their own identity, same attributes, all choices,
 // only the choices the user picked], from strictest to loosest.
@@ -56,7 +41,6 @@ type Operation = (typeof Operation)[keyof typeof Operation]
 
 type IdSetMap = WeakMap<Node, Set<string>>
 type IdArrayMap = WeakMap<Node, Array<string>>
-type CandidateIdBucket = number | Array<number>
 type DefaultOptionMap = Map<HTMLSelectElement, HTMLOptionElement | null>
 
 /**
@@ -192,19 +176,7 @@ export function morphDocument(from: Document, to: Document | string, options?: O
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
 	if (typeof to === "string") to = parseFragment(to).childNodes
 
-	const clobbered = takeClobbered(to)
-	const select = selectOf(from)
-	const selection = select && markupSelectionOf(select)
-	const flagged = isParentNode(from) ? flagDirtyInputs(from as Element) : null
-	// A root select's options are keyed by the live select, even if the target renames it and the rename is vetoed.
-	const keySelect = from.nodeType === ELEMENT_NODE_TYPE && isSelectElement(from as Element) ? (from as HTMLSelectElement) : select
-	try {
-		const morpher = new Morph(options, clobbered, flagged, keySelect)
-		if (select) morpher.setEnclosingSelect(select, selection!)
-		morpher.morph(from, to)
-	} finally {
-		if (flagged) clearDirtyFlags(flagged)
-	}
+	run(from, takeClobbered(to), options, (morpher) => morpher.morph(from, to))
 }
 
 /**
@@ -245,20 +217,25 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const toElement = to as Element
 		const clobbered = takeClobbered(toElement)
 		if (clobbered?.has(toElement)) options = { ...options, preserveChanges: false }
-		const select = selectOf(fromElement)
-		const selection = select && markupSelectionOf(select)
-		const flagged = flagDirtyInputs(fromElement)
-		// The target's options belong to the live select, whatever the target select is called.
-		const keySelect = isSelectElement(fromElement) ? fromElement : select
-		try {
-			const morpher = new Morph(options, clobbered, flagged, keySelect)
-			if (select) morpher.setEnclosingSelect(select, selection!)
-			morpher.morphChildren(fromElement, toElement)
-		} finally {
-			clearDirtyFlags(flagged)
-		}
+		run(fromElement, clobbered, options, (morpher) => morpher.morphChildren(fromElement, toElement))
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
+	}
+}
+
+// Flag the controls the user changed, note the select around the root and what its markup selects, and
+// run the morph. A root select's options are keyed by the live select, even if the target renames it and the
+// rename is vetoed.
+function run(from: ChildNode, clobbered: Set<Element> | null, options: Options, morph: (morpher: Morph) => void): void {
+	const select = selectOf(from)
+	const flagged = isElement(from) ? flagDirtyInputs(from) : null
+	const keySelect = isElement(from) && isSelectElement(from) ? from : select
+	try {
+		const morpher = new Morph(options, clobbered, flagged, keySelect)
+		if (select) morpher.setEnclosingSelect(select, markupSelectionOf(select))
+		morph(morpher)
+	} finally {
+		if (flagged) clearDirtyFlags(flagged)
 	}
 }
 
@@ -297,40 +274,18 @@ function flagDirtyInputs(node: Element): Array<Element> {
 	const defaultOptions: DefaultOptionMap = new Map()
 	let optionSelects: Map<Element, HTMLSelectElement> | null = null
 
-	if (isInputElement(node)) {
-		if (isDirtyInput(node)) {
-			flagDirty(node, flagged)
+	// The selector also matches elements with these names in other namespaces, like SVG.
+	for (const element of [node, ...node.querySelectorAll("input, option, textarea")]) {
+		let dirty = false
+		if (isInputElement(element)) {
+			dirty = isDirtyInput(element)
+		} else if (isOptionElement(element)) {
+			optionSelects ??= optionSelectsOf(node)
+			dirty = isDirtyOption(element, optionSelects.get(element), defaultOptions)
+		} else if (isTextAreaElement(element)) {
+			dirty = isDirtyTextArea(element)
 		}
-	} else if (isOptionElement(node)) {
-		optionSelects = optionSelectsOf(node)
-		if (isDirtyOption(node, optionSelects.get(node), defaultOptions)) {
-			flagDirty(node, flagged)
-		}
-	} else if (isTextAreaElement(node)) {
-		if (isDirtyTextArea(node)) {
-			flagDirty(node, flagged)
-		}
-	}
-
-	// The selectors also match elements with these names in other namespaces, like SVG.
-	for (const input of node.querySelectorAll("input")) {
-		if (isInputElement(input) && isDirtyInput(input)) {
-			flagDirty(input, flagged)
-		}
-	}
-
-	for (const element of node.querySelectorAll("option")) {
-		if (!isOptionElement(element)) continue
-		optionSelects ??= optionSelectsOf(node)
-		if (isDirtyOption(element, optionSelects.get(element), defaultOptions)) {
-			flagDirty(element, flagged)
-		}
-	}
-
-	for (const element of node.querySelectorAll("textarea")) {
-		if (isTextAreaElement(element) && isDirtyTextArea(element)) {
-			flagDirty(element, flagged)
-		}
+		if (dirty) flagDirty(element, flagged)
 	}
 
 	return flagged
@@ -771,7 +726,7 @@ class Morph {
 		if (unplaced) {
 			for (let i = 0; i < unplaced.length; i++) {
 				const element = unplaced[i]!
-				if (this.#liveElementsById.has(element.id)) this.#removeNodeNow(element)
+				if (this.#liveElementsById.has(element.id)) this.#removeNode(element, true)
 			}
 			this.#unplacedElements = null
 		}
@@ -997,6 +952,8 @@ class Morph {
 
 		const details = isDetailsElement(from)
 		const open = details ? from.getAttributeNS(null, "open") : null
+		// The user toggles `open` on these elements, so with `preserveChanges` it's neither added nor removed.
+		const keepsOpen = this.#preserveChanges && hasOpenState(from)
 
 		// First pass: update/add attributes from reference (iterate forwards)
 		const toAttributes = to.attributes
@@ -1004,15 +961,7 @@ class Morph {
 			const attribute = toAttributes[i]!
 			const { name, localName, value, namespaceURI } = attribute
 			// Adding `open` would open it, but changing the value of an existing one is fine.
-			if (
-				name === "open" &&
-				namespaceURI === null &&
-				this.#preserveChanges &&
-				hasOpenState(from) &&
-				!from.hasAttributeNS(null, "open")
-			) {
-				continue
-			}
+			if (keepsOpen && name === "open" && namespaceURI === null && !from.hasAttributeNS(null, "open")) continue
 			const oldValue = from.getAttributeNS(namespaceURI, localName)
 
 			if (oldValue === value) continue
@@ -1039,7 +988,7 @@ class Morph {
 		if (hasExcessAttributes(from, to)) {
 			for (const { name, localName, value, namespaceURI } of Array.from(from.attributes)) {
 				if (!to.hasAttributeNS(namespaceURI, localName)) {
-					if (name === "open" && namespaceURI === null && this.#preserveChanges && hasOpenState(from)) continue
+					if (keepsOpen && name === "open" && namespaceURI === null) continue
 
 					if (this.#options.beforeAttributeUpdated?.(from, name, null) ?? true) {
 						// Removing `open` from a modal dialog leaves it stuck in the top layer, so close it properly.
@@ -1187,17 +1136,14 @@ class Morph {
 
 		const candidateNodeIndices: Array<number> = []
 		const candidateElementIndices: Array<number> = []
-		const candidateElementWithIdIndices: Array<number> = []
-		const candidateElementIndicesById: Map<string, CandidateIdBucket> = new Map()
+		const candidateElementIndicesById: Map<string, Array<number>> = new Map()
 		const unmatchedNodeIndices: Array<number> = []
 		const unmatchedElementIndices: Array<number> = []
 		const whitespaceNodeIndices: Array<number> = []
 
-		const candidateNodeActive = new Uint8Array(fromChildNodes.length)
-		const candidateElementActive = new Uint8Array(fromChildNodes.length)
-		const candidateElementWithIdActive = new Uint8Array(fromChildNodes.length)
-		const unmatchedNodeActive = new Uint8Array(toChildNodes.length)
-		const unmatchedElementActive = new Uint8Array(toChildNodes.length)
+		// Each live child is in one of the three candidate lists, and each target child in one of the two unmatched lists.
+		const candidateActive = new Uint8Array(fromChildNodes.length)
+		const unmatchedActive = new Uint8Array(toChildNodes.length)
 
 		const matches: Array<number> = []
 		const op: Array<Operation> = []
@@ -1219,25 +1165,19 @@ class Morph {
 				candidateNamespaceURIMap[i] = candidateElement.namespaceURI
 				const candidateId = candidateElement.id
 				if (candidateId !== "") {
-					candidateElementWithIdActive[i] = 1
-					candidateElementWithIdIndices.push(i)
+					candidateActive[i] = 1
 
-					const existingBucket = candidateElementIndicesById.get(candidateId)
-					if (existingBucket === undefined) {
-						candidateElementIndicesById.set(candidateId, i)
-					} else if (Array.isArray(existingBucket)) {
-						existingBucket.push(i)
-					} else {
-						candidateElementIndicesById.set(candidateId, [existingBucket, i])
-					}
+					const bucket = candidateElementIndicesById.get(candidateId)
+					if (bucket) bucket.push(i)
+					else candidateElementIndicesById.set(candidateId, [i])
 				} else {
-					candidateElementActive[i] = 1
+					candidateActive[i] = 1
 					candidateElementIndices.push(i)
 				}
 			} else if (isWhitespaceTextNode(candidate)) {
 				whitespaceNodeIndices.push(i)
 			} else {
-				candidateNodeActive[i] = 1
+				candidateActive[i] = 1
 				candidateNodeIndices.push(i)
 			}
 		}
@@ -1251,12 +1191,12 @@ class Morph {
 				const element = node as Element
 				localNameMap[i] = element.localName
 				namespaceURIMap[i] = element.namespaceURI
-				unmatchedElementActive[i] = 1
+				unmatchedActive[i] = 1
 				unmatchedElementIndices.push(i)
 			} else if (isWhitespaceTextNode(node)) {
 				continue
 			} else {
-				unmatchedNodeActive[i] = 1
+				unmatchedActive[i] = 1
 				unmatchedNodeIndices.push(i)
 			}
 		}
@@ -1284,7 +1224,7 @@ class Morph {
 
 			for (let c = 0; c < candidates.length; c++) {
 				const candidateIndex = candidates[c]!
-				if (!candidateElementActive[candidateIndex]) continue
+				if (!candidateActive[candidateIndex]) continue
 				if (localName !== candidateLocalNameMap[candidateIndex]) continue
 				if (namespaceURIMap[unmatchedIndex] !== candidateNamespaceURIMap[candidateIndex]) continue
 				const candidate = fromChildNodes[candidateIndex] as Element
@@ -1293,8 +1233,8 @@ class Morph {
 				if (isEqualNode(candidate, element)) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.EqualNode
-					candidateElementActive[candidateIndex] = 0
-					unmatchedElementActive[unmatchedIndex] = 0
+					candidateActive[candidateIndex] = 0
+					unmatchedActive[unmatchedIndex] = 0
 					break
 				}
 			}
@@ -1309,7 +1249,7 @@ class Morph {
 			for (let c = 0; c < candidateElementIndices.length; c++) {
 				const candidateIndex = candidateElementIndices[c]!
 				const candidate = fromChildNodes[candidateIndex] as Element
-				if (!candidateElementActive[candidateIndex] || !dirtyElements.has(candidate)) continue
+				if (!candidateActive[candidateIndex] || !dirtyElements.has(candidate)) continue
 				const shape = shapeOf(candidate)
 				const bucket = candidatesByShape.get(shape)
 				if (bucket) bucket.push(candidateIndex)
@@ -1318,7 +1258,7 @@ class Morph {
 
 			for (let i = 0; candidatesByShape.size && i < unmatchedElementIndices.length; i++) {
 				const unmatchedIndex = unmatchedElementIndices[i]!
-				if (!unmatchedElementActive[unmatchedIndex]) continue
+				if (!unmatchedActive[unmatchedIndex]) continue
 				const element = toChildNodes[unmatchedIndex] as Element
 				const candidates = candidatesByShape.get(shapeOf(element))
 				// A target discarding user changes can't keep them, so it's left for the passes that rank it last.
@@ -1327,21 +1267,21 @@ class Morph {
 				// Elements with the same shape are equal apart from `morphlex-dirty`, so the target takes the bucket's first
 				// candidate that isn't taken yet.
 				let c = firstActive.get(candidates) ?? 0
-				while (c < candidates.length && !candidateElementActive[candidates[c]!]) c++
+				while (c < candidates.length && !candidateActive[candidates[c]!]) c++
 				firstActive.set(candidates, c)
 				const candidateIndex = candidates[c]
 				if (candidateIndex === undefined) continue
 				matches[unmatchedIndex] = candidateIndex
 				op[unmatchedIndex] = Operation.SameElement
-				candidateElementActive[candidateIndex] = 0
-				unmatchedElementActive[unmatchedIndex] = 0
+				candidateActive[candidateIndex] = 0
+				unmatchedActive[unmatchedIndex] = 0
 			}
 		}
 
 		// Match by exact id
 		for (let i = 0; i < unmatchedElementIndices.length; i++) {
 			const unmatchedIndex = unmatchedElementIndices[i]!
-			if (!unmatchedElementActive[unmatchedIndex]) continue
+			if (!unmatchedActive[unmatchedIndex]) continue
 
 			const element = toChildNodes[unmatchedIndex] as Element
 			const id = element.id
@@ -1351,25 +1291,9 @@ class Morph {
 			const candidateBucket = candidateElementIndicesById.get(id)
 			if (candidateBucket === undefined) continue
 
-			if (Array.isArray(candidateBucket)) {
-				for (let c = 0; c < candidateBucket.length; c++) {
-					const candidateIndex = candidateBucket[c]!
-					if (!candidateElementWithIdActive[candidateIndex]) continue
-
-					if (
-						localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] &&
-						namespaceURIMap[unmatchedIndex] === candidateNamespaceURIMap[candidateIndex]
-					) {
-						matches[unmatchedIndex] = candidateIndex
-						op[unmatchedIndex] = Operation.SameElement
-						candidateElementWithIdActive[candidateIndex] = 0
-						unmatchedElementActive[unmatchedIndex] = 0
-						break
-					}
-				}
-			} else {
-				const candidateIndex = candidateBucket
-				if (!candidateElementWithIdActive[candidateIndex]) continue
+			for (let c = 0; c < candidateBucket.length; c++) {
+				const candidateIndex = candidateBucket[c]!
+				if (!candidateActive[candidateIndex]) continue
 
 				if (
 					localNameMap[unmatchedIndex] === candidateLocalNameMap[candidateIndex] &&
@@ -1377,8 +1301,9 @@ class Morph {
 				) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
-					candidateElementWithIdActive[candidateIndex] = 0
-					unmatchedElementActive[unmatchedIndex] = 0
+					candidateActive[candidateIndex] = 0
+					unmatchedActive[unmatchedIndex] = 0
+					break
 				}
 			}
 		}
@@ -1386,8 +1311,8 @@ class Morph {
 		// A target whose live element is elsewhere is left for #addNode to claim, so no other candidate takes its id.
 		for (let i = 0; i < unmatchedElementIndices.length; i++) {
 			const unmatchedIndex = unmatchedElementIndices[i]!
-			if (unmatchedElementActive[unmatchedIndex] && this.#canClaim(toChildNodes[unmatchedIndex] as Element, parent)) {
-				unmatchedElementActive[unmatchedIndex] = 0
+			if (unmatchedActive[unmatchedIndex] && this.#canClaim(toChildNodes[unmatchedIndex] as Element, parent)) {
+				unmatchedActive[unmatchedIndex] = 0
 			}
 		}
 
@@ -1395,7 +1320,7 @@ class Morph {
 		// Elements with idSets may not have IDs themselves, so we check candidateElements
 		for (let i = 0; i < unmatchedElementIndices.length; i++) {
 			const unmatchedIndex = unmatchedElementIndices[i]!
-			if (!unmatchedElementActive[unmatchedIndex]) continue
+			if (!unmatchedActive[unmatchedIndex]) continue
 
 			const element = toChildNodes[unmatchedIndex] as Element
 			const idArray = this.#idArrayMap.get(element)
@@ -1404,7 +1329,7 @@ class Morph {
 
 			candidateLoop: for (let c = 0; c < candidateElementIndices.length; c++) {
 				const candidateIndex = candidateElementIndices[c]!
-				if (!candidateElementActive[candidateIndex]) continue
+				if (!candidateActive[candidateIndex]) continue
 
 				const candidate = fromChildNodes[candidateIndex] as Element
 
@@ -1419,8 +1344,8 @@ class Morph {
 							if (candidateIdSet.has(arrayId)) {
 								matches[unmatchedIndex] = candidateIndex
 								op[unmatchedIndex] = Operation.SameElement
-								candidateElementActive[candidateIndex] = 0
-								unmatchedElementActive[unmatchedIndex] = 0
+								candidateActive[candidateIndex] = 0
+								unmatchedActive[unmatchedIndex] = 0
 								break candidateLoop
 							}
 						}
@@ -1441,7 +1366,7 @@ class Morph {
 			const choiceCandidates: Array<[number, Array<string>, Array<string>]> = []
 			for (let c = 0; c < candidateElementIndices.length; c++) {
 				const candidateIndex = candidateElementIndices[c]!
-				if (!candidateElementActive[candidateIndex]) continue
+				if (!candidateActive[candidateIndex]) continue
 				const candidate = fromChildNodes[candidateIndex] as Element
 				const dirtyChoices = this.#dirtyChoicesOf(candidate)
 				if (
@@ -1485,7 +1410,7 @@ class Morph {
 				}
 
 				// The targets in the order candidates try them, smallest first when a candidate needs all of its choices.
-				const targets = unmatchedElementIndices.filter((i) => unmatchedElementActive[i])
+				const targets = unmatchedElementIndices.filter((i) => unmatchedActive[i])
 				if (allChoices) {
 					targets.sort(
 						(a, b) =>
@@ -1606,7 +1531,7 @@ class Morph {
 				// Give each candidate a free target first, so augmenting paths are only searched for the rest.
 				const unassigned: Array<number> = []
 				for (let k = 0; k < choiceCandidates.length; k++) {
-					if (!candidateElementActive[choiceCandidates[k]![0]] || !choicesOf(k).length) continue
+					if (!candidateActive[choiceCandidates[k]![0]] || !choicesOf(k).length) continue
 					// A target the candidate can take is in its lists, so without any it has none.
 					const candidateLists = listsOf(k)
 					if (!candidateLists.length) continue
@@ -1645,8 +1570,8 @@ class Morph {
 					const candidateIndex = choiceCandidates[k]![0]
 					matches[target] = candidateIndex
 					op[target] = Operation.SameElement
-					candidateElementActive[candidateIndex] = 0
-					unmatchedElementActive[target] = 0
+					candidateActive[candidateIndex] = 0
+					unmatchedActive[target] = 0
 				}
 			}
 
@@ -1656,7 +1581,7 @@ class Morph {
 			const firstEqual: Map<Array<number>, number> = new Map()
 			for (const [shape, candidates] of candidatesByShape!) {
 				for (const candidateIndex of candidates) {
-					if (!candidateElementActive[candidateIndex]) continue
+					if (!candidateActive[candidateIndex]) continue
 					const candidate = fromChildNodes[candidateIndex] as Element
 					if (!this.#dirtyChoicesOf(candidate)) continue
 					if (!equalTargets) {
@@ -1678,10 +1603,10 @@ class Morph {
 					const target = list[t]
 					if (target === undefined) continue
 					firstEqual.set(list, t + 1)
-					candidateElementActive[matches[target]!] = 1
+					candidateActive[matches[target]!] = 1
 					matches[target] = candidateIndex
 					op[target] = Operation.SameElement
-					candidateElementActive[candidateIndex] = 0
+					candidateActive[candidateIndex] = 0
 				}
 			}
 		}
@@ -1689,7 +1614,7 @@ class Morph {
 		// Match by heuristics
 		for (let i = 0; i < unmatchedElementIndices.length; i++) {
 			const unmatchedIndex = unmatchedElementIndices[i]!
-			if (!unmatchedElementActive[unmatchedIndex]) continue
+			if (!unmatchedActive[unmatchedIndex]) continue
 
 			const element = toChildNodes[unmatchedIndex] as Element
 
@@ -1700,7 +1625,7 @@ class Morph {
 
 			for (let c = 0; c < candidateElementIndices.length; c++) {
 				const candidateIndex = candidateElementIndices[c]!
-				if (!candidateElementActive[candidateIndex]) continue
+				if (!candidateActive[candidateIndex]) continue
 				const candidate = fromChildNodes[candidateIndex] as Element
 
 				if (
@@ -1713,8 +1638,8 @@ class Morph {
 				) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
-					candidateElementActive[candidateIndex] = 0
-					unmatchedElementActive[unmatchedIndex] = 0
+					candidateActive[candidateIndex] = 0
+					unmatchedActive[unmatchedIndex] = 0
 					break
 				}
 			}
@@ -1724,7 +1649,7 @@ class Morph {
 		let firstActiveCandidate = 0
 		for (let i = 0; i < unmatchedElementIndices.length; i++) {
 			const unmatchedIndex = unmatchedElementIndices[i]!
-			if (!unmatchedElementActive[unmatchedIndex]) continue
+			if (!unmatchedActive[unmatchedIndex]) continue
 
 			const element = toChildNodes[unmatchedIndex] as Element
 
@@ -1734,14 +1659,14 @@ class Morph {
 
 			while (
 				firstActiveCandidate < candidateElementIndices.length &&
-				!candidateElementActive[candidateElementIndices[firstActiveCandidate]!]
+				!candidateActive[candidateElementIndices[firstActiveCandidate]!]
 			) {
 				firstActiveCandidate++
 			}
 
 			for (let c = firstActiveCandidate; c < candidateElementIndices.length; c++) {
 				const candidateIndex = candidateElementIndices[c]!
-				if (!candidateElementActive[candidateIndex]) continue
+				if (!candidateActive[candidateIndex]) continue
 
 				const candidate = fromChildNodes[candidateIndex] as Element
 
@@ -1756,8 +1681,8 @@ class Morph {
 				) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameElement
-					candidateElementActive[candidateIndex] = 0
-					unmatchedElementActive[unmatchedIndex] = 0
+					candidateActive[candidateIndex] = 0
+					unmatchedActive[unmatchedIndex] = 0
 					break
 				}
 			}
@@ -1770,14 +1695,14 @@ class Morph {
 			const node = toChildNodes[unmatchedIndex]!
 			for (let c = 0; c < candidateNodeIndices.length; c++) {
 				const candidateIndex = candidateNodeIndices[c]!
-				if (!candidateNodeActive[candidateIndex]) continue
+				if (!candidateActive[candidateIndex]) continue
 
 				const candidate = fromChildNodes[candidateIndex]!
 				if (candidate.isEqualNode(node)) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.EqualNode
-					candidateNodeActive[candidateIndex] = 0
-					unmatchedNodeActive[unmatchedIndex] = 0
+					candidateActive[candidateIndex] = 0
+					unmatchedActive[unmatchedIndex] = 0
 					break
 				}
 			}
@@ -1786,38 +1711,27 @@ class Morph {
 		// Match by nodeType
 		for (let i = 0; i < unmatchedNodeIndices.length; i++) {
 			const unmatchedIndex = unmatchedNodeIndices[i]!
-			if (!unmatchedNodeActive[unmatchedIndex]) continue
+			if (!unmatchedActive[unmatchedIndex]) continue
 
 			const nodeType = nodeTypeMap[unmatchedIndex]
 
 			for (let c = 0; c < candidateNodeIndices.length; c++) {
 				const candidateIndex = candidateNodeIndices[c]!
-				if (!candidateNodeActive[candidateIndex]) continue
+				if (!candidateActive[candidateIndex]) continue
 
 				if (nodeType === candidateNodeTypeMap[candidateIndex]) {
 					matches[unmatchedIndex] = candidateIndex
 					op[unmatchedIndex] = Operation.SameNode
-					candidateNodeActive[candidateIndex] = 0
-					unmatchedNodeActive[unmatchedIndex] = 0
+					candidateActive[candidateIndex] = 0
+					unmatchedActive[unmatchedIndex] = 0
 					break
 				}
 			}
 		}
 
 		// Remove any unmatched candidates first, before calculating LIS and repositioning
-		for (let i = 0; i < candidateNodeIndices.length; i++) {
-			const candidateIndex = candidateNodeIndices[i]!
-			if (candidateNodeActive[candidateIndex]) this.#removeNode(fromChildNodes[candidateIndex]!)
-		}
-
-		for (let i = 0; i < candidateElementIndices.length; i++) {
-			const candidateIndex = candidateElementIndices[i]!
-			if (candidateElementActive[candidateIndex]) this.#removeNode(fromChildNodes[candidateIndex]!)
-		}
-
-		for (let i = 0; i < candidateElementWithIdIndices.length; i++) {
-			const candidateIndex = candidateElementWithIdIndices[i]!
-			if (candidateElementWithIdActive[candidateIndex]) this.#removeNode(fromChildNodes[candidateIndex]!)
+		for (let i = 0; i < fromChildNodes.length; i++) {
+			if (candidateActive[i]) this.#removeNode(fromChildNodes[i]!)
 		}
 
 		// Find LIS - these nodes don't need to move
@@ -2433,25 +2347,18 @@ class Morph {
 		this.#settleIfRoot(node)
 	}
 
-	#removeNode(node: ChildNode): void {
-		// A movable element stays put for now, since the target may place it under another parent.
-		if (isElement(node) && this.#movableElement(node.id) === node) {
+	// A movable element stays put for now, since the target may place it under another parent, until the morph settles.
+	#removeNode(node: ChildNode, settled = false): void {
+		if (!settled && isElement(node) && this.#movableElement(node.id) === node) {
 			;(this.#unplacedElements ??= []).push(node)
 			return
 		}
 
-		if (this.#options.beforeNodeRemoved?.(node) ?? true) this.#removeApprovedNode(node)
+		if (this.#options.beforeNodeRemoved?.(node) ?? true) this.#removeApprovedNode(node, settled)
 	}
 
-	#removeNodeNow(node: ChildNode): void {
-		if (this.#options.beforeNodeRemoved?.(node) ?? true) {
-			this.#removeChild(node)
-			this.#options.afterNodeRemoved?.(node)
-		}
-	}
-
-	#removeApprovedNode(node: ChildNode): void {
-		if (this.#holdsMovableElement(node)) {
+	#removeApprovedNode(node: ChildNode, settled = false): void {
+		if (!settled && this.#holdsMovableElement(node)) {
 			;(this.#deferredRemovals ??= []).push(node)
 		} else {
 			this.#removeChild(node)
@@ -3079,7 +2986,8 @@ function isDocument(node: Node): node is Document {
 }
 
 function isParentNode(node: Node): node is ParentNode {
-	return !!IS_PARENT_NODE_TYPE[node.nodeType]
+	const type = node.nodeType
+	return type === ELEMENT_NODE_TYPE || type === DOCUMENT_NODE_TYPE || type === DOCUMENT_FRAGMENT_NODE_TYPE
 }
 
 function isNodeList(value: ChildNode | NodeListOf<ChildNode>): value is NodeListOf<ChildNode> {
