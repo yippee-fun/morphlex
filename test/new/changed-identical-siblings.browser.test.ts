@@ -1,0 +1,100 @@
+import { test, expect } from "vitest"
+import { morph } from "../../src/morphlex"
+
+function mount(html: string): HTMLElement {
+	const host = document.createElement("div")
+	host.innerHTML = html
+	document.body.append(host)
+	return host.firstElementChild as HTMLElement
+}
+
+test("typed text stays in its input when an identical input is added after it", () => {
+	const form = mount(`<form><input class="q"><input class="q"></form>`)
+	const [first, second] = form.querySelectorAll("input")
+	first!.value = "typed"
+
+	morph(form, `<form class="x"><input class="q"><input class="q"><input class="q"></form>`, { preserveChanges: true })
+
+	const inputs = form.querySelectorAll("input")
+	expect(inputs[0]).toBe(first)
+	expect(inputs[1]).toBe(second)
+	expect(first!.value).toBe("typed")
+	form.parentElement!.remove()
+})
+
+test("typed text stays in its textarea when an identical textarea is added after it", () => {
+	const form = mount(`<form><textarea></textarea><textarea></textarea></form>`)
+	const [first, second] = form.querySelectorAll("textarea")
+	first!.value = "typed"
+
+	morph(form, `<form class="x"><textarea></textarea><textarea></textarea><textarea></textarea></form>`, {
+		preserveChanges: true,
+	})
+
+	const textareas = form.querySelectorAll("textarea")
+	expect(textareas[0]).toBe(first)
+	expect(textareas[1]).toBe(second)
+	expect(first!.value).toBe("typed")
+	form.parentElement!.remove()
+})
+
+test("a checked checkbox stays in place when an identical checkbox is added after it", () => {
+	const form = mount(`<form><input type="checkbox"><input type="checkbox"></form>`)
+	const [first, second] = form.querySelectorAll("input")
+	first!.checked = true
+
+	morph(form, `<form class="x"><input type="checkbox"><input type="checkbox"><input type="checkbox"></form>`, {
+		preserveChanges: true,
+	})
+
+	const inputs = form.querySelectorAll("input")
+	expect(inputs[0]).toBe(first)
+	expect(inputs[1]).toBe(second)
+	expect(first!.checked).toBe(true)
+	expect(second!.checked).toBe(false)
+	form.parentElement!.remove()
+})
+
+test("a focused input keeps its position when its typed text is reset", () => {
+	const form = mount(`<form><input class="q"><input class="q"></form>`)
+	const [first, second] = form.querySelectorAll("input")
+	first!.focus()
+	first!.value = "typed"
+
+	morph(form, `<form class="x"><input class="q"><input class="q"><input class="q"></form>`)
+
+	const inputs = form.querySelectorAll("input")
+	expect(inputs[0]).toBe(first)
+	expect(inputs[1]).toBe(second)
+	expect(first!.value).toBe("")
+	expect(document.activeElement).toBe(first)
+	form.parentElement!.remove()
+})
+
+test("typed text doesn't trade places into a target that discards it", () => {
+	const form = mount(`<form><label><input name="a"></label><label><input name="a"></label></form>`)
+	const [first, second] = form.querySelectorAll("input")
+	first!.value = "typed"
+
+	morph(form, `<form><label><input name="a" morphlex-clobber></label><label class="y"><input name="a"></label></form>`, {
+		preserveChanges: true,
+	})
+
+	expect([...form.querySelectorAll("input")]).toEqual([second, first])
+	expect(first!.value).toBe("typed")
+	form.parentElement!.remove()
+})
+
+test("typed text stays in place among many identical inputs", () => {
+	const form = mount(`<form>${"<input>".repeat(600)}</form>`)
+	const inputs = [...form.querySelectorAll("input")]
+	inputs[3]!.value = "typed"
+	inputs[400]!.value = "also typed"
+
+	morph(form, `<form class="x">${"<input>".repeat(601)}</form>`, { preserveChanges: true })
+
+	expect([...form.querySelectorAll("input")].slice(0, 600)).toEqual(inputs)
+	expect(inputs[3]!.value).toBe("typed")
+	expect(inputs[400]!.value).toBe("also typed")
+	form.parentElement!.remove()
+})

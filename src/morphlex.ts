@@ -1674,11 +1674,52 @@ class Morph {
 	// The isEqualNode pass gives a target the first equal candidate, which can be the identical sibling of a
 	// changed element's live node, and the changed target then takes the sibling's place, so the two swap.
 	// Identical candidates are interchangeable, so give each set of them to its targets in order instead, unless
-	// that leaves fewer nodes in place. Elements holding the user's changes aren't identical to anything.
+	// that leaves fewer nodes in place. An element holding the user's changes isn't equal to anything, so it
+	// trades with the untouched siblings of its shape that took equal targets instead.
 	#orderIdenticalCandidates(siblings: Siblings): void {
-		const { from, unmatchedElements, matches, op } = siblings
+		const { from, to, unmatchedElements, matches, op } = siblings
 		const dirtyElements = this.#dirtyElements
-		// The candidates that can trade targets, the ones taken by a target they didn't equal, and the target of each.
+		let inPlace = -1
+
+		if (dirtyElements) {
+			// The changed elements, and the untouched candidates that took an equal target, unless it discards the
+			// user's changes.
+			const candidates: Array<number> = []
+			const changed: Array<number> = []
+			const targetOf: Array<number> = []
+			const shapes: Array<string> = []
+			for (let i = 0; i < unmatchedElements.length; i++) {
+				const target = unmatchedElements[i]!
+				const candidate = matches[target]
+				if (candidate === undefined) continue
+				const element = from[candidate] as Element
+				if (dirtyElements.has(element)) {
+					changed.push(candidate)
+				} else if (op[target] !== Operation.EqualNode || this.#holdsClobbered(to[target] as Element)) {
+					continue
+				}
+				candidates.push(candidate)
+				targetOf[candidate] = target
+			}
+			if (changed.length && candidates.length > changed.length) {
+				// A changed element's shape spans its whole subtree, so only work it out for a likely sibling.
+				const shape = (index: number): string => (shapes[index] ??= shapeOf(from[index]!))
+				const same = (a: number, b: number): boolean =>
+					(from[a] as Element).localName === (from[b] as Element).localName &&
+					from[a]!.textContent === from[b]!.textContent &&
+					shape(a) === shape(b)
+				inPlace = this.#orderSets(siblings, candidates, changed, targetOf, same, inPlace)
+				// Equal targets skip the morph, which a changed element needs.
+				for (let i = 0; i < unmatchedElements.length; i++) {
+					const target = unmatchedElements[i]!
+					const candidate = matches[target]
+					if (candidate !== undefined && dirtyElements.has(from[candidate] as Element)) op[target] = Operation.SameElement
+				}
+			}
+		}
+
+		// The untouched candidates that can trade targets, the ones taken by a target they didn't equal, and the
+		// target of each.
 		const candidates: Array<number> = []
 		const changed: Array<number> = []
 		const targetOf: Array<number> = []
@@ -1690,17 +1731,31 @@ class Morph {
 			targetOf[candidate] = target
 			if (op[target] !== Operation.EqualNode) changed.push(candidate)
 		}
-		if (!changed.length) return
+		if (changed.length) {
+			this.#orderSets(siblings, candidates, changed, targetOf, (a, b) => isEqualNode(from[a]!, from[b]!), inPlace)
+		}
+	}
 
+	// Give each set of candidates that `same` finds interchangeable, one of which is changed, to their targets in
+	// order, unless that leaves fewer nodes in place than `inPlace` (-1 when not yet measured). Returns the number
+	// left in place.
+	#orderSets(
+		siblings: Siblings,
+		candidates: Array<number>,
+		changed: Array<number>,
+		targetOf: Array<number>,
+		same: (a: number, b: number) => boolean,
+		inPlace: number,
+	): number {
+		const { from, matches } = siblings
+		// Interchangeable elements have equal text content, so with many siblings, compare within its bucket.
 		const candidatesByText = changed.length * candidates.length > 1024 ? bucketByTextContent(from, candidates) : null
 		const grouped: Set<number> = new Set()
-		let inPlace = -1
 		for (let i = 0; i < changed.length; i++) {
 			const candidate = changed[i]!
 			if (grouped.has(candidate)) continue
-			const element = from[candidate]!
-			const identical = (candidatesByText ? candidatesByText.get(element.textContent!)! : candidates).filter(
-				(other) => other === candidate || isEqualNode(from[other]!, element),
+			const identical = (candidatesByText ? candidatesByText.get(from[candidate]!.textContent!)! : candidates).filter(
+				(other) => other === candidate || same(candidate, other),
 			)
 			if (identical.length < 2) continue
 
@@ -1723,6 +1778,7 @@ class Morph {
 				inPlace = nowInPlace
 			}
 		}
+		return inPlace
 	}
 
 	// Match the other nodes by isEqualNode.
