@@ -158,7 +158,7 @@ When morphing the children of an element, Morphlex pairs each new child with an 
 6. An element with the same non-empty `name`, `href` or `src` attribute.
 7. Any element with the same tag name, as long as neither element has an `id`, one of the attributes above, or ids inside it, and neither is a form control.
 
-A new child whose unique `id` belongs to a live element under another parent isn’t paired here. If that element can move, it moves to the new child’s place (see [Options](#options)).
+When a new child’s unique `id` belongs to a live element under another parent that can be morphed into it, the new child isn’t paired here. That element moves to the new child’s place instead (see [Options](#options)).
 
 Elements are only paired with elements of the same tag name and namespace. Text and comment nodes are paired with nodes of the same type, except text nodes that are only whitespace. Those are never paired with other nodes. Existing whitespace that sits where the new children have whitespace is kept, with its text updated if it differs. Other whitespace is removed or inserted fresh.
 
