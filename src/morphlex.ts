@@ -1673,11 +1673,60 @@ class Morph {
 	// changed element's live node, and the changed target then takes the sibling's place, so the two swap.
 	// Identical candidates are interchangeable, so give each set of them to its targets in order instead, when that
 	// leaves more nodes in place. This runs after the other nodes are matched, since they count too.
-	// Elements holding the user's changes aren't identical to anything.
+	// An element holding the user's changes isn't equal to anything, so it trades with the untouched siblings of
+	// its shape that took equal targets instead.
 	#orderIdenticalCandidates(siblings: Siblings): void {
-		const { from, unmatchedElements, matches, op } = siblings
+		const { from, to, unmatchedElements, matches, op } = siblings
 		const dirtyElements = this.#dirtyElements
-		// The candidates that can trade targets, the ones taken by a target they didn't equal, and the target of each.
+
+		if (dirtyElements) {
+			// The changed elements, and the untouched candidates that took an equal target, unless the target discards
+			// the user's changes, so no changed element trades into it.
+			const candidates: Array<number> = []
+			const changed: Array<number> = []
+			const targetOf: Array<number> = []
+			for (let i = 0; i < unmatchedElements.length; i++) {
+				const target = unmatchedElements[i]!
+				const candidate = matches[target]
+				if (candidate === undefined || this.#holdsClobbered(to[target] as Element)) continue
+				if (dirtyElements.has(from[candidate] as Element)) changed.push(candidate)
+				else if (op[target] !== Operation.EqualNode) continue
+				candidates.push(candidate)
+				targetOf[candidate] = target
+			}
+			if (changed.length && candidates.length > changed.length) {
+				// A shape spans the whole subtree, so it's only worked out for candidates with a changed element's name
+				// and text, and they're bucketed by it rather than compared pair by pair.
+				const keyOf = (index: number): string => `${(from[index] as Element).localName} ${from[index]!.textContent}`
+				const changedKeys = new Set(changed.map(keyOf))
+				const shapes: Array<string> = []
+				const candidatesByShape: Map<string, Array<number>> = new Map()
+				for (const candidate of candidates) {
+					if (!changedKeys.has(keyOf(candidate))) continue
+					const shape = (shapes[candidate] = shapeOf(from[candidate]!))
+					const bucket = candidatesByShape.get(shape)
+					if (bucket) bucket.push(candidate)
+					else candidatesByShape.set(shape, [candidate])
+				}
+				const ordered = matches.slice()
+				// Keep the order the passes chose if ordering leaves fewer nodes in place. Unlike untouched siblings, on a
+				// tie the changed element keeps its position, so the user's text stays in its box.
+				if (
+					orderSets(ordered, changed, targetOf, (candidate) => candidatesByShape.get(shapes[candidate]!)!) &&
+					longestIncreasingSubsequence(ordered).length >= longestIncreasingSubsequence(matches).length
+				) {
+					for (let i = 0; i < unmatchedElements.length; i++) {
+						const target = unmatchedElements[i]!
+						const candidate = (matches[target] = ordered[target]!)
+						// Equal targets skip the morph, which a changed element needs.
+						if (candidate !== undefined && dirtyElements.has(from[candidate] as Element)) op[target] = Operation.SameElement
+					}
+				}
+			}
+		}
+
+		// The untouched candidates that can trade targets, the ones taken by a target they didn't equal, and the
+		// target of each.
 		const candidates: Array<number> = []
 		const changed: Array<number> = []
 		const targetOf: Array<number> = []
@@ -1689,32 +1738,22 @@ class Morph {
 			targetOf[candidate] = target
 			if (op[target] !== Operation.EqualNode) changed.push(candidate)
 		}
-		if (!changed.length) return
-
-		const candidatesByText = changed.length * candidates.length > 1024 ? bucketByTextContent(from, candidates) : null
-		const grouped: Set<number> = new Set()
-		let ordered: Array<number> | null = null
-		for (let i = 0; i < changed.length; i++) {
-			const candidate = changed[i]!
-			if (grouped.has(candidate)) continue
-			const element = from[candidate]!
-			const identical = (candidatesByText ? candidatesByText.get(element.textContent!)! : candidates).filter(
-				(other) => other === candidate || isEqualNode(from[other]!, element),
-			)
-			if (identical.length < 2) continue
-
-			identical.sort((a, b) => a - b)
-			const targets = identical.map((other) => targetOf[other]!).sort((a, b) => a - b)
-			for (let t = 0; t < identical.length; t++) {
-				grouped.add(identical[t]!)
-				if (matches[targets[t]!] !== identical[t]) (ordered ??= matches.slice())[targets[t]!] = identical[t]!
+		if (changed.length) {
+			// Equal nodes have equal text content, so with many siblings, compare within its bucket.
+			const candidatesByText = changed.length * candidates.length > 1024 ? bucketByTextContent(from, candidates) : null
+			const identicalTo = (candidate: number): Array<number> =>
+				(candidatesByText ? candidatesByText.get(from[candidate]!.textContent!)! : candidates).filter(
+					(other) => other === candidate || isEqualNode(from[other]!, from[candidate]!),
+				)
+			// Ordering a set can cross other matches, so keep the order the passes chose unless ordering leaves more
+			// nodes in place. On a tie, it's other nodes that move, and whitespace is reused around the nodes that stay.
+			const ordered = matches.slice()
+			if (
+				orderSets(ordered, changed, targetOf, identicalTo) &&
+				longestIncreasingSubsequence(ordered).length > longestIncreasingSubsequence(matches).length
+			) {
+				for (let target = 0; target < ordered.length; target++) matches[target] = ordered[target]!
 			}
-		}
-
-		// Ordering a set can cross other matches, so keep the order the passes chose unless ordering leaves more nodes
-		// in place. On a tie, it's other nodes that move, and whitespace is reused around the nodes that stay.
-		if (ordered && longestIncreasingSubsequence(ordered).length > longestIncreasingSubsequence(matches).length) {
-			for (let target = 0; target < ordered.length; target++) matches[target] = ordered[target]!
 		}
 	}
 
@@ -2605,6 +2644,35 @@ function hasExcessAttributes(from: Element, to: Element): boolean {
 		if (!hasAttributeNS(to, namespaceURI, localName)) return true
 	}
 	return false
+}
+
+// Give each changed candidate's set of interchangeable candidates, from `identicalTo`, to their targets in order in
+// `matches`. Returns whether any target changed hands.
+function orderSets(
+	matches: Array<number>,
+	changed: Array<number>,
+	targetOf: Array<number>,
+	identicalTo: (candidate: number) => Array<number>,
+): boolean {
+	const grouped: Set<number> = new Set()
+	let reordered = false
+	for (let i = 0; i < changed.length; i++) {
+		const candidate = changed[i]!
+		if (grouped.has(candidate)) continue
+		const identical = identicalTo(candidate)
+		if (identical.length < 2) continue
+
+		identical.sort((a, b) => a - b)
+		const targets = identical.map((other) => targetOf[other]!).sort((a, b) => a - b)
+		for (let t = 0; t < identical.length; t++) {
+			grouped.add(identical[t]!)
+			if (matches[targets[t]!] !== identical[t]) {
+				matches[targets[t]!] = identical[t]!
+				reordered = true
+			}
+		}
+	}
+	return reordered
 }
 
 function bucketByTextContent(nodes: Array<ChildNode>, indices: Array<number>): Map<string, Array<number>> {
