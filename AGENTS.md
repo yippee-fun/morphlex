@@ -55,3 +55,7 @@ The `isEqualNode` pass gives each target the first free equal element, so when a
 ### Whitespace between elements
 
 Whitespace text nodes are only ever matched with whitespace. The live whitespace stays in place while the children are placed, and target whitespace reuses the live whitespace at the insertion point, so unchanged whitespace isn't removed and added again. Whitespace nothing reused is removed afterwards.
+
+### Reading members of forms and documents
+
+A form's fields shadow its members, so `<input name="parentNode">` makes `form.parentNode` the input, and a named image does the same to its document. So members of a node that can be a form or a document (anything typed as `Node`, `ChildNode`, `ParentNode`, `Element` or `Document`) are read through the helpers at the end of `src/morphlex.ts`, like `parentNodeOf(node)` and `getAttribute(element, name)`, which call the member on the prototype that defines it. An element narrowed to an input, an option, a select and the like, or a text node, is read directly. happy-dom defines `textContent` again on each kind of node, so `textContentOf` takes it from the node's own class.

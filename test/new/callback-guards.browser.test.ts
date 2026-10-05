@@ -81,3 +81,22 @@ test("morph is a fast no-op when both nodes are the same object", () => {
 
 	expect(node.textContent).toBe("same")
 })
+
+test("beforeNodeRemoved can remove the node itself", () => {
+	const parent = document.createElement("div")
+	parent.innerHTML = "<p>keep</p><span>gone</span>"
+	const removed: Array<Node> = []
+
+	morph(parent, "<div><p>keep</p></div>", {
+		beforeNodeRemoved: (node) => {
+			node.parentNode?.removeChild(node)
+			return true
+		},
+		afterNodeRemoved: (node) => {
+			removed.push(node)
+		},
+	})
+
+	expect(parent.innerHTML).toBe("<p>keep</p>")
+	expect(removed).toHaveLength(1)
+})
