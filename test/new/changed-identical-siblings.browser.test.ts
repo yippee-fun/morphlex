@@ -140,3 +140,33 @@ test("a changed element doesn't trade places into a target that discards its cha
 	expect([...form.querySelectorAll("input")]).toEqual([second, first, third])
 	form.parentElement!.remove()
 })
+
+test("selects matched by the user's picks keep their targets when an identical select is ordered", () => {
+	const options = `<option>a</option><option>b</option><option>c</option>`
+	const form = mount(`<form><select>${options}</select><select>${options}</select><select>${options}</select></form>`)
+	const [first, second, third] = form.querySelectorAll("select")
+	first!.value = "b"
+	second!.value = "c"
+
+	morph(form, `<form><select><option>c</option></select><select><option>b</option></select><select>${options}</select></form>`, {
+		preserveChanges: true,
+	})
+
+	expect([first!.value, second!.value]).toEqual(["b", "c"])
+	expect([...form.querySelectorAll("select")]).toEqual([second, first, third])
+	form.parentElement!.remove()
+})
+
+test("identical forms with a field named textContent are ordered by their text", () => {
+	const html = `<form><input name="textContent"></form>`
+	const root = mount(`<div>${html.repeat(50)}</div>`)
+	const forms = [...root.children]
+
+	morph(
+		root,
+		`<div>${Array.from({ length: 50 }, (_, i) => (i % 2 ? `<form class="x"><input name="textContent"></form>` : html)).join("")}</div>`,
+	)
+
+	expect([...root.children]).toEqual(forms)
+	root.parentElement!.remove()
+})
