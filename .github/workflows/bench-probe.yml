@@ -11,17 +11,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        run: [1, 2, 3]
+        run: [1, 2]
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
       - run: aube ci
-      - run: aube exec playwright install --with-deps chromium
+      - run: aube exec playwright install --with-deps chromium chromium-headless-shell
       - run: nproc; lscpu | head -20; ls /sys/bus/event_source/devices/; python3 bench-probe/pmu.py
       - run: node bench-probe/build.mjs src/morphlex.ts bench-probe/v/a.js morphlex && cp bench-probe/v/a.js bench-probe/v/b.js
-      - run: node bench-probe/run.mjs --variants a,b --rounds 15
-      - run: node bench-probe/run.mjs --variants a,b --rounds 15
-      - uses: actions/upload-artifact@v4
-        with:
-          name: raw-${{ matrix.run }}
-          path: bench-probe/raw.json
+      - run: sudo apt-get install -y valgrind
+      - run: cp bench-probe/v/a.js bench-probe/a.js
+      - name: Valgrind instruction counts
+        run: |
+          time (for r in 0 1; do for i in 1 2; do bench-probe/vg.sh "keyed%201000%20edit%20all" $r & done; done; wait)
+          time (for r in 0 1; do for i in 1 2; do bench-probe/vg.sh "attr%20churn%201000" $r & done; done; wait)

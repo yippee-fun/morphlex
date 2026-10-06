@@ -1,0 +1,9 @@
+<!doctype html><html><body><script src="a.js"></script><script src="scenarios.js"></script><script>
+const q = new URLSearchParams(location.search), s = SCENARIOS.find((s) => s.name === q.get("s")), k = 5, run = q.get("run") === "1"
+const host = document.createElement("div"); document.body.append(host)
+const parse = (html) => { const t = document.createElement("template"); t.innerHTML = html; return t.content.firstElementChild }
+const pairs = []
+for (let i = 0; i < k; i++) { const box = document.createElement("div"); box.innerHTML = s.from; host.append(box); const from = box.firstElementChild; if (s.setup) s.setup(from); pairs.push([from, parse(s.to)]) }
+if (run) for (const [a, b] of pairs) morphlex.morph(a, b, s.options)
+document.body.replaceChildren(document.createTextNode(run ? "ran" : "skipped"))
+</script></body></html>
