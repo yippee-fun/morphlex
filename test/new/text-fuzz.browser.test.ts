@@ -48,26 +48,22 @@ test("seeded fuzz keeps typed text in its own box when identical rows change aro
 	}
 })
 
-// A list of identical rows, some holding typed text, and a target giving one row a class. Every row stays, so each
-// typed text has one box it belongs in. Paragraphs between rows change their text but stay where they are. Typed
-// text can still move when rows are of two kinds, paragraphs shift or two rows change (#127), or when every row
-// holds typed text (#118), so those are left out until they're fixed.
+// A list of rows of one or two kinds, some holding typed text, and a target giving some rows a class and adding or
+// removing paragraphs between them. Every row stays, so each typed text has one box it belongs in.
 function createScenario(seed: number) {
 	const random = createRandom(seed)
-	const row = pick(random, ROWS)
-	const count = randomInt(random, 2, 6)
-	const typed = Array.from({ length: count }, (_, i) => (random() < 0.5 ? `typed ${i}` : ""))
-	if (typed.every(Boolean)) typed[randomInt(random, 0, count - 1)] = ""
-	const changed = randomInt(random, 0, count - 1)
-	const paragraphs = typed.map(() => random() < 0.2)
+	const kinds = [pick(random, ROWS), pick(random, ROWS)]
+	const rows = Array.from({ length: randomInt(random, 2, 6) }, () => pick(random, kinds))
+	const typed = rows.map((_, i) => (random() < 0.5 ? `typed ${i}` : ""))
+	const changed = rows.map(() => random() < 0.3)
 	const join = random() < 0.5 ? "\n" : ""
 
 	const render = (isTarget: boolean) => {
 		const nodes: Array<string> = []
-		for (let i = 0; i < count; i++) {
-			if (paragraphs[i]) nodes.push(`<p>${isTarget ? "new" : "old"}</p>`)
-			nodes.push(isTarget && i === changed ? row.changed : row.html)
-		}
+		rows.forEach((row, i) => {
+			if (random() < 0.2) nodes.push(`<p>${isTarget ? "new" : "old"}</p>`)
+			nodes.push(isTarget && changed[i] ? row.changed : row.html)
+		})
 		return `<form>${nodes.join(join)}</form>`
 	}
 
