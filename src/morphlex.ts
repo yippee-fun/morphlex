@@ -2025,7 +2025,7 @@ class Morph {
 		const { from, to, matches, op } = siblings
 
 		// The nodes in the longest increasing subsequence of matches don't need to move.
-		const lisIndices = longestIncreasingSubsequence(this.#pinFocused(parent, siblings))
+		const lisIndices = this.#unmovedMatches(parent, siblings)
 		const shouldNotMove: Array<boolean> = new Array(from.length)
 		for (let i = 0; i < lisIndices.length; i++) {
 			shouldNotMove[matches[lisIndices[i]!]!] = true
@@ -2150,20 +2150,26 @@ class Morph {
 	}
 	/* v8 ignore stop */
 
-	// The matches, keeping only those in order with the child holding the focused element, so the longest
-	// increasing subsequence includes that child and its siblings move around it.
-	#pinFocused(parent: Element, siblings: Siblings): Array<number | undefined> {
+	// The longest increasing subsequence of matches, which don't need to move. When one that leaves the child holding
+	// the focused element in place is just as long, use that, so its siblings move around it. Otherwise the child moves,
+	// since moving more siblings would lose their scroll positions and reload their frames.
+	#unmovedMatches(parent: Element, siblings: Siblings): Array<number> {
 		const { from, matches } = siblings
+		const unmoved = longestIncreasingSubsequence(matches)
 		const holders = this.#focusHolders
-		if (!holders?.has(parent)) return matches
+		if (!holders?.has(parent)) return unmoved
 
 		const pinnedIndex = matches.findIndex((match) => match !== undefined && holders.has(from[match]!))
-		if (pinnedIndex === -1) return matches
+		if (pinnedIndex === -1 || unmoved.includes(pinnedIndex)) return unmoved
 
+		// Only the matches in order with the child can stay around it.
 		const pinned = matches[pinnedIndex]!
-		return matches.map((match, i) =>
-			(i < pinnedIndex ? match < pinned : i > pinnedIndex ? match > pinned : true) ? match : undefined,
+		const pinnedUnmoved = longestIncreasingSubsequence(
+			matches.map((match, i) =>
+				(i < pinnedIndex ? match < pinned : i > pinnedIndex ? match > pinned : true) ? match : undefined,
+			),
 		)
+		return pinnedUnmoved.length === unmoved.length ? pinnedUnmoved : unmoved
 	}
 
 	// A morph inside a select never visits the select, so sync it when the morph settles if the morph

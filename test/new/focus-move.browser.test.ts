@@ -28,21 +28,40 @@ function movesSelectionOutOfRemovedNodes(): boolean {
 	return moved
 }
 
-test("a focused item that the target moves to the end stays put while its siblings move", () => {
-	const host = mount(`<ul><li id="a"><input id="ia" value="hello"></li><li id="b">b</li><li id="c">c</li></ul>`)
+test("a focused item that swaps places with a sibling stays put while the sibling moves", () => {
+	const host = mount(`<ul><li id="a"><input id="ia" value="hello"></li><li id="b">b</li></ul>`)
 	const ul = host.firstElementChild!
 	const item = host.querySelector("#a")!
+	const sibling = host.querySelector("#b")!
 	const input = host.querySelector("input")!
 	input.focus()
 	input.setSelectionRange(2, 3)
 
-	const removed = removedNodes(ul, () =>
-		morph(ul, `<ul><li id="b">b</li><li id="c">c</li><li id="a"><input id="ia" value="hello"></li></ul>`),
-	)
+	const removed = removedNodes(ul, () => morph(ul, `<ul><li id="b">b</li><li id="a"><input id="ia" value="hello"></li></ul>`))
 
-	expect(removed).not.toContain(item)
-	expect([...ul.children].map((child) => child.id)).toEqual(["b", "c", "a"])
-	expect(host.querySelector("input")).toBe(input)
+	expect(removed).toEqual([sibling])
+	expect(ul.firstElementChild).toBe(sibling)
+	expect(ul.lastElementChild).toBe(item)
+	expect(document.activeElement).toBe(input)
+	expect([input.selectionStart, input.selectionEnd]).toEqual([2, 3])
+
+	host.remove()
+})
+
+test("a focused item that the target moves to the front of a long list moves alone, keeping focus and its selection", () => {
+	const items = Array.from({ length: 50 }, (_, i) => `<li id="i${i}">${i}</li>`).join("")
+	const focused = `<li id="f"><input id="x" value="hello"></li>`
+	const host = mount(`<ul>${items}${focused}</ul>`)
+	const ul = host.firstElementChild!
+	const item = host.querySelector("#f")!
+	const input = host.querySelector("input")!
+	input.focus()
+	input.setSelectionRange(2, 3)
+
+	const removed = removedNodes(ul, () => morph(ul, `<ul>${focused}${items}</ul>`))
+
+	expect(removed).toEqual([item])
+	expect(ul.innerHTML).toBe(`${focused}${items}`)
 	expect(document.activeElement).toBe(input)
 	expect([input.selectionStart, input.selectionEnd]).toEqual([2, 3])
 

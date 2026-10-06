@@ -88,3 +88,5 @@ jobs:
           VITE_MORPHLEX_FUZZ_CHOICE_SEED_START: ${{ github.run_id }}
           VITE_MORPHLEX_FUZZ_TEXT_SEEDS: 2000
           VITE_MORPHLEX_FUZZ_TEXT_SEED_START: ${{ github.run_id }}
+          VITE_MORPHLEX_FUZZ_FOCUS_SEEDS: 2000
+          VITE_MORPHLEX_FUZZ_FOCUS_SEED_START: ${{ github.run_id }}

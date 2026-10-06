@@ -136,6 +136,23 @@ export function testMoves(part: number, parts: number): void {
 		})
 	})
 
+	test("a focused text control doesn't make the morph move more nodes than it would without focus", () => {
+		check(seeds, (scenario, fail) => {
+			const unfocused = mount(scenario.fromHtml)
+			const expected = removedElementCount(unfocused, () => run(unfocused, scenario))
+			unfocused.remove()
+
+			const host = mount(scenario.fromHtml)
+			const element = [...movableElements(host, scenario).values()].find(isTextControl)
+			if (!element) return
+			element.focus()
+			if (document.activeElement !== element) return
+
+			const removed = removedElementCount(host, () => run(host, scenario))
+			if (removed > expected) fail(host, `focusing #${element.id} took ${removed} removals, not ${expected}`)
+		})
+	})
+
 	test("the caret in a focused contenteditable stays inside it while the nodes around it move", () => {
 		check(seeds, (scenario, fail) => {
 			const host = mount(scenario.fromHtml)
@@ -804,6 +821,19 @@ function mount(html: string): HTMLElement {
 	host.append(parse(html))
 	document.body.append(host)
 	return host
+}
+
+// Each move removes the element before it's inserted again, with or without `moveBefore`. Whitespace holds no state,
+// and which of it a move reuses can change with the nodes that move, so it isn't counted.
+function removedElementCount(host: HTMLElement, run: () => void): number {
+	const observer = new MutationObserver(() => {})
+	observer.observe(host, { childList: true, subtree: true })
+	run()
+	const count = observer
+		.takeRecords()
+		.reduce((sum, record) => sum + [...record.removedNodes].filter((node) => node.nodeType === Node.ELEMENT_NODE).length, 0)
+	observer.disconnect()
+	return count
 }
 
 function isSameTree(a: Node, b: Node): boolean {
