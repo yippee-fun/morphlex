@@ -546,13 +546,14 @@ function addOptionSelects(optionSelects: Map<Element, HTMLSelectElement>, select
 	for (const option of select.options) optionSelects.set(option, select)
 }
 
-// The options the markup selects, then null, then the options the select shows, to tell whether a morph
-// inside the select changed either. Updating an option's `selected` or `disabled` attribute can change
-// what the select shows even when the markup selects the same options.
+// The options the markup selects, then the options the select shows, to tell whether a morph inside
+// the select changed either. Updating an option's `selected` or `disabled` attribute can change what
+// the select shows even when the markup selects the same options. A multiple select's lists are
+// separated by null.
 function selectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null> {
-	const options = Array.from(select.options)
-	const markup = select.multiple ? options.filter((option) => option.hasAttribute("selected")) : [defaultOptionOf(select)]
-	return [...markup, null, ...options.filter((option) => option.selected)]
+	if (!select.multiple) return [defaultOptionOf(select), select.options[select.selectedIndex] ?? null]
+	const markup = Array.from(select.options).filter((option) => option.hasAttribute("selected"))
+	return [...markup, null, ...select.selectedOptions]
 }
 
 function clearDirtyFlags(elements: Array<Element>): void {
