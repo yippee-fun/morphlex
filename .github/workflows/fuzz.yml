@@ -7,9 +7,19 @@ on:
 
 jobs:
   fuzz:
-    name: Move Fuzzer
+    name: Fuzz shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 30
+
+    # A browser gets slower the longer a fuzzer runs in it, so 50,000 seeds in one run took
+    # over two hours. Each shard runs its own 2,500 seeds of each fuzzer in a fresh browser.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+
+    env:
+      SEEDS_PER_SHARD: 2500
 
     steps:
       - uses: actions/checkout@v3
@@ -23,15 +33,20 @@ jobs:
       - name: Install Playwright Browsers
         run: aube exec playwright install --with-deps chromium
 
+      # A different start on each run and each shard, so every shard tries new seeds.
+      - name: Choose seeds
+        run: echo "SEED_START=$(( ${{ github.run_id }} + ${{ matrix.shard }} * SEEDS_PER_SHARD ))" >> "$GITHUB_ENV"
+
+      # A failing seed fails again, so retrying only doubles the time.
       - name: Run the move fuzzer
-        run: aube exec vitest run -c vitest.config.browser.ts --project chromium test/new/move-fuzz.browser.test.ts
+        run: aube exec vitest run -c vitest.config.browser.ts --project chromium --retry 0 test/new/move-fuzz.browser.test.ts
         env:
-          VITE_MORPHLEX_FUZZ_MOVE_SEEDS: 50000
-          VITE_MORPHLEX_FUZZ_MOVE_SEED_START: ${{ github.run_id }}
+          VITE_MORPHLEX_FUZZ_MOVE_SEEDS: ${{ env.SEEDS_PER_SHARD }}
+          VITE_MORPHLEX_FUZZ_MOVE_SEED_START: ${{ env.SEED_START }}
 
       - name: Run the choice fuzzer
         if: ${{ !cancelled() }}
-        run: aube exec vitest run -c vitest.config.browser.ts --project chromium test/new/choice-fuzz.browser.test.ts
+        run: aube exec vitest run -c vitest.config.browser.ts --project chromium --retry 0 test/new/choice-fuzz.browser.test.ts
         env:
-          VITE_MORPHLEX_FUZZ_CHOICE_SEEDS: 50000
-          VITE_MORPHLEX_FUZZ_CHOICE_SEED_START: ${{ github.run_id }}
+          VITE_MORPHLEX_FUZZ_CHOICE_SEEDS: ${{ env.SEEDS_PER_SHARD }}
+          VITE_MORPHLEX_FUZZ_CHOICE_SEED_START: ${{ env.SEED_START }}
