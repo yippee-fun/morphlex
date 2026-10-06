@@ -49,18 +49,67 @@ test("seeded fuzz moves no more elements around a focused input with moveBefore,
 	}
 })
 
+// Without `moveBefore`, a move takes a modal dialog out of the top layer, and it stays open but stops being modal.
+// Here the input sits in a modal dialog, which the target can also move into another item.
+test("seeded fuzz keeps a modal dialog that the morph moves modal, and keeps focus inside it", () => {
+	for (let seed = SEED_START; seed < SEED_START + SEED_COUNT; seed++) {
+		const scenario = createScenario(seed, true)
+		const message = `seed ${seed}\n${scenario.from}\n${scenario.to}`
+
+		const host = mount(scenario.from)
+		const dialog = host.querySelector("dialog")!
+		try {
+			dialog.showModal()
+			const input = host.querySelector("input")!
+			input.focus()
+			input.setSelectionRange(1, 3)
+
+			morph(host, scenario.to)
+
+			expect(host.outerHTML, message).toBe(parse(scenario.to).outerHTML)
+			expect(host.querySelector("dialog"), message).toBe(dialog)
+			expect(dialog.matches(":modal"), message).toBe(true)
+			expect(host.querySelector("input"), message).toBe(input)
+			expect(document.activeElement, message).toBe(input)
+			expect([input.selectionStart, input.selectionEnd], message).toEqual([1, 3])
+		} finally {
+			dialog.close()
+			host.remove()
+		}
+	}
+})
+
 // Nested lists of items with ids, one of which holds the focused input, a few levels down. The target reorders each
 // list and sometimes adds or removes items, so the input's holder at each level moves among its siblings.
-function createScenario(seed: number) {
+// With a dialog, the input sits in a modal dialog, and the target sometimes moves it into another item.
+function createScenario(seed: number, dialog = false) {
 	const random = createRandom(seed)
 	const ids = { next: 0 }
 	const depth = randomInt(random, 1, 3)
 	const tree = createList(random, ids, depth)
 
 	const join = random() < 0.5 ? "\n" : ""
-	const from = render(tree, join, "root")
-	const to = render(reorder(random, ids, tree), join, "root")
+	const from = render(tree, join, "root", dialog ? "" : null)
+	const reordered = reorder(random, ids, tree)
+	if (dialog && random() < 0.5) moveHolder(random, reordered)
+	const to = render(reordered, join, "root", dialog ? " open" : null)
 	return { from, to }
+}
+
+// Moves the input from its holder into another item that holds just its text, at any level.
+function moveHolder(random: Random, items: Array<Item>): void {
+	const all: Array<Item> = []
+	const collect = (list: Array<Item>) => {
+		for (const item of list) {
+			all.push(item)
+			if (item.children) collect(item.children)
+		}
+	}
+	collect(items)
+	const empty = all.filter((item) => item.children?.length === 0)
+	if (empty.length === 0) return
+	all.find((item) => item.children === null)!.children = []
+	pick(random, empty).children = null
 }
 
 function createList(random: Random, ids: { next: number }, depth: number): Array<Item> {
@@ -94,10 +143,18 @@ function reorder(random: Random, ids: { next: number }, items: Array<Item>): Arr
 }
 
 // An item with `children` of null holds the input, and an empty array holds just its text.
-function render(items: Array<Item>, join: string, id = ""): string {
+// With `dialog` set to its attributes, the input sits in a dialog.
+function render(items: Array<Item>, join: string, id = "", dialog: string | null = null): string {
+	const input = `<input id="x" value="hello">`
 	const html = items.map((item) => {
 		const inner =
-			item.children === null ? `<input id="x" value="hello">` : item.children.length ? render(item.children, join) : ""
+			item.children === null
+				? dialog === null
+					? input
+					: `<dialog id="d"${dialog}>${input}</dialog>`
+				: item.children.length
+					? render(item.children, join, "", dialog)
+					: ""
 		return `<li id="${item.id}">${item.text}${inner}</li>`
 	})
 	return `<ul${id ? ` id="${id}"` : ""}>${html.join(join)}</ul>`

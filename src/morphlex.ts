@@ -701,18 +701,26 @@ function restoreFocus(focus: Focus): boolean {
 	return false
 }
 
-// A custom element can define its own `focus` and a form's field can shadow it, so this calls the platform's own,
-// the one furthest along the prototype chain.
 function focusElement(element: Element): void {
+	callPlatform(element, "focus", { preventScroll: true })
+}
+
+function blurElement(element: Element): void {
+	callPlatform(element, "blur")
+}
+
+// A custom element can define its own `focus` or `blur` and a form's field can shadow them, so this calls the
+// platform's own, the one furthest along the prototype chain.
+function callPlatform(element: Element, name: "focus" | "blur", ...args: Array<unknown>): void {
 	let platform: object = element
 	for (
 		let prototype = Object.getPrototypeOf(element) as object | null;
 		prototype;
 		prototype = Object.getPrototypeOf(prototype) as object | null
 	) {
-		if (Object.hasOwn(prototype, "focus")) platform = prototype
+		if (Object.hasOwn(prototype, name)) platform = prototype
 	}
-	Reflect.apply(Reflect.get(platform, "focus") as HTMLElement["focus"], element, [{ preventScroll: true }])
+	Reflect.apply(Reflect.get(platform, name) as () => void, element, args)
 }
 
 // With nothing focused, a document's body is active, or its root element when it has no body, though WebKit has none.
@@ -738,6 +746,27 @@ function holds(node: Node, element: Node): boolean {
 function parentOrHost(node: Node): Node | null {
 	// Focus and the selection are always in a document, so a fragment here is a shadow root.
 	return parentNodeOf(node) ?? (nodeTypeOf(node) === DOCUMENT_FRAGMENT_NODE_TYPE ? (node as ShadowRoot).host : null)
+}
+
+// Modal dialogs and open popovers are in the top layer. A move without `moveBefore` takes them out of it, so a
+// modal dialog stays open but stops being modal, and a popover closes.
+const TOP_LAYER = "dialog:modal, :popover-open"
+
+// Show the elements a move took out of the top layer again, in document order, so a popover nested in another
+// stays open. A dialog that's still open was modal, and anything else was a popover.
+function showAgain(elements: Array<Element>): void {
+	for (const element of elements) {
+		if (!isConnected(element) || matchesSelector(element, TOP_LAYER)) continue
+		// A callback can have changed the element so it can't be shown, such as by removing its `popover`.
+		try {
+			if (isDialogElement(element) && element.open) {
+				removeAttribute(element, "open")
+				element.showModal()
+			} else {
+				;(element as HTMLElement).showPopover()
+			}
+		} catch {}
+	}
 }
 
 interface PendingMove {
@@ -1064,6 +1093,11 @@ class Morph {
 	#unrestoredFocus: Focus | null = null
 	#watchedFocus: Focus | null = null
 	#watchedDocuments: Array<Document> = []
+	// Whether elements a move took out of the top layer are being shown again, which can move focus.
+	#showingAgain = false
+	// The modal dialogs and open popovers in each document or shadow root that a move starts from, found when a move
+	// first needs them.
+	#topLayers: Map<Node, Array<Element>> | null = null
 
 	constructor(
 		options: Options = {},
@@ -2169,7 +2203,10 @@ class Morph {
 				if (!shouldNotMove[matchInd]) {
 					const outsideRadios = this.#uncheckRadiosNamingFormsIn(match, getRootNode(match))
 					const focus = this.#watchFocus(match, parent)
+					const topLayer = this.#topLayerMovedWith(match)
 					moveBefore(parent, match, insertionPoint)
+					/* v8 ignore next -- only browsers without moveBefore take the top layer out of a moved node */
+					if (topLayer) this.#showAgain(topLayer)
 					if (focus) this.#restoreFocus(focus)
 					this.#checkRadios(outsideRadios)
 				}
@@ -2223,10 +2260,45 @@ class Morph {
 		return focus
 	}
 
-	// Focus that the element itself takes, such as when it's put back, isn't taken from it.
+	// Focus that the element itself takes, such as when it's put back, isn't taken from it, and neither is focus that
+	// moves while the top layer is put back.
 	readonly #noteFocusTaken = (event: Event): void => {
 		const focus = this.#watchedFocus!
-		if (event.composedPath()[0] !== focus.element) focus.taken = true
+		if (!this.#showingAgain && event.composedPath()[0] !== focus.element) focus.taken = true
+	}
+
+	// The modal dialogs and open popovers that a move of the connected node would take out of the top layer.
+	#topLayerHeldBy(node: Node): Array<Element> | null {
+		const root = getRootNode(node)
+		const topLayers = (this.#topLayers ??= new Map<Node, Array<Element>>())
+		let elements = topLayers.get(root)
+		if (!elements) {
+			elements = Array.from(querySelectorAll(root as Document | ShadowRoot, TOP_LAYER))
+			topLayers.set(root, elements)
+		}
+		const held = elements.filter((element) => holds(node, element) && matchesSelector(element, TOP_LAYER))
+		return held.length ? held : null
+	}
+
+	// Only a move without `moveBefore` takes elements out of the top layer, and only a connected node holds any.
+	#topLayerMovedWith(node: Node): Array<Element> | null {
+		/* v8 ignore next -- only browsers without moveBefore lose the top layer when they move a node */
+		return SUPPORTS_MOVE_BEFORE || !isConnected(node) ? null : this.#topLayerHeldBy(node)
+	}
+
+	// Showing a modal dialog again focuses inside it, and a popover can focus its autofocus element, so focus goes
+	// back to where it was straight after. Focus that the move took is put back after this.
+	#showAgain(elements: Array<Element>): void {
+		const document = ownerDocumentOf(elements[0]!)!
+		const focused = isFocusLost(document) ? null : activeElementOf(document)
+		this.#showingAgain = true
+		showAgain(elements)
+		const focusedNow = isFocusLost(document) ? null : activeElementOf(document)
+		if (focusedNow !== focused) {
+			if (focused) focusElement(focused)
+			else blurElement(focusedNow!)
+		}
+		this.#showingAgain = false
 	}
 
 	#restoreFocus(focus: Focus): void {
@@ -2707,11 +2779,14 @@ class Morph {
 		const sourceRadios = isConnected(node) ? this.#uncheckRadiosNamingFormsIn(node, getRootNode(node), true) : null
 		// A live target can hold the focused element, which its claimed descendants take out of it next.
 		const focus = this.#watchFocus(node, parent)
+		// A live target is inserted without `moveBefore`, so it takes the top layer it holds out of it in every browser.
+		const topLayer = isConnected(node) ? this.#topLayerHeldBy(node) : null
 		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, parent)
 		if (this.#targetOpensDetails && isElement(node)) this.#noteAddedDetails(node)
 		const radios = this.#uncheckRadiosNamingFormsIn(node, getRootNode(parent))
 		insertBefore(parent, node, insertionPoint)
+		if (topLayer) this.#showAgain(topLayer)
 		if (focus) this.#restoreFocus(focus)
 		this.#checkRadios(radios)
 		this.#checkRadios(sourceRadios, true)
@@ -2759,7 +2834,10 @@ class Morph {
 			this.#liveElementsById.delete(idOf(target))
 			const outsideRadios = this.#uncheckRadiosForMove(live, parent)
 			const focus = this.#watchFocus(live, parent)
+			const topLayer = this.#topLayerMovedWith(live)
 			moveInto(parent, live, placeholder)
+			/* v8 ignore next -- only browsers without moveBefore take the top layer out of a moved node */
+			if (topLayer) this.#showAgain(topLayer)
 			if (focus) this.#restoreFocus(focus)
 			remove(placeholder)
 			this.#checkRadios(outsideRadios)
