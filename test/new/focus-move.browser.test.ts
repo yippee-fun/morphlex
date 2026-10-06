@@ -567,6 +567,23 @@ test.skipIf(!movesSelectionOutOfRemovedNodes())(
 	},
 )
 
+test("the caret in a child of a focused contenteditable that moves into a details stays there", () => {
+	const host = mount(`<div id="e" contenteditable="true"><div id="a">hello<details></details></div></div>`)
+	const editor = host.querySelector<HTMLElement>("#e")!
+	const text = host.querySelector("#a")!.firstChild!
+	editor.focus()
+	getSelection()!.setBaseAndExtent(text, 1, text, 3)
+
+	morph(editor, `<div id="e" contenteditable="true"><details><div id="a">hello</div></details></div>`)
+
+	const selection = getSelection()!
+	expect(text.parentElement!.parentElement!.localName).toBe("details")
+	expect(document.activeElement).toBe(editor)
+	expect([selection.anchorNode, selection.anchorOffset, selection.focusNode, selection.focusOffset]).toEqual([text, 1, text, 3])
+
+	host.remove()
+})
+
 test("a focused input that a live target's own id match takes out keeps focus", () => {
 	const host = mount(`<section><div><input id="x" value="hello"></div></section>`)
 	const section = host.firstElementChild!
