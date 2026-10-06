@@ -8,8 +8,8 @@ export default defineConfig({
 		exclude: [
 			...configDefaults.exclude,
 			"test/new/tree-fuzz.browser.test.ts",
-			"test/new/move-fuzz.browser.test.ts",
-			"test/new/exhaustive.browser.test.ts",
+			"test/new/move-fuzz-*.browser.test.ts",
+			"test/new/exhaustive-*.browser.test.ts",
 			// happy-dom loses a select's selection when options are inserted or moved.
 			"test/new/choice-fuzz.browser.test.ts",
 		],
