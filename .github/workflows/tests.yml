@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   checks:
-    name: Checks and unit tests
+    name: Checks
     runs-on: ubuntu-latest
 
     steps:
@@ -40,9 +40,6 @@ jobs:
 
       - name: Check Package
         run: aube run check:package
-
-      - name: Run Unit Tests With Coverage
-        run: aube run test --coverage
 
   browser:
     name: Browser tests (${{ matrix.browser }})
@@ -78,8 +75,9 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: aube exec playwright install-deps ${{ matrix.browser }}
 
+      # Coverage is measured in Chromium, where it's cheap.
       - name: Run Browser Tests
-        run: aube exec vitest run -c vitest.config.browser.ts --project ${{ matrix.browser }}
+        run: aube exec vitest run -c vitest.config.browser.ts --project ${{ matrix.browser }} ${{ matrix.browser == 'chromium' && '--coverage' || '' }}
         env:
           # A different start on each run, so repeated runs try new seeds.
           VITE_MORPHLEX_FUZZ_MOVE_SEEDS: 2000

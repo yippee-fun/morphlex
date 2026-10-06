@@ -17,17 +17,6 @@ function removedNodes(target: Node, run: () => void): Array<Node> {
 	return removed
 }
 
-// Browsers move a selection out of a node that leaves its parent, but happy-dom leaves it there.
-function movesSelectionOutOfRemovedNodes(): boolean {
-	const host = mount(`<p>a<b>b</b></p>`)
-	const text = host.querySelector("b")!.firstChild!
-	getSelection()!.setBaseAndExtent(text, 0, text, 0)
-	host.append(text.parentNode!)
-	const moved = getSelection()!.anchorNode !== text
-	host.remove()
-	return moved
-}
-
 const SUPPORTS_MOVE_BEFORE = "moveBefore" in Element.prototype
 
 // `moveBefore` keeps focus, so there the focused item moves like any other. Without it, the focused item stays put
@@ -524,77 +513,68 @@ test("a selection that ends in a child of a focused contenteditable stays when o
 	host.remove()
 })
 
-test.skipIf(!movesSelectionOutOfRemovedNodes())(
-	"the caret in a child that moves out of a focused contenteditable stays in the editor, so typing still lands there",
-	() => {
-		const host = mount(`<div id="e" contenteditable="true">hello <b id="m">bold</b></div><div id="o"></div>`)
-		const editor = host.querySelector<HTMLElement>("#e")!
-		const text = host.querySelector("#m")!.firstChild!
-		editor.focus()
-		getSelection()!.setBaseAndExtent(text, 2, text, 2)
+test("the caret in a child that moves out of a focused contenteditable stays in the editor, so typing still lands there", () => {
+	const host = mount(`<div id="e" contenteditable="true">hello <b id="m">bold</b></div><div id="o"></div>`)
+	const editor = host.querySelector<HTMLElement>("#e")!
+	const text = host.querySelector("#m")!.firstChild!
+	editor.focus()
+	getSelection()!.setBaseAndExtent(text, 2, text, 2)
 
-		morphInner(host, `<div><div id="e" contenteditable="true">hello </div><div id="o"><b id="m">bold</b></div></div>`)
+	morphInner(host, `<div><div id="e" contenteditable="true">hello </div><div id="o"><b id="m">bold</b></div></div>`)
 
-		const selection = getSelection()!
-		expect(text.parentElement!.parentElement!.id).toBe("o")
-		expect(document.activeElement).toBe(editor)
-		expect(editor.contains(selection.anchorNode)).toBe(true)
-		expect(editor.contains(selection.focusNode)).toBe(true)
+	const selection = getSelection()!
+	expect(text.parentElement!.parentElement!.id).toBe("o")
+	expect(document.activeElement).toBe(editor)
+	expect(editor.contains(selection.anchorNode)).toBe(true)
+	expect(editor.contains(selection.focusNode)).toBe(true)
 
-		document.execCommand("insertText", false, "Z")
-		expect(editor.textContent).toContain("Z")
-		expect(text.textContent).toBe("bold")
+	document.execCommand("insertText", false, "Z")
+	expect(editor.textContent).toContain("Z")
+	expect(text.textContent).toBe("bold")
 
-		host.remove()
-	},
-)
+	host.remove()
+})
 
-test.skipIf(!movesSelectionOutOfRemovedNodes())(
-	"a selection with one end in a child that moves out of a focused contenteditable stays in the editor",
-	() => {
-		const host = mount(`<div id="e" contenteditable="true">hello <b id="m">bold</b></div><div id="o"></div>`)
-		const editor = host.querySelector<HTMLElement>("#e")!
-		const text = host.querySelector("#m")!.firstChild!
-		editor.focus()
-		getSelection()!.setBaseAndExtent(editor.firstChild!, 1, text, 2)
+test("a selection with one end in a child that moves out of a focused contenteditable stays in the editor", () => {
+	const host = mount(`<div id="e" contenteditable="true">hello <b id="m">bold</b></div><div id="o"></div>`)
+	const editor = host.querySelector<HTMLElement>("#e")!
+	const text = host.querySelector("#m")!.firstChild!
+	editor.focus()
+	getSelection()!.setBaseAndExtent(editor.firstChild!, 1, text, 2)
 
-		morphInner(host, `<div><div id="e" contenteditable="true">hello </div><div id="o"><b id="m">bold</b></div></div>`)
+	morphInner(host, `<div><div id="e" contenteditable="true">hello </div><div id="o"><b id="m">bold</b></div></div>`)
 
-		const selection = getSelection()!
-		expect(text.parentElement!.parentElement!.id).toBe("o")
-		expect(document.activeElement).toBe(editor)
-		expect(editor.contains(selection.anchorNode)).toBe(true)
-		expect(editor.contains(selection.focusNode)).toBe(true)
+	const selection = getSelection()!
+	expect(text.parentElement!.parentElement!.id).toBe("o")
+	expect(document.activeElement).toBe(editor)
+	expect(editor.contains(selection.anchorNode)).toBe(true)
+	expect(editor.contains(selection.focusNode)).toBe(true)
 
-		host.remove()
-	},
-)
+	host.remove()
+})
 
-test.skipIf(!movesSelectionOutOfRemovedNodes())(
-	"the caret in a child that moves from a focused contenteditable into another one stays in the focused one",
-	() => {
-		const host = mount(
-			`<div id="e" contenteditable="true">hello <b id="m">bold</b></div><div id="f" contenteditable="true">other</div>`,
-		)
-		const editor = host.querySelector<HTMLElement>("#e")!
-		const text = host.querySelector("#m")!.firstChild!
-		editor.focus()
-		getSelection()!.setBaseAndExtent(text, 2, text, 2)
+test("the caret in a child that moves from a focused contenteditable into another one stays in the focused one", () => {
+	const host = mount(
+		`<div id="e" contenteditable="true">hello <b id="m">bold</b></div><div id="f" contenteditable="true">other</div>`,
+	)
+	const editor = host.querySelector<HTMLElement>("#e")!
+	const text = host.querySelector("#m")!.firstChild!
+	editor.focus()
+	getSelection()!.setBaseAndExtent(text, 2, text, 2)
 
-		morphInner(
-			host,
-			`<div><div id="e" contenteditable="true">hello </div><div id="f" contenteditable="true">other<b id="m">bold</b></div></div>`,
-		)
+	morphInner(
+		host,
+		`<div><div id="e" contenteditable="true">hello </div><div id="f" contenteditable="true">other<b id="m">bold</b></div></div>`,
+	)
 
-		const selection = getSelection()!
-		expect(text.parentElement!.parentElement!.id).toBe("f")
-		expect(document.activeElement).toBe(editor)
-		expect(editor.contains(selection.anchorNode)).toBe(true)
-		expect(editor.contains(selection.focusNode)).toBe(true)
+	const selection = getSelection()!
+	expect(text.parentElement!.parentElement!.id).toBe("f")
+	expect(document.activeElement).toBe(editor)
+	expect(editor.contains(selection.anchorNode)).toBe(true)
+	expect(editor.contains(selection.focusNode)).toBe(true)
 
-		host.remove()
-	},
-)
+	host.remove()
+})
 
 test("the caret in a child of a focused contenteditable that moves into a details stays there", () => {
 	const host = mount(`<div id="e" contenteditable="true"><div id="a">hello<details></details></div></div>`)

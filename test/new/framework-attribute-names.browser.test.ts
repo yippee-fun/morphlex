@@ -22,7 +22,7 @@ test("an attribute named @click is added", () => {
 })
 
 test("attribute names that setAttribute rejects are added, changed and removed", () => {
-	// The tree fuzzer covers names like `x-on:click`, which happy-dom splits into a prefix and a local name.
+	// The tree fuzzer covers names with a colon, like `x-on:click`.
 	const names = ["@click", ":class", "#ref", "[x]", "*ngif"]
 	const host = mount(`<div><span></span></div>`)
 	const span = host.querySelector("span")!
