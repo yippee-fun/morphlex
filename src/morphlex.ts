@@ -729,6 +729,8 @@ class Siblings {
 	readonly op: Array<Operation> = []
 	// The candidates holding the user's changes, by shape, once they've been matched.
 	dirtyCandidatesByShape: Map<string, Array<number>> | null = null
+	// The candidates matched by the user's choices.
+	readonly matchedByChoices: Set<number> = new Set()
 	readonly #fromLocalNames: Array<string> = []
 	readonly #fromNamespaces: Array<string | null> = []
 	readonly #toLocalNames: Array<string> = []
@@ -1720,7 +1722,10 @@ class Morph {
 			}
 			matching.assignRest()
 
-			for (const [target, k] of matching.owners) siblings.take(target, choiceCandidates[k]![0], Operation.SameElement)
+			for (const [target, k] of matching.owners) {
+				siblings.take(target, choiceCandidates[k]![0], Operation.SameElement)
+				siblings.matchedByChoices.add(choiceCandidates[k]![0])
+			}
 		}
 	}
 
@@ -1858,17 +1863,18 @@ class Morph {
 					if (bucket) bucket.push(candidate)
 					else candidatesByShape.set(shape, [candidate])
 				}
-				// Each set takes its targets in order, except that the changed elements keep the order of their own
-				// targets among themselves, since a pass that matched them by the user's choices may have crossed them.
+				// Each set takes its targets in order, except that the elements matched by the user's choices keep the
+				// order of their own targets among themselves, since that pass may have crossed them.
+				const { matchedByChoices } = siblings
 				const ordered = matches.slice()
 				let reordered = false
 				for (const bucket of candidatesByShape.values()) {
 					bucket.sort((a, b) => a - b)
 					const targets = bucket.map((candidate) => targetOf[candidate]!).sort((a, b) => a - b)
-					const changedInBucket = bucket.filter((candidate) => dirtyElements.has(from[candidate] as Element))
-					changedInBucket.sort((a, b) => targetOf[a]! - targetOf[b]!)
+					const byChoices = bucket.filter((candidate) => matchedByChoices.has(candidate))
+					byChoices.sort((a, b) => targetOf[a]! - targetOf[b]!)
 					for (let t = 0, c = 0; t < bucket.length; t++) {
-						const candidate = dirtyElements.has(from[bucket[t]!] as Element) ? changedInBucket[c++]! : bucket[t]!
+						const candidate = matchedByChoices.has(bucket[t]!) ? byChoices[c++]! : bucket[t]!
 						if (ordered[targets[t]!] !== candidate) {
 							ordered[targets[t]!] = candidate
 							reordered = true
