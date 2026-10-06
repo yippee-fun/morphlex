@@ -1,20 +1,25 @@
-import { configDefaults, defineConfig } from "vitest/config"
+import { defineConfig } from "vitest/config"
+import { playwright } from "@vitest/browser-playwright"
 
+// Tests run in Chromium, which is also where coverage is measured. `vitest.config.browser.ts` adds Firefox and WebKit.
 export default defineConfig({
 	test: {
-		environment: "happy-dom",
-		globals: true,
-		// These generate trees that happy-dom can't parse and serialize faithfully, so they only run in real browsers.
-		exclude: [
-			...configDefaults.exclude,
-			"test/new/tree-fuzz.browser.test.ts",
-			"test/new/move-fuzz-*.browser.test.ts",
-			"test/new/exhaustive-*.browser.test.ts",
-			// happy-dom loses a select's selection when options are inserted or moved.
-			"test/new/choice-fuzz.browser.test.ts",
-		],
-		testTimeout: 10000,
-		hookTimeout: 10000,
+		browser: {
+			enabled: true,
+			provider: playwright(),
+			instances: [{ browser: "chromium" }],
+			// Enable headless mode by default, can be overridden with --browser.headless=false
+			headless: true,
+			// Screenshot on failure
+			screenshotFailures: true,
+		},
+		include: ["test/**/*.test.ts"],
+		testTimeout: 30000,
+		hookTimeout: 30000,
+		// Don't use globals in browser tests to avoid pollution
+		globals: false,
+		// Retry failed tests once in browser mode
+		retry: 1,
 		coverage: {
 			include: ["src/morphlex.ts"],
 			thresholds: { 100: true },

@@ -45,7 +45,7 @@ describe("Morphlex Edge Cases & Error Handling", () => {
 
 	describe("moveBefore API coverage", () => {
 		it("should use insertBefore when moveBefore is not available", () => {
-			// In happy-dom, moveBefore is not available, so this is already covered
+			// Where moveBefore is not available, this is already covered
 			// by existing tests. We're just making it explicit here.
 			const parent = document.createElement("div")
 			const child1 = document.createElement("span")
@@ -135,7 +135,7 @@ describe("Morphlex Edge Cases & Error Handling", () => {
 			// Mock moveBefore if it doesn't exist
 			const originalMoveBefore = (Element.prototype as any).moveBefore
 			if (!originalMoveBefore) {
-				// Since moveBefore doesn't exist in happy-dom, we can't test line 402
+				// Without moveBefore, we can't test line 402
 				// This line is only reachable in real browsers that support moveBefore
 				// We'll just verify that the fallback (insertBefore) works
 				const parent = document.createElement("div")

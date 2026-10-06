@@ -33,7 +33,6 @@
 		"test:browser": "vitest run -c vitest.config.browser.ts",
 		"test:browser:fuzz": "VITE_MORPHLEX_FUZZ_MATCHING_SEEDS=5000 VITE_MORPHLEX_FUZZ_PRESERVE_SEEDS=2000 VITE_MORPHLEX_FUZZ_TREE_SEEDS=5000 VITE_MORPHLEX_FUZZ_MOVE_SEEDS=3000 vitest run -c vitest.config.browser.ts test/new/fuzz.browser.test.ts test/new/tree-fuzz.browser.test.ts test/new/move-fuzz-*.browser.test.ts",
 		"test:browser:watch": "vitest -c vitest.config.browser.ts",
-		"test:all": "vitest run && vitest run -c vitest.config.browser.ts",
 		"serve": "vite --open /benchmark/"
 	},
 	"devDependencies": {
@@ -44,7 +43,6 @@
 		"@vitest/browser-playwright": "^4.1.11",
 		"@vitest/coverage-v8": "^4.1.11",
 		"@vitest/ui": "^4.1.11",
-		"happy-dom": "^20.14.5",
 		"jsr": "^0.13.5",
 		"oxlint": "^1.86.0",
 		"oxlint-tsgolint": "^7.0.2003",

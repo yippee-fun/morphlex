@@ -24,27 +24,23 @@ function keepsWrappersInSelects(): boolean {
 	return parse(`<select><div><option>x</option></div></select>`).firstElementChild?.localName === "div"
 }
 
-// happy-dom doesn't implement `defaultSelected`, and its selection doesn't follow inserted options.
-test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))(
-	"a new option with a selected attribute is selected, like any option that gains the attribute",
-	() => {
-		for (const preserveChanges of [false, true]) {
-			const host = mount(`<select id="s"><option id="a">a</option><option id="b">b</option></select>`)
-			const select = host.querySelector("select")!
-			select.value = "b"
+test("a new option with a selected attribute is selected, like any option that gains the attribute", () => {
+	for (const preserveChanges of [false, true]) {
+		const host = mount(`<select id="s"><option id="a">a</option><option id="b">b</option></select>`)
+		const select = host.querySelector("select")!
+		select.value = "b"
 
-			morph(
-				select,
-				parse(`<select id="s"><option selected>n</option><option id="a">a</option><option id="b">b</option></select>`),
-				{ preserveChanges },
-			)
+		morph(
+			select,
+			parse(`<select id="s"><option selected>n</option><option id="a">a</option><option id="b">b</option></select>`),
+			{ preserveChanges },
+		)
 
-			expect(host.querySelector("select")).toBe(select)
-			expect(select.value).toBe("n")
-			host.remove()
-		}
-	},
-)
+		expect(host.querySelector("select")).toBe(select)
+		expect(select.value).toBe("n")
+		host.remove()
+	}
+})
 
 test("preserveChanges keeps the user's choice when new options come from a node list", () => {
 	const host = mount(`<select id="s"><!--x--><option>a</option><option>b</option></select>`)
@@ -73,8 +69,7 @@ test.skipIf(!keepsWrappersInSelects())("preserveChanges keeps the user's choice 
 	host.remove()
 })
 
-// happy-dom doesn't implement `defaultSelected`, and its selection doesn't follow inserted options.
-test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))("a live option passed as the target keeps its selection", () => {
+test("a live option passed as the target keeps its selection", () => {
 	const host = mount(`<select id="s"><!--x--><option>a</option><option>b</option></select>`)
 	const select = host.querySelector("select")!
 	select.value = "b"
@@ -86,8 +81,7 @@ test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))("a live option 
 	host.remove()
 })
 
-// happy-dom doesn't implement `defaultSelected`, and its selection doesn't follow inserted options.
-test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))("a select inside a new node keeps its own selection", () => {
+test("a select inside a new node keeps its own selection", () => {
 	const host = mount(`<select id="s"><option>a</option></select>`)
 	const select = host.querySelector("select")!
 

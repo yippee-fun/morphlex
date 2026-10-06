@@ -1,6 +1,6 @@
 - I’m using Aube to manage packages and Node to run scripts.
 - Don’t create a summary document.
-- Running all the tests with `aube run test` is cheap, so do it all the time. Don’t do too much before running tests. You can also run browser tests with `aube run test:browser`.
+- Running all the tests with `aube run test` is cheap, so do it all the time. Don’t do too much before running tests. It runs them in Chromium, which needs `aube exec playwright install chromium` once. You can also run them in Chromium, Firefox and WebKit with `aube run test:browser`.
 - Try to maintain 100% test coverage. Use `aube run test --coverage`.
 - Make sure you leave things in a good state. No warnings. No type errors.
 - We use tabs for indentation and sometimes additional spaces for alignment
@@ -62,4 +62,4 @@ Whitespace text nodes are only ever matched with whitespace. The live whitespace
 
 ### Reading members of forms and documents
 
-A form's fields shadow its members, so `<input name="parentNode">` makes `form.parentNode` the input, and a named image does the same to its document. So members of a node that can be a form or a document (anything typed as `Node`, `ChildNode`, `ParentNode`, `Element` or `Document`) are read through the helpers at the end of `src/morphlex.ts`, like `parentNodeOf(node)` and `getAttribute(element, name)`, which call the member on the prototype that defines it. An element narrowed to an input, an option, a select and the like, or a text node, is read directly. happy-dom defines `textContent` again on each kind of node, so `textContentOf` takes it from the node's own class.
+A form's fields shadow its members, so `<input name="parentNode">` makes `form.parentNode` the input, and a named image does the same to its document. So members of a node that can be a form or a document (anything typed as `Node`, `ChildNode`, `ParentNode`, `Element` or `Document`) are read through the helpers at the end of `src/morphlex.ts`, like `parentNodeOf(node)` and `getAttribute(element, name)`, which call the member on the prototype that defines it. An element narrowed to an input, an option, a select and the like, or a text node, is read directly.

@@ -1,35 +1,14 @@
-import { defineConfig } from "vitest/config"
-import { playwright } from "@vitest/browser-playwright"
+import { defineConfig, mergeConfig } from "vitest/config"
+import base from "./vitest.config.ts"
 
-export default defineConfig({
-	test: {
-		browser: {
-			enabled: true,
-			provider: playwright(),
-			instances: [
-				{
-					browser: "chromium",
-				},
-				{
-					browser: "firefox",
-				},
-				{
-					browser: "webkit",
-				},
-			],
-			// Enable headless mode by default, can be overridden with --browser.headless=false
-			headless: true,
-			// Screenshot on failure
-			screenshotFailures: true,
+// Merging adds these instances to the base config's Chromium.
+export default mergeConfig(
+	base,
+	defineConfig({
+		test: {
+			browser: {
+				instances: [{ browser: "firefox" }, { browser: "webkit" }],
+			},
 		},
-		// Increase timeouts for browser tests
-		testTimeout: 30000,
-		hookTimeout: 30000,
-		// Don't use globals in browser tests to avoid pollution
-		globals: false,
-		// Retry failed tests once in browser mode
-		retry: 1,
-		// Include only browser-specific tests
-		include: ["test/**/*.browser.test.ts"],
-	},
-})
+	}),
+)
