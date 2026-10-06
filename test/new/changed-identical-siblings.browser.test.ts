@@ -142,12 +142,14 @@ test("a changed element doesn't trade places into a target that discards its cha
 		{ preserveChanges: true },
 	)
 
+	// The untouched input takes the target that discards changes, so both typed texts stay, in order.
 	expect(first!.value).toBe("first")
+	expect(second!.value).toBe("second")
 	const inputsAfter = form.querySelectorAll("input")
 	expect(inputsAfter).toHaveLength(3)
-	expect(inputsAfter[0]).toBe(second)
+	expect(inputsAfter[0]).toBe(third)
 	expect(inputsAfter[1]).toBe(first)
-	expect(inputsAfter[2]).toBe(third)
+	expect(inputsAfter[2]).toBe(second)
 	form.parentElement!.remove()
 })
 
