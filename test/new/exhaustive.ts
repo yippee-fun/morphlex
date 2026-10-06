@@ -1,4 +1,4 @@
-import { test } from "vitest"
+import { test, vi } from "vitest"
 import { morph } from "../../src/morphlex"
 
 // Every small tree over a fixed set of nodes, morphed into every other one. Small cases are
@@ -16,22 +16,31 @@ const LEAVES = [
 ]
 const WRAPPERS = ["div", 'div id="x"', 'div id="z"', "span"]
 
-test("every small tree morphs into every other one, and a second morph changes nothing", () => {
-	const trees = createTrees()
-	const failures: Array<string> = []
+// Tens of thousands of pairs take longer than the default limit when the browser shares the CPU with
+// other tests, and a test that runs over is failed and retried even though it finished.
+vi.setConfig({ testTimeout: 120_000 })
 
-	for (const from of trees) {
-		for (const to of trees) {
-			const failure = check(from, to)
-			if (failure) failures.push(failure)
+// Each part checks every pair whose first tree is in its share of the trees. The pairs are split
+// across several files, so the parts run in parallel, each in a fresh page.
+export function testAllPairs(part: number, parts: number): void {
+	test("every small tree morphs into every other one, and a second morph changes nothing", () => {
+		const trees = createTrees()
+		const froms = trees.slice(Math.floor(((part - 1) * trees.length) / parts), Math.floor((part * trees.length) / parts))
+		const failures: Array<string> = []
+
+		for (const from of froms) {
+			for (const to of trees) {
+				const failure = check(from, to)
+				if (failure) failures.push(failure)
+			}
 		}
-	}
 
-	if (failures.length > 0) {
-		failures.sort((a, b) => a.length - b.length)
-		throw new Error(`${failures.length} of ${trees.length ** 2} pairs failed. Smallest:\n${failures[0]}`)
-	}
-})
+		if (failures.length > 0) {
+			failures.sort((a, b) => a.length - b.length)
+			throw new Error(`${failures.length} of ${froms.length * trees.length} pairs failed. Smallest:\n${failures[0]}`)
+		}
+	})
+}
 
 // Up to two leaves, optionally inside one wrapper, optionally after a leading text node.
 function createTrees(): Array<string> {

@@ -1,10 +1,20 @@
 name: Tests
 
-on: [push, pull_request]
+# Pull requests run on their own event, so pushes only run on main. Otherwise every push to a
+# pull request's branch would run everything twice.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to a pull request cancels the run for the push before it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
-    name: JavaScript Test Action
+  checks:
+    name: Checks and unit tests
     runs-on: ubuntu-latest
 
     steps:
@@ -15,21 +25,6 @@ jobs:
 
       - name: Install dependencies
         run: aube ci
-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v3
-        id: playwright-cache
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-
-      - name: Install Playwright Browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: aube exec playwright install --with-deps chromium firefox webkit
-
-      - name: Install Playwright System Dependencies
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: aube exec playwright install-deps chromium firefox webkit
 
       - name: Check Formatting
         run: aube run format:check
@@ -49,8 +44,42 @@ jobs:
       - name: Run Unit Tests With Coverage
         run: aube run test --coverage
 
+  browser:
+    name: Browser tests (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+
+    # Each browser gets its own runner, so its tests have all the runner's cores to themselves.
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup mise
+        uses: jdx/mise-action@v2
+
+      - name: Install dependencies
+        run: aube ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v3
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright Browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: aube exec playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Install Playwright System Dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: aube exec playwright install-deps ${{ matrix.browser }}
+
       - name: Run Browser Tests
-        run: aube run test:browser
+        run: aube exec vitest run -c vitest.config.browser.ts --project ${{ matrix.browser }}
         env:
           # A different start on each run, so repeated runs try new seeds.
           VITE_MORPHLEX_FUZZ_MOVE_SEEDS: 2000

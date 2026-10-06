@@ -31,219 +31,225 @@ const INPUT_TYPES = ["text", "checkbox", "radio", "hidden", "range", "color"]
 const TEXTS = ["hello", "x y", "123", " "]
 const IS_VALUES = ["x-a", "x-b"]
 
-test("the result matches the target, and every element that can move keeps its node", () => {
-	check((scenario, fail) => {
-		const host = mount(scenario.fromHtml)
-		const expected = movableElements(host, scenario)
-		const redefined = redefinedElements(host, scenario)
+// Defines every test over one part of the seeds. The fuzzer is split across several files,
+// so its parts run in parallel, each in a fresh page.
+export function testMoves(part: number, parts: number): void {
+	const seeds = SEEDS.slice(Math.floor(((part - 1) * SEEDS.length) / parts), Math.floor((part * SEEDS.length) / parts))
 
-		run(host, scenario)
+	test("the result matches the target, and every element that can move keeps its node", () => {
+		check(seeds, (scenario, fail) => {
+			const host = mount(scenario.fromHtml)
+			const expected = movableElements(host, scenario)
+			const redefined = redefinedElements(host, scenario)
 
-		const target = closeLaterAccordionItems(parse(scenario.toHtml))
-		if (scenario.shape === "one" ? !isSameTree(host.firstChild!, target) : !isSameChildren(host.firstChild!, target)) {
-			fail(host, "result differs from target")
-		}
-		for (const [id, element] of expected) {
-			if (host.querySelector(`[id="${id}"]`) !== element) fail(host, `#${id} was recreated`)
-		}
-		for (const element of redefined) {
-			if (host.contains(element)) fail(host, `#${element.id} kept its node although its \`is\` changed`)
-		}
-	})
-})
+			run(host, scenario)
 
-test("every select and checkable input shows what the target markup says", () => {
-	check((scenario, fail) => {
-		const host = mount(scenario.fromHtml)
-
-		// A checked radio outside the morph, in the group of a form inside it. Only the markup can uncheck it.
-		const formId = sharedFormId(host, scenario)
-		const outside = formId ? `<input type="radio" name="r" form="${formId}" checked data-move-fuzz>` : ""
-		host.insertAdjacentHTML("beforebegin", outside)
-		const radio = host.previousElementSibling as HTMLInputElement | null
-
-		run(host, scenario)
-
-		// A separate document, so its radios don't join the live radio groups.
-		const expected = document.implementation.createHTMLDocument("")
-		expected.body.innerHTML = scenario.toHtml
-		const actual = `${radio ? checkednessOf(radio) : ""} ${stateOf(host.firstChild as Element)}`
-		const wanted = `${formId ? outsideCheckedness(expected, formId) : ""} ${stateOf(expected.body.firstChild as Element)}`
-		if (actual !== wanted) fail(host, `controls show ${actual}, but the target says ${wanted}`)
-	})
-})
-
-test("preserveChanges keeps what the user typed into every control that moves, unless it's clobbered", () => {
-	check((scenario, fail) => {
-		const host = mount(scenario.fromHtml)
-		const expected = movableElements(host, scenario)
-		const random = createRandom(scenario.seed ^ 0x5bd1e995)
-
-		// Some target elements discard user changes inside them.
-		const target = parse(scenario.toHtml)
-		for (const element of target.querySelectorAll("*")) {
-			if (random() < 0.15) element.setAttribute("morphlex-clobber", "")
-		}
-
-		const typed = new Map<Element, string>()
-		for (const element of expected.values()) {
-			if (!isTextControl(element)) continue
-			element.value = `typed-${scenario.seed}`
-			const to = target.querySelector(`[id="${element.id}"]`)!
-			const clobbered = to.closest("[morphlex-clobber]") !== null
-			typed.set(element, clobbered ? (to as HTMLInputElement).defaultValue : element.value)
-		}
-
-		run(host, scenario, { preserveChanges: true }, target)
-
-		for (const [element, value] of typed) {
-			if ((element as HTMLInputElement).value !== value)
-				fail(host, `#${element.id} shows "${(element as HTMLInputElement).value}", not "${value}"`)
-		}
-	})
-})
-
-test("a focused text control that moves keeps focus and its selection, and the result still matches the target", () => {
-	check((scenario, fail) => {
-		const host = mount(scenario.fromHtml)
-		const element = [...movableElements(host, scenario).values()].find(isTextControl)
-		if (!element) return
-		element.focus()
-		if (document.activeElement !== element) return
-		element.setSelectionRange(1, 2)
-		const value = element.value
-		const selection = `${element.selectionStart}-${element.selectionEnd}`
-
-		run(host, scenario)
-
-		const target = closeLaterAccordionItems(parse(scenario.toHtml))
-		if (scenario.shape === "one" ? !isSameTree(host.firstChild!, target) : !isSameChildren(host.firstChild!, target)) {
-			fail(host, "result differs from target")
-		}
-		if (document.activeElement !== element) {
-			// It may be somewhere it can't be focused, like a closed details.
-			element.focus()
-			if (document.activeElement === element) fail(host, `#${element.id} lost focus`)
-		} else if (element.value === value && `${element.selectionStart}-${element.selectionEnd}` !== selection) {
-			fail(host, `#${element.id} has selection ${element.selectionStart}-${element.selectionEnd}, not ${selection}`)
-		}
-	})
-})
-
-// Option wrappers with ids nest differently in each tree, inside an element that moves to another parent.
-test("a select inside a moving element shows what its markup says, while its option wrappers move", () => {
-	let failures = 0
-	let smallest: string | null = null
-
-	for (const seed of SEEDS) {
-		const random = createRandom(seed)
-		const fromHtml = `<div><section><div id="m">${createNestedSelect(random)}</div></section><aside></aside></div>`
-		const toHtml = `<div><section></section><aside><div id="m">${createNestedSelect(random)}</div></aside></div>`
-		const host = mount(fromHtml)
-
-		morph(host.firstChild as ChildNode, toHtml)
-
-		const expected = document.implementation.createHTMLDocument("")
-		expected.body.innerHTML = toHtml
-		const actual = selectionOf(host.querySelector("select")!)
-		const wanted = selectionOf(expected.querySelector("select")!)
-		host.remove()
-		if (actual !== wanted) {
-			failures++
-			const report = `seed ${seed}: the select shows ${actual}, but its markup says ${wanted}\nfrom: ${fromHtml}\nto:   ${toHtml}`
-			if (smallest === null || report.length < smallest.length) smallest = report
-		}
-	}
-
-	if (smallest !== null) throw new Error(`${failures} of ${SEEDS.length} seeds failed. Smallest failure:\n${smallest}`)
-})
-
-test("callbacks see a consistent DOM, and vetoes are respected", () => {
-	check((scenario, fail) => {
-		const host = mount(scenario.fromHtml)
-		const random = createRandom(scenario.seed ^ 0x2545f491)
-		const root: Node = host.firstChild!
-		const live = [...host.querySelectorAll("*")]
-
-		const vetoVisit = new Set(live.filter(() => random() < 0.1))
-		const vetoChildren = new Set(live.filter(() => random() < 0.1))
-		const vetoRemoval = new Set(live.filter(() => random() < 0.1))
-		const vetoAdded = random() < 0.3
-		// With every addition vetoed, nothing can replace the root.
-		const vetoAllAdded = vetoAdded && random() < 0.3
-
-		// A vetoed node keeps its own subtree exactly.
-		const snapshots = new Map<Element, { html: string; nodes: Array<Node> }>()
-		for (const element of [...vetoVisit, ...vetoChildren]) {
-			snapshots.set(element, { html: element.innerHTML, nodes: descendants(element) })
-		}
-
-		// Only the root's callbacks are promised the final DOM, with what each control shows.
-		const view = () => `${host.innerHTML.replaceAll(' morphlex-dirty=""', "")} ${stateOf(host)}`
-
-		const visited = new Set<Node>()
-		const offered = new Set<Node>()
-		const childrenChecked = new Set<Node>()
-		const removed: Array<Node> = []
-		const removedDescendants: Array<Node> = []
-		const rootViews: Array<string> = []
-
-		run(host, scenario, {
-			beforeNodeVisited: (from) => {
-				if (visited.has(from) && from !== root) fail(host, "a node was visited twice")
-				visited.add(from)
-				return !vetoVisit.has(from as Element)
-			},
-			afterNodeVisited: (from) => {
-				if (from === root) rootViews.push(view())
-			},
-			beforeChildrenVisited: (parent) => {
-				childrenChecked.add(parent)
-				return !vetoChildren.has(parent as Element)
-			},
-			afterChildrenVisited: (parent) => {
-				if (parent === root) rootViews.push(view())
-			},
-			beforeNodeAdded: (_parent, node) => {
-				if (offered.has(node)) fail(host, "beforeNodeAdded was asked twice for a node")
-				offered.add(node)
-				return !(vetoAllAdded || (vetoAdded && isElement(node) && node.id !== "" && random() < 0.3))
-			},
-			afterNodeAdded: (node) => {
-				if (!host.contains(node)) fail(host, "afterNodeAdded for a detached node")
-			},
-			beforeNodeRemoved: (node) => !vetoRemoval.has(node as Element),
-			afterNodeRemoved: (node) => {
-				removed.push(node)
-				if (isElement(node)) removedDescendants.push(...descendants(node))
-				if (host.contains(node)) fail(host, "afterNodeRemoved for a node still attached")
-			},
+			const target = closeLaterAccordionItems(parse(scenario.toHtml))
+			if (scenario.shape === "one" ? !isSameTree(host.firstChild!, target) : !isSameChildren(host.firstChild!, target)) {
+				fail(host, "result differs from target")
+			}
+			for (const [id, element] of expected) {
+				if (host.querySelector(`[id="${id}"]`) !== element) fail(host, `#${id} was recreated`)
+			}
+			for (const element of redefined) {
+				if (host.contains(element)) fail(host, `#${element.id} kept its node although its \`is\` changed`)
+			}
 		})
-
-		// A dirty control whose visit was vetoed still has its sentinel until the morph returns.
-		const final = view()
-		if (rootViews.some((rootView) => rootView !== final)) fail(host, "the root's callbacks saw an unsettled DOM")
-		if (host.innerHTML.includes("<!---->")) fail(host, "a placeholder was left behind")
-		if (vetoAllAdded && scenario.shape === "one" && !host.contains(root))
-			fail(host, "the root was replaced although every addition was vetoed")
-		for (const node of removed) {
-			if (host.contains(node)) fail(host, "a removed node came back")
-		}
-		for (const node of removedDescendants) {
-			if (host.contains(node)) fail(host, "a node was still inside a node reported as removed")
-		}
-		for (const element of vetoRemoval) {
-			if (removed.includes(element)) fail(host, `a vetoed removal went ahead`)
-		}
-		for (const [element, snapshot] of snapshots) {
-			if (!vetoRan(element, vetoVisit, visited, vetoChildren, childrenChecked)) continue
-			if (!host.contains(element)) fail(host, `a vetoed element was removed: ${describe(element)}`)
-			const nodes = descendants(element)
-			const same = nodes.length === snapshot.nodes.length && nodes.every((node, index) => node === snapshot.nodes[index])
-			if (!same || element.innerHTML !== snapshot.html) fail(host, `a vetoed subtree changed: ${describe(element)}`)
-		}
 	})
-})
+
+	test("every select and checkable input shows what the target markup says", () => {
+		check(seeds, (scenario, fail) => {
+			const host = mount(scenario.fromHtml)
+
+			// A checked radio outside the morph, in the group of a form inside it. Only the markup can uncheck it.
+			const formId = sharedFormId(host, scenario)
+			const outside = formId ? `<input type="radio" name="r" form="${formId}" checked data-move-fuzz>` : ""
+			host.insertAdjacentHTML("beforebegin", outside)
+			const radio = host.previousElementSibling as HTMLInputElement | null
+
+			run(host, scenario)
+
+			// A separate document, so its radios don't join the live radio groups.
+			const expected = document.implementation.createHTMLDocument("")
+			expected.body.innerHTML = scenario.toHtml
+			const actual = `${radio ? checkednessOf(radio) : ""} ${stateOf(host.firstChild as Element)}`
+			const wanted = `${formId ? outsideCheckedness(expected, formId) : ""} ${stateOf(expected.body.firstChild as Element)}`
+			if (actual !== wanted) fail(host, `controls show ${actual}, but the target says ${wanted}`)
+		})
+	})
+
+	test("preserveChanges keeps what the user typed into every control that moves, unless it's clobbered", () => {
+		check(seeds, (scenario, fail) => {
+			const host = mount(scenario.fromHtml)
+			const expected = movableElements(host, scenario)
+			const random = createRandom(scenario.seed ^ 0x5bd1e995)
+
+			// Some target elements discard user changes inside them.
+			const target = parse(scenario.toHtml)
+			for (const element of target.querySelectorAll("*")) {
+				if (random() < 0.15) element.setAttribute("morphlex-clobber", "")
+			}
+
+			const typed = new Map<Element, string>()
+			for (const element of expected.values()) {
+				if (!isTextControl(element)) continue
+				element.value = `typed-${scenario.seed}`
+				const to = target.querySelector(`[id="${element.id}"]`)!
+				const clobbered = to.closest("[morphlex-clobber]") !== null
+				typed.set(element, clobbered ? (to as HTMLInputElement).defaultValue : element.value)
+			}
+
+			run(host, scenario, { preserveChanges: true }, target)
+
+			for (const [element, value] of typed) {
+				if ((element as HTMLInputElement).value !== value)
+					fail(host, `#${element.id} shows "${(element as HTMLInputElement).value}", not "${value}"`)
+			}
+		})
+	})
+
+	test("a focused text control that moves keeps focus and its selection, and the result still matches the target", () => {
+		check(seeds, (scenario, fail) => {
+			const host = mount(scenario.fromHtml)
+			const element = [...movableElements(host, scenario).values()].find(isTextControl)
+			if (!element) return
+			element.focus()
+			if (document.activeElement !== element) return
+			element.setSelectionRange(1, 2)
+			const value = element.value
+			const selection = `${element.selectionStart}-${element.selectionEnd}`
+
+			run(host, scenario)
+
+			const target = closeLaterAccordionItems(parse(scenario.toHtml))
+			if (scenario.shape === "one" ? !isSameTree(host.firstChild!, target) : !isSameChildren(host.firstChild!, target)) {
+				fail(host, "result differs from target")
+			}
+			if (document.activeElement !== element) {
+				// It may be somewhere it can't be focused, like a closed details.
+				element.focus()
+				if (document.activeElement === element) fail(host, `#${element.id} lost focus`)
+			} else if (element.value === value && `${element.selectionStart}-${element.selectionEnd}` !== selection) {
+				fail(host, `#${element.id} has selection ${element.selectionStart}-${element.selectionEnd}, not ${selection}`)
+			}
+		})
+	})
+
+	// Option wrappers with ids nest differently in each tree, inside an element that moves to another parent.
+	test("a select inside a moving element shows what its markup says, while its option wrappers move", () => {
+		let failures = 0
+		let smallest: string | null = null
+
+		for (const seed of seeds) {
+			const random = createRandom(seed)
+			const fromHtml = `<div><section><div id="m">${createNestedSelect(random)}</div></section><aside></aside></div>`
+			const toHtml = `<div><section></section><aside><div id="m">${createNestedSelect(random)}</div></aside></div>`
+			const host = mount(fromHtml)
+
+			morph(host.firstChild as ChildNode, toHtml)
+
+			const expected = document.implementation.createHTMLDocument("")
+			expected.body.innerHTML = toHtml
+			const actual = selectionOf(host.querySelector("select")!)
+			const wanted = selectionOf(expected.querySelector("select")!)
+			host.remove()
+			if (actual !== wanted) {
+				failures++
+				const report = `seed ${seed}: the select shows ${actual}, but its markup says ${wanted}\nfrom: ${fromHtml}\nto:   ${toHtml}`
+				if (smallest === null || report.length < smallest.length) smallest = report
+			}
+		}
+
+		if (smallest !== null) throw new Error(`${failures} of ${seeds.length} seeds failed. Smallest failure:\n${smallest}`)
+	})
+
+	test("callbacks see a consistent DOM, and vetoes are respected", () => {
+		check(seeds, (scenario, fail) => {
+			const host = mount(scenario.fromHtml)
+			const random = createRandom(scenario.seed ^ 0x2545f491)
+			const root: Node = host.firstChild!
+			const live = [...host.querySelectorAll("*")]
+
+			const vetoVisit = new Set(live.filter(() => random() < 0.1))
+			const vetoChildren = new Set(live.filter(() => random() < 0.1))
+			const vetoRemoval = new Set(live.filter(() => random() < 0.1))
+			const vetoAdded = random() < 0.3
+			// With every addition vetoed, nothing can replace the root.
+			const vetoAllAdded = vetoAdded && random() < 0.3
+
+			// A vetoed node keeps its own subtree exactly.
+			const snapshots = new Map<Element, { html: string; nodes: Array<Node> }>()
+			for (const element of [...vetoVisit, ...vetoChildren]) {
+				snapshots.set(element, { html: element.innerHTML, nodes: descendants(element) })
+			}
+
+			// Only the root's callbacks are promised the final DOM, with what each control shows.
+			const view = () => `${host.innerHTML.replaceAll(' morphlex-dirty=""', "")} ${stateOf(host)}`
+
+			const visited = new Set<Node>()
+			const offered = new Set<Node>()
+			const childrenChecked = new Set<Node>()
+			const removed: Array<Node> = []
+			const removedDescendants: Array<Node> = []
+			const rootViews: Array<string> = []
+
+			run(host, scenario, {
+				beforeNodeVisited: (from) => {
+					if (visited.has(from) && from !== root) fail(host, "a node was visited twice")
+					visited.add(from)
+					return !vetoVisit.has(from as Element)
+				},
+				afterNodeVisited: (from) => {
+					if (from === root) rootViews.push(view())
+				},
+				beforeChildrenVisited: (parent) => {
+					childrenChecked.add(parent)
+					return !vetoChildren.has(parent as Element)
+				},
+				afterChildrenVisited: (parent) => {
+					if (parent === root) rootViews.push(view())
+				},
+				beforeNodeAdded: (_parent, node) => {
+					if (offered.has(node)) fail(host, "beforeNodeAdded was asked twice for a node")
+					offered.add(node)
+					return !(vetoAllAdded || (vetoAdded && isElement(node) && node.id !== "" && random() < 0.3))
+				},
+				afterNodeAdded: (node) => {
+					if (!host.contains(node)) fail(host, "afterNodeAdded for a detached node")
+				},
+				beforeNodeRemoved: (node) => !vetoRemoval.has(node as Element),
+				afterNodeRemoved: (node) => {
+					removed.push(node)
+					if (isElement(node)) removedDescendants.push(...descendants(node))
+					if (host.contains(node)) fail(host, "afterNodeRemoved for a node still attached")
+				},
+			})
+
+			// A dirty control whose visit was vetoed still has its sentinel until the morph returns.
+			const final = view()
+			if (rootViews.some((rootView) => rootView !== final)) fail(host, "the root's callbacks saw an unsettled DOM")
+			if (host.innerHTML.includes("<!---->")) fail(host, "a placeholder was left behind")
+			if (vetoAllAdded && scenario.shape === "one" && !host.contains(root))
+				fail(host, "the root was replaced although every addition was vetoed")
+			for (const node of removed) {
+				if (host.contains(node)) fail(host, "a removed node came back")
+			}
+			for (const node of removedDescendants) {
+				if (host.contains(node)) fail(host, "a node was still inside a node reported as removed")
+			}
+			for (const element of vetoRemoval) {
+				if (removed.includes(element)) fail(host, `a vetoed removal went ahead`)
+			}
+			for (const [element, snapshot] of snapshots) {
+				if (!vetoRan(element, vetoVisit, visited, vetoChildren, childrenChecked)) continue
+				if (!host.contains(element)) fail(host, `a vetoed element was removed: ${describe(element)}`)
+				const nodes = descendants(element)
+				const same = nodes.length === snapshot.nodes.length && nodes.every((node, index) => node === snapshot.nodes[index])
+				if (!same || element.innerHTML !== snapshot.html) fail(host, `a vetoed subtree changed: ${describe(element)}`)
+			}
+		})
+	})
+}
 
 // Only a node whose own veto actually ran is protected. A vetoed node that was never reached
 // (its ancestor was replaced or removed, or it was replaced itself) has nothing to protect.
@@ -377,11 +383,14 @@ function isInsideOwnDescendant(element: Element, to: Element, target: Element): 
 	return false
 }
 
-function check(property: (scenario: Case, fail: (host: HTMLElement, reason: string) => void) => void): void {
+function check(
+	seeds: ReadonlyArray<number>,
+	property: (scenario: Case, fail: (host: HTMLElement, reason: string) => void) => void,
+): void {
 	let smallest: string | null = null
 	let failures = 0
 
-	for (const seed of SEEDS) {
+	for (const seed of seeds) {
 		const scenario = createCase(seed)
 		let failed = false
 
@@ -406,7 +415,7 @@ function check(property: (scenario: Case, fail: (host: HTMLElement, reason: stri
 	}
 
 	if (smallest !== null) {
-		throw new Error(`${failures} of ${SEEDS.length} seeds failed. Smallest failure:\n${smallest}`)
+		throw new Error(`${failures} of ${seeds.length} seeds failed. Smallest failure:\n${smallest}`)
 	}
 }
 
