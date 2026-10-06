@@ -12,9 +12,13 @@ const shared = {
 	transform: { target: "es2022" },
 } as const
 
-// `package.json` points `main` at the unminified build.
+// `package.json` points `main` at the unminified build, which keeps its comments.
 await build({ ...shared, output: { file: "./dist/morphlex.js", format: "esm", sourcemap: true } })
-await build({ ...shared, output: { file: "./dist/morphlex.min.js", format: "esm", sourcemap: true, minify: true } })
+// Rolldown's minifier is oxc's, but it keeps annotation comments like `@__PURE__` unless told not to.
+await build({
+	...shared,
+	output: { file: "./dist/morphlex.min.js", format: "esm", sourcemap: true, minify: true, comments: false },
+})
 
 // Generate TypeScript declarations (skip lib check to avoid node type errors)
 await execFileAsync("tsc", ["--emitDeclarationOnly", "--declaration", "--outDir", "dist", "--skipLibCheck"])
