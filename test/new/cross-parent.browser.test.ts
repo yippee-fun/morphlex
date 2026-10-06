@@ -8,25 +8,13 @@ function mount(html: string): HTMLElement {
 	return host
 }
 
-// Customizable selects count options inside other elements. Other browsers, and happy-dom, don't.
+// Customizable selects count options inside other elements. Other browsers don't.
 function supportsOptionWrappers(): boolean {
 	const select = document.createElement("select")
 	const div = document.createElement("div")
 	div.append(document.createElement("option"))
 	select.append(div)
-	return "defaultSelected" in HTMLOptionElement.prototype && select.options.length === 1
-}
-
-// happy-dom puts radios in a form into the group of radios without one.
-function groupsRadiosByForm(): boolean {
-	const host = document.createElement("div")
-	host.innerHTML = `<form><input type="radio" name="r"></form><input type="radio" name="r">`
-	document.body.append(host)
-	const radios = [...host.querySelectorAll("input")]
-	for (const radio of radios) radio.checked = true
-	const checked = radios.filter((radio) => radio.checked).length
-	host.remove()
-	return checked === 2
+	return select.options.length === 1
 }
 
 function parse(html: string): Element {
@@ -482,7 +470,7 @@ test("an element wrapped in its own descendant moves into a select inside it", (
 	host.remove()
 })
 
-test.skipIf(!groupsRadiosByForm())("a recreated form checks the radio its markup checks over one outside it", () => {
+test("a recreated form checks the radio its markup checks over one outside it", () => {
 	const host = mount(`<div><span id="a"><form id="f"><input type="radio" name="r" checked></form></span></div>`)
 	host.insertAdjacentHTML("beforebegin", `<input type="radio" name="r" form="f" checked>`)
 	const outside = host.previousElementSibling as HTMLInputElement
@@ -890,7 +878,7 @@ test("a checked radio that moves into another form leaves that form's checked ra
 	host.remove()
 })
 
-test.skipIf(!groupsRadiosByForm())("a radio that moves out of a form keeps the checkedness its markup gives it", () => {
+test("a radio that moves out of a form keeps the checkedness its markup gives it", () => {
 	const host = mount(
 		`<div><form id="f"><input id="x" type="radio" name="r" checked><input id="y" type="radio" name="r" checked></form></div>`,
 	)

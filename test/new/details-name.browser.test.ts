@@ -2,8 +2,8 @@ import { expect, test } from "vitest"
 import { morph, morphInner } from "../../src/morphlex"
 
 // Opening a `details` closes the others with the same name, and inserting an open one, or giving an
-// open one a name, closes it when another in that group is open. happy-dom doesn't do this, so the
-// tests that need it to happen mid-morph close the item themselves in a callback.
+// open one a name, closes it when another in that group is open. Tests that need it to happen at a
+// particular point in the morph close the item themselves in a callback.
 
 function mount(html: string): HTMLElement {
 	// A host a failed test left behind would hold open items in the same groups.
@@ -12,15 +12,6 @@ function mount(html: string): HTMLElement {
 	host.innerHTML = html
 	document.body.append(host)
 	return host
-}
-
-// happy-dom lets every item in a group be open at once.
-function closesOtherDetails(): boolean {
-	const host = mount(`<details name="probe" open></details><details name="probe"></details>`)
-	host.lastElementChild!.setAttribute("open", "")
-	const closed = !host.firstElementChild!.hasAttribute("open")
-	host.remove()
-	return closed
 }
 
 function openIds(host: Element): string {
@@ -72,7 +63,7 @@ test("an item the user opened stays open when it is renamed into an empty group"
 	host.remove()
 })
 
-test.skipIf(!closesOtherDetails())("an item renamed into a group where another is open stays closed", () => {
+test("an item renamed into a group where another is open stays closed", () => {
 	const host = mount(`<div><details id="a" name="g" open></details><details id="b" name="x" open></details></div>`)
 	morph(host.firstElementChild!, `<div><details id="a" name="g" open></details><details id="b" name="g" open></details></div>`, {
 		preserveChanges: true,
@@ -81,7 +72,7 @@ test.skipIf(!closesOtherDetails())("an item renamed into a group where another i
 	host.remove()
 })
 
-test.skipIf(!closesOtherDetails())("the first of two new open items in a group is the one left open", () => {
+test("the first of two new open items in a group is the one left open", () => {
 	const host = mount(`<div><details id="a" name="g" open></details></div>`)
 	morph(
 		host.firstElementChild!,
@@ -91,7 +82,7 @@ test.skipIf(!closesOtherDetails())("the first of two new open items in a group i
 	host.remove()
 })
 
-test.skipIf(!closesOtherDetails())("a new open item stays closed when an item outside the morph is open", () => {
+test("a new open item stays closed when an item outside the morph is open", () => {
 	const host = mount(`<details id="outside" name="g" open></details><div><details id="a" name="g"></details></div>`)
 	morph(host.lastElementChild!, `<div><details id="b" name="g" open></details></div>`)
 	expect(openIds(host)).toBe("outside")
@@ -217,7 +208,6 @@ test("an item inside a new item is reopened", () => {
 	host.remove()
 })
 
-// happy-dom and WebKit parse several open items in one group, and only the first stays open in a document.
 test("a closed item opens when the only open item in its group comes later and the target opens it", () => {
 	const host = mount(`<div><details id="q1" name="g" open></details></div>`)
 	morph(
@@ -293,7 +283,7 @@ test("an item stays closed when a later item in its group is open in a vetoed su
 })
 
 // Random accordions, morphed into a shuffled copy where items are renamed, opened, closed, added and removed.
-test.skipIf(!closesOtherDetails())("items the user opened stay open, and other items show what the target says", () => {
+test("items the user opened stay open, and other items show what the target says", () => {
 	const failures: Array<string> = []
 	for (let seed = 1; seed <= 300; seed++) {
 		const random = createRandom(seed)
@@ -379,7 +369,7 @@ test("an svg element named details is left alone", () => {
 	host.remove()
 })
 
-// WebKit and happy-dom parse several open items in one group, but a document keeps only the first.
+// WebKit parses several open items in one group, but a document keeps only the first.
 test("only the first open item of a group in the target is opened", () => {
 	const host = mount(`<div><p></p></div>`)
 	morph(
@@ -434,8 +424,7 @@ test("an item whose name has a line break is reopened", () => {
 	host.remove()
 })
 
-// happy-dom builds an unescaped selector for getElementsByName, so it only runs where browsers close other items.
-test.skipIf(!closesOtherDetails())("an item whose name has quotes and backslashes is reopened", () => {
+test("an item whose name has quotes and backslashes is reopened", () => {
 	const name = `a"b\\c&#13;d&#12;e`
 	const host = mount(`<div><details id="q1" name='${name}' open></details></div>`)
 	morph(host.firstElementChild!, `<div><details id="q2" name='${name}'></details><span id="q1"></span></div>`)

@@ -12,13 +12,6 @@ function observeMutations(node: Node): () => Array<MutationRecord> {
 	}
 }
 
-// happy-dom keeps carriage returns in a textarea's value.
-function normalizesTextAreaNewlines(): boolean {
-	const textarea = document.createElement("textarea")
-	textarea.textContent = "\r"
-	return textarea.value === "\n"
-}
-
 const sanitizedInputs = [
 	`<input type="range">`,
 	`<input type="range" min="0" max="10" value="15">`,
@@ -134,7 +127,7 @@ test("an email the user edited to the sanitized value keeps it under preserveCha
 	expect(input.value).toBe("a@b.c")
 })
 
-test.skipIf(!normalizesTextAreaNewlines())("an untouched textarea with a carriage return keeps its node and value", () => {
+test("an untouched textarea with a carriage return keeps its node and value", () => {
 	const from = dom(`<div><textarea>a&#13;b</textarea></div>`)
 	const textarea = from.querySelector("textarea")!
 	const mutations = observeMutations(from)
@@ -146,18 +139,15 @@ test.skipIf(!normalizesTextAreaNewlines())("an untouched textarea with a carriag
 	expect(textarea.value).toBe("a\nb")
 })
 
-test.skipIf(!normalizesTextAreaNewlines())(
-	"an untouched textarea with a carriage return follows new text under preserveChanges after a reset",
-	() => {
-		const from = dom(`<div><textarea id="t">a&#13;b</textarea></div>`)
-		const textarea = from.querySelector("textarea")!
+test("an untouched textarea with a carriage return follows new text under preserveChanges after a reset", () => {
+	const from = dom(`<div><textarea id="t">a&#13;b</textarea></div>`)
+	const textarea = from.querySelector("textarea")!
 
-		morph(from, `<div class="a"><textarea id="t">a&#13;b</textarea></div>`)
-		morph(from, `<div><textarea id="t">c</textarea></div>`, { preserveChanges: true })
+	morph(from, `<div class="a"><textarea id="t">a&#13;b</textarea></div>`)
+	morph(from, `<div><textarea id="t">c</textarea></div>`, { preserveChanges: true })
 
-		expect(textarea.value).toBe("c")
-	},
-)
+	expect(textarea.value).toBe("c")
+})
 
 test("an untouched file input with a value attribute keeps its node", () => {
 	const from = dom(`<div><input type="file" value="a.txt"></div>`)
@@ -219,6 +209,30 @@ test("an untouched range shows what the target shows after its attributes change
 
 	expect(from.querySelector("input")).toBe(input)
 	expect(input.value).toBe(expected)
+})
+
+test("an untouched range with a value shows what the target shows after its max changes", () => {
+	const from = dom(`<div><input id="r" type="range" value="40"></div>`)
+	const input = from.querySelector("input")!
+	const target = dom(`<div><input id="r" max="10" type="range" value="40"></div>`)
+	const expected = target.querySelector("input")!.value
+
+	morph(from, target)
+
+	expect(from.querySelector("input")).toBe(input)
+	expect(input.value).toBe(expected)
+})
+
+test("an untouched range stays clamped when a target the user changed has a value out of its range", () => {
+	const from = dom(`<div><input id="r" type="range" value="200"></div>`)
+	const input = from.querySelector("input")!
+	const target = dom(`<div><input id="r" type="range" value="200" class="a"></div>`)
+	target.querySelector("input")!.value = "30"
+
+	morph(from, target)
+
+	expect(from.querySelector("input")).toBe(input)
+	expect(input.value).toBe("100")
 })
 
 test("a vetoed type change doesn't take the target's value", () => {

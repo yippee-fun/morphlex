@@ -340,7 +340,6 @@ const SANITIZING_ATTRIBUTES = ["min", "max", "step", "multiple"]
 // Returns whether it dealt with the input, so assigning `.value` isn't needed. An untouched input
 // whose sanitizing attribute update was vetoed is left alone on purpose.
 function resanitizeValue(input: HTMLInputElement, target: Element, value: string | null, shown: string): boolean {
-	/* v8 ignore start -- happy-dom doesn't sanitize values, so an untouched input always matches its target there */
 	if (hasDirtyValue(input)) return false
 	if (SANITIZING_ATTRIBUTES.some((name) => input.getAttribute(name) !== getAttribute(target, name))) return true
 	const clone = probeClone(input)
@@ -358,7 +357,6 @@ function setValueAttribute(input: HTMLInputElement, value: string | null): void 
 		input.setAttribute("value", value)
 	}
 }
-/* v8 ignore stop */
 
 // The browser turns carriage returns into line feeds in a textarea's `.value`.
 function isDirtyTextArea(textarea: HTMLTextAreaElement): boolean {
@@ -554,7 +552,6 @@ function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNo
 // they're checked again the same way and keep following the markup.
 const uncheckedByAttribute = new WeakMap<HTMLInputElement, string>()
 
-/* v8 ignore start -- moveBefore keeps focus and other state, but only some browsers have it */
 function moveInto(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode | null): void {
 	if (SUPPORTS_MOVE_BEFORE && isConnected(node) && isConnected(parent)) {
 		try {
@@ -566,7 +563,6 @@ function moveInto(parent: ParentNode, node: ChildNode, insertionPoint: ChildNode
 	}
 	insertBefore(parent, node, insertionPoint)
 }
-/* v8 ignore stop */
 
 // The focused element, followed into open shadow roots, and its selection. Browsers without `moveBefore` lose
 // focus when it moves, Chromium's resets a text control's selection, and none keeps the document's selection
@@ -597,7 +593,7 @@ function focusOf(node: Node): Focus | null {
 	if ((isInputElement(element) || isTextAreaElement(element)) && element.selectionStart !== null) {
 		selection = [element.selectionStart, element.selectionEnd!, element.selectionDirection!]
 	} else {
-		// A document without a browsing context, such as a parsed one, has no selection, but happy-dom gives it one.
+		// A document without a browsing context, such as a parsed one, has no selection.
 		/* v8 ignore next */
 		const { anchorNode, anchorOffset, focusNode, focusOffset } = getSelection(document) ?? {}
 		if (anchorNode && focusNode && contains(element, anchorNode) && contains(element, focusNode)) {
@@ -636,7 +632,6 @@ function restoreFocus(focus: Focus): boolean {
 	const { element, selection, range } = focus
 	const root = getRootNode(element)
 	const document = ownerDocumentOf(element)!
-	/* v8 ignore else -- happy-dom loses focus whenever the focused element moves */
 	if (activeElementIn(root) !== element) {
 		if (focus.taken || !isFocusLost(document)) return false
 		focusElement(element)
@@ -650,7 +645,6 @@ function restoreFocus(focus: Focus): boolean {
 			// Firefox's moveBefore keeps the selection, and setting it again keeps it when the morph sets a new value.
 			const control = element as HTMLInputElement | HTMLTextAreaElement
 			const [start, end, direction] = selection
-			/* v8 ignore next -- happy-dom resets the selection when it focuses the control again */
 			if (control.selectionStart !== start || control.selectionEnd !== end || control.selectionDirection !== direction) {
 				control.setSelectionRange(start, end, direction)
 			}
@@ -683,6 +677,7 @@ function focusElement(element: Element): void {
 // With nothing focused, a document's body is active, or its root element when it has no body, though WebKit has none.
 function isFocusLost(document: Document): boolean {
 	const activeElement = activeElementOf(document)
+	/* v8 ignore next -- tests run in documents with a body */
 	return activeElement === null || activeElement === (bodyOf(document) ?? documentElementOf(document))
 }
 
@@ -1151,14 +1146,12 @@ class Morph {
 
 		this.#syncEnclosingSelect()
 
-		/* v8 ignore start -- happy-dom focuses any element */
 		const focus = this.#unrestoredFocus
 		if (focus) {
 			this.#unrestoredFocus = null
 			removeEventListener(focus.document, "focusin", this.#dropUnrestoredFocus)
 			restoreFocus(focus)
 		}
-		/* v8 ignore stop */
 	}
 
 	// Open each item the morph wants open but the browser closed, in document order, so the first one wins
@@ -2198,10 +2191,10 @@ class Morph {
 		for (const document of this.#watchedDocuments) removeEventListener(document, "focusin", this.#noteFocusTaken)
 		this.#watchedFocus = null
 		this.#watchedDocuments = []
-		/* v8 ignore start -- happy-dom focuses any element */
 		if (!retry) return
 		// Try again when the morph settles, unless another element takes focus first, such as from a callback.
 		const unrestored = this.#unrestoredFocus
+		/* v8 ignore next -- tests haven't found a way to take focus between a failed restore and the retry */
 		if (unrestored) removeEventListener(unrestored.document, "focusin", this.#dropUnrestoredFocus)
 		focus.document = ownerDocumentOf(focus.element)!
 		this.#unrestoredFocus = focus
@@ -2211,6 +2204,7 @@ class Morph {
 		})
 	}
 
+	/* v8 ignore start -- as above */
 	readonly #dropUnrestoredFocus = (): void => {
 		this.#unrestoredFocus = null
 	}
@@ -2222,6 +2216,7 @@ class Morph {
 	#pinFocused(parent: Element, siblings: Siblings): Array<number | undefined> {
 		const { from, matches } = siblings
 		const holders = this.#focusHolders
+		/* v8 ignore start -- only browsers without moveBefore pin the focused child */
 		if (SUPPORTS_MOVE_BEFORE || !holders?.has(parent)) return matches
 
 		const pinnedIndex = matches.findIndex((match) => match !== undefined && holders.has(from[match]!))
@@ -2232,6 +2227,7 @@ class Morph {
 			(i < pinnedIndex ? match < pinned : i > pinnedIndex ? match > pinned : true) ? match : undefined,
 		)
 	}
+	/* v8 ignore stop */
 
 	// A morph inside a select never visits the select, so sync it when the morph settles if the morph
 	// changed what the markup selects. A vetoed morph changes nothing, so it leaves it alone.
@@ -2438,7 +2434,6 @@ class Morph {
 		for (const [member, radio] of displaced) {
 			const group = radioGroupOf(member, groups)
 			if (radio.checked && group.includes(radio)) continue
-			/* v8 ignore next -- happy-dom puts radios with and without a form in one group, so tests can't get here */
 			if (group.some((other) => other.checked)) continue
 			// Adding the attribute back checks a radio that follows it, and keeps it following it.
 			const value = member.getAttribute("checked")
@@ -2446,7 +2441,7 @@ class Morph {
 				member.removeAttribute("checked")
 				member.setAttribute("checked", value)
 			}
-			/* v8 ignore next -- happy-dom doesn't check a radio again when its checked attribute is set */
+			/* v8 ignore next -- Chromium doesn't check a radio again by its attribute once its group has unchecked it */
 			if (!member.checked) member.checked = true
 		}
 	}
@@ -2887,7 +2882,6 @@ class Morph {
 	#placeMovableChildren(parent: Element, outerSelect: HTMLSelectElement | null): void {
 		const preserveChanges = this.#preserveChanges
 		if (preserveChanges && this.#clobbered?.has(parent)) this.#preserveChanges = false
-		/* v8 ignore next -- happy-dom gives a select's children another parent, so it never gets here with a select */
 		const select = isSelectElement(parent) ? parent : outerSelect
 
 		let target = firstElementChildOf(parent)
@@ -3335,7 +3329,6 @@ function radioGroupOf(radio: HTMLInputElement, groups: RadioGroups): Array<HTMLI
 			}
 		}
 	}
-	// happy-dom can leave a radio out of its own form's controls.
 	return byName.get(radio.name) ?? []
 }
 
@@ -3473,6 +3466,7 @@ function closeLaterOpenDetails(nodes: ArrayLike<Node>): void {
 		for (const item of items) {
 			const name = getAttributeNS(item, null, "name")
 			if (!name || !isDetailsElement(item)) continue
+			/* v8 ignore next -- only WebKit parses several open items in one group */
 			if (names.has(name)) removeAttributeNS(item, null, "open")
 			else names.add(name)
 		}
@@ -3516,15 +3510,7 @@ function isNodeList(value: ChildNode | NodeListOf<ChildNode>): value is NodeList
 // The prototype is looked up on first use, since importing morphlex mustn't need a DOM.
 function getter<T extends object, K extends keyof T>(prototype: () => T, key: K): (node: T) => T[K] {
 	let descriptor: PropertyDescriptor | undefined
-	return (node) => (descriptor ??= descriptorOf(prototype(), key)).get!.call(node)
-}
-
-// happy-dom's globals can be subclasses of the classes defining the members, so look along the prototype chain.
-function descriptorOf(prototype: object, key: PropertyKey): PropertyDescriptor {
-	for (let object = prototype; ; object = Object.getPrototypeOf(object) as object) {
-		const descriptor = Object.getOwnPropertyDescriptor(object, key)
-		if (descriptor) return descriptor
-	}
+	return (node) => (descriptor ??= Object.getOwnPropertyDescriptor(prototype(), key)!).get!.call(node)
 }
 
 const nodeTypeOf = getter(() => Node.prototype, "nodeType")
@@ -3536,6 +3522,7 @@ const previousSiblingOf = getter(() => Node.prototype, "previousSibling")
 const nextSiblingOf = getter(() => Node.prototype, "nextSibling")
 const ownerDocumentOf = getter(() => Node.prototype, "ownerDocument")
 const isConnected = getter(() => Node.prototype, "isConnected")
+const textContentOf = getter(() => Node.prototype, "textContent")
 const idOf = getter(() => Element.prototype, "id")
 const localNameOf = getter(() => Element.prototype, "localName")
 const namespaceURIOf = getter(() => Element.prototype, "namespaceURI")
@@ -3549,13 +3536,6 @@ const bodyOf = getter(() => Document.prototype, "body")
 const activeElementOf = getter(() => Document.prototype, "activeElement")
 const implementationOf = getter(() => Document.prototype, "implementation")
 const elementsOf = getter(() => HTMLFormElement.prototype, "elements")
-
-// happy-dom defines `textContent` again on each kind of node, so it's taken from the node's own class.
-function textContentOf(node: Node): string | null {
-	let prototype = Object.getPrototypeOf(node) as object
-	while (!Object.hasOwn(prototype, "textContent")) prototype = Object.getPrototypeOf(prototype) as object
-	return Reflect.get(prototype, "textContent", node) as string | null
-}
 
 function insertBefore(parent: ParentNode, node: Node, insertionPoint: Node | null): void {
 	Node.prototype.insertBefore.call(parent, node, insertionPoint)

@@ -90,8 +90,7 @@ test("a list box select is untouched", () => {
 	host.remove()
 })
 
-// happy-dom doesn't implement `defaultSelected`.
-test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))("a multiple select is untouched", () => {
+test("a multiple select is untouched", () => {
 	const html = `<div><select id="m" multiple><option>a</option><option selected>b</option></select></div>`
 	const host = mount(html)
 
@@ -233,8 +232,7 @@ test("adding options to a multiple select doesn't select any", () => {
 	host.remove()
 })
 
-// happy-dom doesn't implement list boxes, so it always selects an option.
-test.skipIf(!("size" in HTMLSelectElement.prototype))("an untouched drop-down that becomes a list box selects nothing", () => {
+test("an untouched drop-down that becomes a list box selects nothing", () => {
 	const host = mount(`<div><select id="s"><option>a</option><option>b</option></select></div>`)
 	const select = host.querySelector("select")!
 
@@ -338,24 +336,20 @@ test("a vetoed selected update leaves the selection alone", () => {
 	}
 })
 
-// happy-dom doesn't implement `defaultSelected`.
-test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))(
-	"an option in an SVG select is compared with its own default",
-	() => {
-		const host = mount(`<div><svg></svg></div>`)
-		const select = document.createElementNS("http://www.w3.org/2000/svg", "select")
-		const option = document.createElement("option")
-		option.textContent = "a"
-		select.append(option)
-		host.querySelector("svg")!.append(select)
+test("an option in an SVG select is compared with its own default", () => {
+	const host = mount(`<div><svg></svg></div>`)
+	const select = document.createElementNS("http://www.w3.org/2000/svg", "select")
+	const option = document.createElement("option")
+	option.textContent = "a"
+	select.append(option)
+	host.querySelector("svg")!.append(select)
 
-		morph(host.firstElementChild!, host.firstElementChild!.cloneNode(true) as Element)
+	morph(host.firstElementChild!, host.firstElementChild!.cloneNode(true) as Element)
 
-		expect(host.querySelector("option")).toBe(option)
-		expect(option.selected).toBe(false)
-		host.remove()
-	},
-)
+	expect(host.querySelector("option")).toBe(option)
+	expect(option.selected).toBe(false)
+	host.remove()
+})
 
 test("resetting a drop-down shows the markup's first option", () => {
 	const host = mount(`<div><select id="s"><option>a</option><option>b</option></select></div>`)
@@ -369,18 +363,14 @@ test("resetting a drop-down shows the markup's first option", () => {
 	host.remove()
 })
 
-// happy-dom doesn't implement list boxes and parses `size` differently.
-test.skipIf(!("size" in HTMLSelectElement.prototype))(
-	"a drop-down whose size starts with a non-breaking space is untouched",
-	() => {
-		const html = `<div><select id="s" size="\u00a02"><option>a</option><option>b</option></select></div>`
-		const host = mount(html)
-		expect(host.querySelector("select")!.value).toBe("a")
+test("a drop-down whose size starts with a non-breaking space is untouched", () => {
+	const html = `<div><select id="s" size="\u00a02"><option>a</option><option>b</option></select></div>`
+	const host = mount(html)
+	expect(host.querySelector("select")!.value).toBe("a")
 
-		expect(countMutations(host, html)).toBe(0)
-		host.remove()
-	},
-)
+	expect(countMutations(host, html)).toBe(0)
+	host.remove()
+})
 
 test("a list box whose size has leading whitespace and a plus sign is untouched", () => {
 	const html = `<div><select id="s" size=" +3"><option>a</option><option>b</option></select></div>`
@@ -474,31 +464,27 @@ test("an SVG select next to an untouched select is untouched", () => {
 	host.remove()
 })
 
-// happy-dom doesn't implement `defaultSelected`.
-test.skipIf(!("defaultSelected" in HTMLOptionElement.prototype))(
-	"an untouched select with options nested in a datalist or optgroup is untouched",
-	() => {
-		for (const wrapper of ["datalist", "optgroup"]) {
-			const host = mount(`<div><select id="s"><optgroup><option>a</option></optgroup><option>b</option></select></div>`)
-			const select = host.querySelector("select")!
-			const nested = document.createElement(wrapper)
-			nested.innerHTML = `<option selected>c</option>`
-			host.querySelector("optgroup")!.append(nested)
-			const value = select.value
-			const html = host.innerHTML
+test("an untouched select with options nested in a datalist or optgroup is untouched", () => {
+	for (const wrapper of ["datalist", "optgroup"]) {
+		const host = mount(`<div><select id="s"><optgroup><option>a</option></optgroup><option>b</option></select></div>`)
+		const select = host.querySelector("select")!
+		const nested = document.createElement(wrapper)
+		nested.innerHTML = `<option selected>c</option>`
+		host.querySelector("optgroup")!.append(nested)
+		const value = select.value
+		const html = host.innerHTML
 
-			const observer = new MutationObserver(() => {})
-			observer.observe(host, { subtree: true, attributes: true, childList: true })
-			morph(host.firstElementChild!, host.firstElementChild!.cloneNode(true) as Element)
+		const observer = new MutationObserver(() => {})
+		observer.observe(host, { subtree: true, attributes: true, childList: true })
+		morph(host.firstElementChild!, host.firstElementChild!.cloneNode(true) as Element)
 
-			expect(observer.takeRecords()).toHaveLength(0)
-			expect(host.innerHTML).toBe(html)
-			expect(select.value).toBe(value)
-			observer.disconnect()
-			host.remove()
-		}
-	},
-)
+		expect(observer.takeRecords()).toHaveLength(0)
+		expect(host.innerHTML).toBe(html)
+		expect(select.value).toBe(value)
+		observer.disconnect()
+		host.remove()
+	}
+})
 
 test("an option inside an SVG optgroup in a disabled optgroup is disabled", () => {
 	const host = mount(`<div><select id="s"><optgroup disabled></optgroup><option>b</option></select></div>`)

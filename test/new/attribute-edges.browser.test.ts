@@ -22,14 +22,7 @@ test("preserveChanges still removes other attributes from a details", () => {
 	expect(from.hasAttribute("class")).toBe(false)
 })
 
-// happy-dom can't read a parsed attribute whose name has a colon by its local name.
-function readsColonAttributes(): boolean {
-	const element = document.createElement("div")
-	element.innerHTML = `<p foo:bar="1"></p>`
-	return element.firstElementChild!.getAttributeNS(null, "foo:bar") === "1"
-}
-
-test.skipIf(!readsColonAttributes())("an attribute with a colon in its name and no namespace is updated", () => {
+test("an attribute with a colon in its name and no namespace is updated", () => {
 	const from = document.createElement("div")
 	from.innerHTML = `<p foo:bar="1"></p>`
 	const to = document.createElement("div")

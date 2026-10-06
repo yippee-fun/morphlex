@@ -1,26 +1,14 @@
 import { expect, test } from "vitest"
 import { morph, morphInner } from "../../src/morphlex"
 
-// Radio groups are synced to the markup when a morph resets a radio or moves one. happy-dom doesn't
-// group radios, so each test sets every radio's checkedness itself and checks the whole group.
+// Radio groups are synced to the markup when a morph resets a radio or moves one. Each test sets
+// every radio's checkedness itself and checks the whole group.
 
 function mount(html: string): HTMLElement {
 	const host = document.createElement("div")
 	host.innerHTML = html
 	document.body.append(host)
 	return host
-}
-
-// happy-dom puts radios in a form into the group of radios without one.
-function groupsRadiosByForm(): boolean {
-	const host = document.createElement("div")
-	host.innerHTML = `<form><input type="radio" name="r"></form><input type="radio" name="r">`
-	document.body.append(host)
-	const radios = [...host.querySelectorAll("input")]
-	for (const radio of radios) radio.checked = true
-	const checked = radios.filter((radio) => radio.checked).length
-	host.remove()
-	return checked === 2
 }
 
 function parse(html: string): Element {
@@ -291,7 +279,7 @@ test("a checked radio moving into a form leaves a radio outside the morph checke
 	host.remove()
 })
 
-test.skipIf(!groupsRadiosByForm())("a radio outside the morph stays checked when its form moves", () => {
+test("a radio outside the morph stays checked when its form moves", () => {
 	const host = mount(
 		`<div><input id="a" type="radio" name="r" checked><span id="s"><form id="f"></form></span></div><input id="y" type="radio" name="r" form="f">`,
 	)
@@ -406,22 +394,19 @@ test("a radio outside the morph stays checked when its form is reordered", () =>
 	host.remove()
 })
 
-test.skipIf(!groupsRadiosByForm())(
-	"reordering a form that owns a checked radio outside the morph leaves other groups alone",
-	() => {
-		const host = mount(`<div><p id="p"></p><form id="f"></form><input id="a" type="radio" name="r" checked></div>`)
-		host.insertAdjacentHTML("beforeend", `<input id="y" type="radio" name="r" form="f" checked>`)
+test("reordering a form that owns a checked radio outside the morph leaves other groups alone", () => {
+	const host = mount(`<div><p id="p"></p><form id="f"></form><input id="a" type="radio" name="r" checked></div>`)
+	host.insertAdjacentHTML("beforeend", `<input id="y" type="radio" name="r" form="f" checked>`)
 
-		morph(
-			host.firstElementChild!,
-			parse(`<div><form id="f"></form><p id="p"></p><input id="a" type="radio" name="r" checked></div>`),
-		)
+	morph(
+		host.firstElementChild!,
+		parse(`<div><form id="f"></form><p id="p"></p><input id="a" type="radio" name="r" checked></div>`),
+	)
 
-		expect(radio(host, "a").checked).toBe(true)
-		expect(radio(host, "y").checked).toBe(true)
-		host.remove()
-	},
-)
+	expect(radio(host, "a").checked).toBe(true)
+	expect(radio(host, "y").checked).toBe(true)
+	host.remove()
+})
 
 test("a checked radio that keeps its form when it moves stays checked", () => {
 	const host = mount(
@@ -478,7 +463,7 @@ test("an element moving to the top of a fragment leaves its radios as the markup
 // Firefox and Safari can briefly put a radio that changes form in the group of radios without a form.
 // A checked one then unchecks a checked radio there, even though it never belongs to that group.
 
-test.skipIf(!groupsRadiosByForm())("adding a form with the id an outside radio names leaves other groups alone", () => {
+test("adding a form with the id an outside radio names leaves other groups alone", () => {
 	const host = mount(`<div><input id="a" type="radio" name="r" checked><span id="s"><form id="f"></form></span></div>`)
 	host.insertAdjacentHTML("afterbegin", `<input id="y" type="radio" name="r" form="f">`)
 	radio(host, "y").checked = true
@@ -492,7 +477,7 @@ test.skipIf(!groupsRadiosByForm())("adding a form with the id an outside radio n
 	host.remove()
 })
 
-test.skipIf(!groupsRadiosByForm())("adding a form after one with the same id leaves other groups alone", () => {
+test("adding a form after one with the same id leaves other groups alone", () => {
 	const host = mount(`<div><input id="a" type="radio" name="r" checked><span id="s"><form id="f"></form></span><b></b></div>`)
 	host.insertAdjacentHTML("afterbegin", `<input id="y" type="radio" name="r" form="f">`)
 	radio(host, "y").checked = true
@@ -506,7 +491,7 @@ test.skipIf(!groupsRadiosByForm())("adding a form after one with the same id lea
 	host.remove()
 })
 
-test.skipIf(!groupsRadiosByForm())("removing a form with the id an outside radio names checks it in its new group", () => {
+test("removing a form with the id an outside radio names checks it in its new group", () => {
 	const host = mount(
 		`<div><form id="f"></form></div><input id="a" type="radio" name="r"><input id="y" type="radio" name="r" form="f">`,
 	)
@@ -519,7 +504,7 @@ test.skipIf(!groupsRadiosByForm())("removing a form with the id an outside radio
 	host.remove()
 })
 
-test.skipIf(!groupsRadiosByForm())("changing a checked radio's form leaves other groups alone", () => {
+test("changing a checked radio's form leaves other groups alone", () => {
 	const host = mount(
 		`<div><input id="a" type="radio" name="r" checked><input id="b" type="radio" name="r" form="f" checked><form id="f"></form><form id="g"></form></div>`,
 	)
@@ -535,7 +520,7 @@ test.skipIf(!groupsRadiosByForm())("changing a checked radio's form leaves other
 	host.remove()
 })
 
-test.skipIf(!groupsRadiosByForm())("changing a form's id leaves other groups alone", () => {
+test("changing a form's id leaves other groups alone", () => {
 	const host = mount(
 		`<form id="g"></form><form id="f"></form><input id="a" type="radio" name="r"><input id="y" type="radio" name="r" form="f">`,
 	)
@@ -549,24 +534,21 @@ test.skipIf(!groupsRadiosByForm())("changing a form's id leaves other groups alo
 })
 
 for (const preserveChanges of [false, true]) {
-	test.skipIf(!groupsRadiosByForm())(
-		`a checked radio moving to another form leaves other groups alone, with preserveChanges ${preserveChanges}`,
-		() => {
-			const host = mount(
-				`<div><form id="f"><b id="x"><input id="b" type="radio" name="r" checked></b></form><form id="g"></form></div><input id="a" type="radio" name="r">`,
-			)
-			radio(host, "a").checked = true
+	test(`a checked radio moving to another form leaves other groups alone, with preserveChanges ${preserveChanges}`, () => {
+		const host = mount(
+			`<div><form id="f"><b id="x"><input id="b" type="radio" name="r" checked></b></form><form id="g"></form></div><input id="a" type="radio" name="r">`,
+		)
+		radio(host, "a").checked = true
 
-			morph(
-				host.firstElementChild!,
-				parse(`<div><form id="f"></form><form id="g"><b id="x"><input id="b" type="radio" name="r" checked></b></form></div>`),
-				{ preserveChanges },
-			)
+		morph(
+			host.firstElementChild!,
+			parse(`<div><form id="f"></form><form id="g"><b id="x"><input id="b" type="radio" name="r" checked></b></form></div>`),
+			{ preserveChanges },
+		)
 
-			expect(checkedIds(host)).toBe("b a")
-			host.remove()
-		},
-	)
+		expect(checkedIds(host)).toBe("b a")
+		host.remove()
+	})
 }
 
 test("a checked radio whose form attribute changes or goes stays checked", () => {
@@ -584,7 +566,6 @@ test("a checked radio whose form attribute changes or goes stays checked", () =>
 })
 
 test("a checked radio naming a form whose id changes or goes stays checked", () => {
-	// happy-dom keeps finding a form by the id it had before its `Attr` changed, so these ids are used nowhere else.
 	const host = mount(
 		`<form id="m"><input id="i" type="radio" name="p" form="m" checked></form><input id="y" type="radio" name="r" form="m"><input id="z" type="radio" name="q" form="o" checked>`,
 	)
@@ -607,23 +588,20 @@ test("a checked radio naming a form whose id changes or goes stays checked", () 
 	host.remove()
 })
 
-test.skipIf(!groupsRadiosByForm())(
-	"a checked radio whose form changes and whose markup unchecks it leaves its new group alone",
-	() => {
-		const host = mount(
-			`<form id="f"></form><form id="g"></form><input id="y" type="radio" name="r" form="g"><div><input id="b" type="radio" name="r" form="f"></div>`,
-		)
-		radio(host, "y").checked = true
-		radio(host, "b").checked = true
+test("a checked radio whose form changes and whose markup unchecks it leaves its new group alone", () => {
+	const host = mount(
+		`<form id="f"></form><form id="g"></form><input id="y" type="radio" name="r" form="g"><div><input id="b" type="radio" name="r" form="f"></div>`,
+	)
+	radio(host, "y").checked = true
+	radio(host, "b").checked = true
 
-		morph(host.querySelector("div")!, parse(`<div><input id="b" type="radio" name="r" form="g"></div>`))
+	morph(host.querySelector("div")!, parse(`<div><input id="b" type="radio" name="r" form="g"></div>`))
 
-		expect(checkedIds(host)).toBe("y")
-		host.remove()
-	},
-)
+	expect(checkedIds(host)).toBe("y")
+	host.remove()
+})
 
-test.skipIf(!groupsRadiosByForm())("a radio inside a form whose id changes leaves the group it joins alone", () => {
+test("a radio inside a form whose id changes leaves the group it joins alone", () => {
 	const host = mount(`<form id="f"><input id="b" type="radio" name="r" form="f"></form><input id="a" type="radio" name="r">`)
 	radio(host, "b").checked = true
 	radio(host, "a").checked = true
@@ -634,25 +612,22 @@ test.skipIf(!groupsRadiosByForm())("a radio inside a form whose id changes leave
 	host.remove()
 })
 
-test.skipIf(!groupsRadiosByForm())(
-	"a radio naming a removed form by an id with quotes and newlines leaves its new group alone",
-	() => {
-		const id = `a"b\\c\nd\re\ff`
-		const host = mount(`<div><form></form><input id="b" type="radio" name="r"></div><input id="a" type="radio" name="r">`)
-		const form = host.querySelector("form")!
-		form.id = id
-		radio(host, "b").setAttribute("form", id)
-		radio(host, "b").checked = true
-		radio(host, "a").checked = true
+test("a radio naming a removed form by an id with quotes and newlines leaves its new group alone", () => {
+	const id = `a"b\\c\nd\re\ff`
+	const host = mount(`<div><form></form><input id="b" type="radio" name="r"></div><input id="a" type="radio" name="r">`)
+	const form = host.querySelector("form")!
+	form.id = id
+	radio(host, "b").setAttribute("form", id)
+	radio(host, "b").checked = true
+	radio(host, "a").checked = true
 
-		const target = parse(`<div><input id="b" type="radio" name="r"></div>`)
-		target.querySelector("input")!.setAttribute("form", id)
-		morph(host.querySelector("div")!, target)
+	const target = parse(`<div><input id="b" type="radio" name="r"></div>`)
+	target.querySelector("input")!.setAttribute("form", id)
+	morph(host.querySelector("div")!, target)
 
-		expect(checkedIds(host)).toBe("a")
-		host.remove()
-	},
-)
+	expect(checkedIds(host)).toBe("a")
+	host.remove()
+})
 
 test("a form whose id has quotes and newlines is morphed", () => {
 	const host = mount(`<div><form></form></div>`)
@@ -738,25 +713,22 @@ test("a radio outside the morph keeps the value of its checked attribute when it
 
 // Found by the move fuzzer in Firefox: the target wraps a form around its own ancestor, so a new form
 // with the same id is added while the old one is still there.
-test.skipIf(!groupsRadiosByForm())(
-	"a form recreated around its own ancestor leaves the group of radios without a form alone",
-	() => {
-		const host = mount(
-			`<div><div><b id="i0"><input id="i1" type="radio" name="r"><form id="i2"><input id="i3" type="text"></form></b></div><input id="i8" type="radio" name="r" checked></div>`,
-		)
-		host.insertAdjacentHTML("afterbegin", `<input id="y" type="radio" name="r" form="i2" checked>`)
+test("a form recreated around its own ancestor leaves the group of radios without a form alone", () => {
+	const host = mount(
+		`<div><div><b id="i0"><input id="i1" type="radio" name="r"><form id="i2"><input id="i3" type="text"></form></b></div><input id="i8" type="radio" name="r" checked></div>`,
+	)
+	host.insertAdjacentHTML("afterbegin", `<input id="y" type="radio" name="r" form="i2" checked>`)
 
-		morph(
-			host.querySelector("div")!,
-			parse(
-				`<div><div><form id="i2"><input id="i3" type="text"><span id="i10"><b id="i0"></b></span></form></div><input id="i8" type="radio" name="r" checked></div>`,
-			),
-		)
+	morph(
+		host.querySelector("div")!,
+		parse(
+			`<div><div><form id="i2"><input id="i3" type="text"><span id="i10"><b id="i0"></b></span></form></div><input id="i8" type="radio" name="r" checked></div>`,
+		),
+	)
 
-		expect(checkedIds(host)).toBe("y i8")
-		host.remove()
-	},
-)
+	expect(checkedIds(host)).toBe("y i8")
+	host.remove()
+})
 
 // Found by the move fuzzer in Firefox, which can stop a radio following its `checked` attribute while its form moves.
 const movingForms: Array<[string, string]> = [
@@ -770,7 +742,7 @@ const movingForms: Array<[string, string]> = [
 	],
 ]
 for (const [from, to] of movingForms) {
-	test.skipIf(!groupsRadiosByForm())(`a radio outside the morph stays checked when its form moves: ${to}`, () => {
+	test(`a radio outside the morph stays checked when its form moves: ${to}`, () => {
 		const host = mount(from)
 		host.insertAdjacentHTML("afterbegin", `<input id="y" type="radio" name="r" form="f" checked>`)
 
@@ -799,7 +771,7 @@ test("a radio outside the morph gives way to the radio the markup checks in the 
 	host.remove()
 })
 
-test.skipIf(!groupsRadiosByForm())("removing a form and a checked radio naming it leaves the group it would join alone", () => {
+test("removing a form and a checked radio naming it leaves the group it would join alone", () => {
 	const lives = [
 		`<div><form id="f"></form><input id="y" type="radio" name="r" form="f"></div>`,
 		`<div><form id="f"></form><input id="y" type="radio" name="r" form="f" checked></div>`,
@@ -835,24 +807,20 @@ test("a radio unchecked by a radio that changes form and is then removed is chec
 	}
 })
 
-test.skipIf(!groupsRadiosByForm())(
-	"a radio unchecked by a radio that changes form and is then removed stays unchecked when another radio took its group",
-	() => {
-		const host = mount(
-			`<div><form id="f"></form><form id="g"></form><input id="y" type="radio" name="r" form="f"><input id="z" type="radio" name="r" form="g"></div>`,
-		)
-		host.insertAdjacentHTML("beforeend", `<input id="a" type="radio" name="r">`)
-		for (const id of ["y", "z", "a"]) radio(host, id).checked = true
+test("a radio unchecked by a radio that changes form and is then removed stays unchecked when another radio took its group", () => {
+	const host = mount(
+		`<div><form id="f"></form><form id="g"></form><input id="y" type="radio" name="r" form="f"><input id="z" type="radio" name="r" form="g"></div>`,
+	)
+	host.insertAdjacentHTML("beforeend", `<input id="a" type="radio" name="r">`)
+	for (const id of ["y", "z", "a"]) radio(host, id).checked = true
 
-		morph(host.firstElementChild!, parse(`<div><input id="z" type="radio" name="r" form="g"></div>`), { preserveChanges: true })
+	morph(host.firstElementChild!, parse(`<div><input id="z" type="radio" name="r" form="g"></div>`), { preserveChanges: true })
 
-		expect(checkedIds(host)).toBe("z")
-		host.remove()
-	},
-)
+	expect(checkedIds(host)).toBe("z")
+	host.remove()
+})
 
 test("a form and the radio naming it changing id together leave the group without a form alone", () => {
-	const grouped = groupsRadiosByForm()
 	for (const preserveChanges of [true, false]) {
 		const host = mount(
 			`<div><form id="f"></form><input id="y" type="radio" name="r" form="f" checked></div><input id="a" type="radio" name="r">`,
@@ -868,8 +836,7 @@ test("a form and the radio naming it changing id together leave the group withou
 			},
 		)
 
-		// happy-dom puts both radios in one group, so there it only runs the morph.
-		if (grouped) expect(checkedIds(host)).toBe("y a")
+		expect(checkedIds(host)).toBe("y a")
 		host.remove()
 	}
 })
@@ -888,7 +855,7 @@ test("a form moving in from another root leaves the radios it leaves behind chec
 	shadowHost.remove()
 })
 
-test.skipIf(!groupsRadiosByForm())("a radio that loses its form and then its name gives back the group it passed through", () => {
+test("a radio that loses its form and then its name gives back the group it passed through", () => {
 	const host = mount(
 		`<div><form id="f"></form><input id="y" type="radio" name="r" form="f"></div><input id="a" type="radio" name="r">`,
 	)
@@ -898,6 +865,19 @@ test.skipIf(!groupsRadiosByForm())("a radio that loses its form and then its nam
 	morph(host.firstElementChild!, parse(`<div><input id="y" type="radio" name="s" form="f"></div>`), { preserveChanges: true })
 
 	expect(checkedIds(host)).toBe("y a")
+	host.remove()
+})
+
+test("a radio checked by its markup gets the group back from a radio that passed through it", () => {
+	const host = mount(
+		`<div><form id="f"></form><input id="y" type="radio" name="r" form="f"></div><input id="a" type="radio" name="r" checked>`,
+	)
+	radio(host, "y").checked = true
+
+	morph(host.firstElementChild!, parse(`<div><input id="y" type="radio" name="s" form="f"></div>`), { preserveChanges: true })
+
+	expect(checkedIds(host)).toBe("y a")
+	expect(radio(host, "a").defaultChecked).toBe(true)
 	host.remove()
 })
 
@@ -932,21 +912,18 @@ test("a radio that loses its form and stays keeps the group it joined", () => {
 	host.remove()
 })
 
-test.skipIf(!groupsRadiosByForm())(
-	"a radio that leaves its form and loses its check gives the group back to the radio it passed",
-	() => {
-		const host = mount(
-			`<form id="f"></form><div><input id="y" type="radio" name="r" form="f" checked></div><input id="a" type="radio" name="r" checked>`,
-		)
+test("a radio that leaves its form and loses its check gives the group back to the radio it passed", () => {
+	const host = mount(
+		`<form id="f"></form><div><input id="y" type="radio" name="r" form="f" checked></div><input id="a" type="radio" name="r" checked>`,
+	)
 
-		morph(host.querySelector("div")!, parse(`<div><input id="y" type="radio" name="r"></div>`), { preserveChanges: true })
+	morph(host.querySelector("div")!, parse(`<div><input id="y" type="radio" name="r"></div>`), { preserveChanges: true })
 
-		expect(checkedIds(host)).toBe("a")
-		host.remove()
-	},
-)
+	expect(checkedIds(host)).toBe("a")
+	host.remove()
+})
 
-test.skipIf(!groupsRadiosByForm())("a radio the markup unchecks stays unchecked after a radio passed through its group", () => {
+test("a radio the markup unchecks stays unchecked after a radio passed through its group", () => {
 	const host = mount(
 		`<div><form id="f"></form><input id="y" type="radio" name="r" form="f" checked><input id="b" type="radio" name="r" checked></div>`,
 	)
@@ -992,7 +969,7 @@ test("a radio inside a live target keeps its check when a live element claims th
 	shadowHost.remove()
 })
 
-test.skipIf(!groupsRadiosByForm())("a clobbered radio that a passing radio unchecked follows its markup", () => {
+test("a clobbered radio that a passing radio unchecked follows its markup", () => {
 	const host = mount(
 		`<div><form id="f"></form><input id="y" type="radio" name="r" form="f"><section><input id="b" type="radio" name="r"></section></div>`,
 	)
@@ -1022,7 +999,7 @@ test("a live form from another document leaves the radios there checked", () => 
 	host.remove()
 })
 
-test.skipIf(!groupsRadiosByForm())("a radio whose name and form change together leaves the group it passes through alone", () => {
+test("a radio whose name and form change together leaves the group it passes through alone", () => {
 	for (const preserveChanges of [true, false]) {
 		const host = mount(
 			`<form id="f"></form><form id="g"></form><input id="a" type="radio" name="s" form="f" checked><div><input id="y" type="radio" name="r" form="f" checked></div>`,
