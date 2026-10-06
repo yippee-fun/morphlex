@@ -65,6 +65,8 @@ function createScenario(seed: number) {
 	const twinnable = kind === "checkbox" ? toValues.filter((value) => fromValues.includes(value) && !defaults.has(value)) : []
 	const twin = twinnable.length && random() < 0.4 ? twinnable[randomInt(random, 0, twinnable.length - 1)] : undefined
 	const twinClassed = random() < 0.5
+	// Wrappers are customized built-ins, and the target may make the twin's another one, which can't hold the user's.
+	const twinIs = random() < 0.3 ? "y-label" : "x-label"
 	const fromItems = fromValues.slice()
 	const toItems = toValues.slice()
 	if (twin) {
@@ -89,8 +91,8 @@ function createScenario(seed: number) {
 	) => {
 		const items = values.map((value) =>
 			value === TWIN
-				? item(kind, name, twin!, false, isTarget && twinClassed, wrapped.has(twin!))
-				: item(kind, name, value, isDefault(value), hasClass(value), wrapped.has(value)),
+				? item(kind, name, twin!, false, isTarget && twinClassed, wrapped.has(twin!), isTarget ? twinIs : "x-label")
+				: item(kind, name, value, isDefault(value), hasClass(value), wrapped.has(value), "x-label"),
 		)
 		if (kind === "select" || kind === "multiple") {
 			return `<select name="${name}"${kind === "multiple" ? " multiple" : ""}>${items.join("")}</select>`
@@ -161,20 +163,34 @@ function createScenario(seed: number) {
 				// When the user's pick is gone, a drop-down falls back to what the browser picks.
 				return kind === "radio" ? [] : undefined
 			}
-			// The twin comes after the user's checkbox, so the first of the two in the target keeps the user's choice.
-			const values = toItems.map((value) => (value === TWIN ? twin! : value))
-			return values.filter((value, i) =>
-				fromValues.includes(value) ? values.indexOf(value) === i && before.includes(value) : addedDefaults.has(value),
-			)
+			// The twin comes after the user's checkbox, so the first of the two in the target keeps the user's choice,
+			// unless the twin's wrapper became another customized built-in.
+			const twinTaken = twin !== undefined && wrapped.has(twin) && twinIs !== "x-label"
+			const firstOfTwins = toItems.findIndex((value) => value === TWIN || value === twin)
+			const keeps = (value: string, i: number) =>
+				(value !== TWIN && value !== twin) || (twinTaken ? value !== TWIN : i === firstOfTwins)
+			return toItems.flatMap((value, i) => {
+				const actual = value === TWIN ? twin! : value
+				if (!fromValues.includes(actual)) return addedDefaults.has(actual) ? [actual] : []
+				return keeps(value, i) && before.includes(actual) ? [actual] : []
+			})
 		},
 	}
 }
 
-function item(kind: Kind, name: string, value: string, isDefault: boolean, hasClass: boolean, wrapped: boolean): string {
+function item(
+	kind: Kind,
+	name: string,
+	value: string,
+	isDefault: boolean,
+	hasClass: boolean,
+	wrapped: boolean,
+	is: string,
+): string {
 	const attributes = `value="${value}"${isDefault ? (kind === "radio" || kind === "checkbox" ? " checked" : " selected") : ""}${hasClass ? ' class="changed"' : ""}`
 	if (kind === "select" || kind === "multiple") return `<option ${attributes}>${value}</option>`
 	const input = `<input type="${kind}" name="${name}" ${attributes}>`
-	return wrapped ? `<label>${input}<b>${value}</b></label>` : input
+	return wrapped ? `<label is="${is}">${input}<b>${value}</b></label>` : input
 }
 
 function parse(html: string): HTMLFormElement {

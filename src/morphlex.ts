@@ -1910,7 +1910,7 @@ class Morph {
 				for (const candidate of candidates) {
 					if (!changedKeys.has(keyOf(candidate))) continue
 					const target = to[targetOf[candidate]!] as Element
-					const choices = [...this.#targetChoicesOf(target).counts.keys()].sort()
+					const choices = [...this.#targetChoicesOf(target).counts].map(([choice, count]) => `${count} ${choice}`).sort()
 					const shape = shapeOf(from[candidate]!) + outlineOf(target) + JSON.stringify(choices)
 					const bucket = candidatesByShape.get(shape)
 					if (bucket) bucket.push(candidate)
@@ -3115,7 +3115,7 @@ function shapeOf(node: Node): string {
 	return `<${JSON.stringify([namespaceURIOf(node), prefixOf(node), localNameOf(node), attributes.sort()])}${children}>`
 }
 
-// The shape of a subtree without its attributes.
+// The shape of a subtree without its attributes, apart from `is`, which decides whether an element can be morphed.
 function outlineOf(node: Node): string {
 	if (!isElement(node)) return JSON.stringify([nodeTypeOf(node), node.nodeName, node.nodeValue])
 	let children = ""
@@ -3125,7 +3125,7 @@ function outlineOf(node: Node): string {
 		for (const child of node.content.childNodes) children += outlineOf(child)
 		children += ">"
 	}
-	return `<${JSON.stringify([namespaceURIOf(node), prefixOf(node), localNameOf(node)])}${children}>`
+	return `<${JSON.stringify([namespaceURIOf(node), prefixOf(node), localNameOf(node), getAttribute(node, "is")])}${children}>`
 }
 
 // `isEqualNode` ignores template content, so templates need comparing separately.
