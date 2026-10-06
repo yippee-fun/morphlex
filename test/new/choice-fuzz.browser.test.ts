@@ -8,6 +8,8 @@ const SEED_COUNT = readPositiveIntEnv("MORPHLEX_FUZZ_CHOICE_SEEDS", 300)
 // A failure names its seed, which reruns with MORPHLEX_FUZZ_CHOICE_SEED_START set to it and MORPHLEX_FUZZ_CHOICE_SEEDS=1.
 const SEED_START = readPositiveIntEnv("MORPHLEX_FUZZ_CHOICE_SEED_START", 0xc401)
 const KINDS: Array<Kind> = ["radio", "checkbox", "select", "multiple"]
+// Stands in a list of values for the twin of a checkbox.
+const TWIN = "#twin"
 
 vi.setConfig({ testTimeout: Math.max(30_000, SEED_COUNT * 50) })
 
@@ -59,6 +61,17 @@ function createScenario(seed: number) {
 	const pickable = fromValues.filter((value) => !defaults.has(value) && value !== implicit)
 	const pick = pickable[randomInt(random, 0, pickable.length - 1)]!
 
+	// An untouched checkbox identical to one of the user's, after it, which the target keeps somewhere in the group.
+	const twinnable = kind === "checkbox" ? toValues.filter((value) => fromValues.includes(value) && !defaults.has(value)) : []
+	const twin = twinnable.length && random() < 0.4 ? twinnable[randomInt(random, 0, twinnable.length - 1)] : undefined
+	const twinClassed = random() < 0.5
+	const fromItems = fromValues.slice()
+	const toItems = toValues.slice()
+	if (twin) {
+		fromItems.splice(randomInt(random, fromItems.indexOf(twin) + 1, fromItems.length), 0, TWIN)
+		toItems.splice(randomInt(random, 0, toItems.length), 0, TWIN)
+	}
+
 	// An untouched group with the same values and another name, which the target may add or move before the user's group.
 	const decoy = random() < 0.4
 	const decoyFirst = random() < 0.5
@@ -72,8 +85,13 @@ function createScenario(seed: number) {
 		values: Array<string>,
 		isDefault: (value: string) => boolean,
 		hasClass: (value: string) => boolean,
+		isTarget: boolean,
 	) => {
-		const items = values.map((value) => item(kind, name, value, isDefault(value), hasClass(value), wrapped.has(value)))
+		const items = values.map((value) =>
+			value === TWIN
+				? item(kind, name, twin!, false, isTarget && twinClassed, wrapped.has(twin!))
+				: item(kind, name, value, isDefault(value), hasClass(value), wrapped.has(value)),
+		)
 		if (kind === "select" || kind === "multiple") {
 			return `<select name="${name}"${kind === "multiple" ? " multiple" : ""}>${items.join("")}</select>`
 		}
@@ -87,7 +105,7 @@ function createScenario(seed: number) {
 		hasClass: (value: string) => boolean,
 		isTarget: boolean,
 	) => {
-		const groups = [box(group("g", values, isDefault, hasClass), isTarget && boxChanged)]
+		const groups = [box(group("g", values, isDefault, hasClass, isTarget), isTarget && boxChanged)]
 		if (decoy && (isTarget || !decoyAdded)) {
 			const decoyGroup = box(
 				group(
@@ -95,6 +113,7 @@ function createScenario(seed: number) {
 					fromValues,
 					() => false,
 					() => false,
+					false,
 				),
 				false,
 			)
@@ -108,13 +127,13 @@ function createScenario(seed: number) {
 		kind,
 		decoy: decoy ? (kind === "select" ? [fromValues[0]!] : []) : [],
 		from: render(
-			fromValues,
+			fromItems,
 			(value) => defaults.has(value),
 			() => false,
 			false,
 		),
 		to: render(
-			toValues,
+			toItems,
 			(value) => defaults.has(value) || addedDefaults.has(value),
 			(value) => classed.has(value),
 			true,
@@ -142,7 +161,11 @@ function createScenario(seed: number) {
 				// When the user's pick is gone, a drop-down falls back to what the browser picks.
 				return kind === "radio" ? [] : undefined
 			}
-			return toValues.filter((value) => (fromValues.includes(value) ? before.includes(value) : addedDefaults.has(value)))
+			// The twin comes after the user's checkbox, so the first of the two in the target keeps the user's choice.
+			const values = toItems.map((value) => (value === TWIN ? twin! : value))
+			return values.filter((value, i) =>
+				fromValues.includes(value) ? values.indexOf(value) === i && before.includes(value) : addedDefaults.has(value),
+			)
 		},
 	}
 }

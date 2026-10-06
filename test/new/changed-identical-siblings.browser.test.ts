@@ -325,3 +325,23 @@ test("a row whose name keeps it from the target's kind is passed over for the ne
 	expect([...after].map((input) => input.value)).toEqual(["typed", ""])
 	form.parentElement!.remove()
 })
+
+test("a checkbox matched by the user's choice keeps its target when an identical untouched checkbox is ordered", () => {
+	const form = mount(`<form><input type="checkbox" name="c" value="a"><input type="checkbox" name="c" value="a"></form>`)
+	const [first, second] = form.querySelectorAll("input")
+	first!.checked = true
+
+	morph(
+		form,
+		`<form><input type="checkbox" name="c" value="b" class="x"><input type="checkbox" name="c" value="a" class="x"></form>`,
+		{ preserveChanges: true },
+	)
+
+	const inputs = form.querySelectorAll("input")
+	expect(inputs[1]).toBe(first)
+	expect(inputs[0]).toBe(second)
+	expect(first!.checked).toBe(true)
+	expect(first!.value).toBe("a")
+	expect(new FormData(form as HTMLFormElement).getAll("c")).toEqual(["a"])
+	form.parentElement!.remove()
+})
