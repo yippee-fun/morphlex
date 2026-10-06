@@ -1468,6 +1468,7 @@ class Morph {
 			this.#matchElementsByChoices(siblings)
 			this.#takeEqualTargetsForChoices(siblings)
 		}
+		if (this.#dirtyElements) this.#matchElementsByDirtyOutline(siblings)
 		this.#matchElementsByAttributes(siblings)
 		this.#matchElementsByKind(siblings)
 		this.#matchEqualNodes(siblings)
@@ -1551,6 +1552,68 @@ class Morph {
 			firstActive.set(candidates, c)
 			const candidateIndex = candidates[c]
 			if (candidateIndex !== undefined) siblings.take(target, candidateIndex, Operation.SameElement)
+		}
+	}
+
+	// When a changed element is still without a target, the free elements with the same outline (its shape without
+	// attributes) take the targets with that outline, in order and among the targets the attribute and kind passes
+	// would give them, so the user's changes stay in their place among elements like theirs, rather than going to the
+	// first target of their kind. An outline spans the whole subtree, so it's only worked out for elements with a
+	// changed element's name.
+	#matchElementsByDirtyOutline(siblings: Siblings): void {
+		const { from, to, candidateElements, unmatchedElements, candidateActive, unmatchedActive } = siblings
+		const outlines: Set<string> = new Set()
+		const names: Set<string> = new Set()
+		for (const candidates of siblings.dirtyCandidatesByShape!.values()) {
+			for (const candidateIndex of candidates) {
+				if (!candidateActive[candidateIndex]) continue
+				const candidate = from[candidateIndex] as Element
+				outlines.add(outlineOf(candidate))
+				names.add(localNameOf(candidate))
+			}
+		}
+		if (!names.size) return
+
+		const candidatesByOutline: Map<string, Array<number>> = new Map()
+		for (const candidateIndex of candidateElements) {
+			if (!candidateActive[candidateIndex]) continue
+			const candidate = from[candidateIndex] as Element
+			if (!names.has(localNameOf(candidate))) continue
+			const outline = outlineOf(candidate)
+			if (!outlines.has(outline)) continue
+			const bucket = candidatesByOutline.get(outline)
+			if (bucket) bucket.push(candidateIndex)
+			else candidatesByOutline.set(outline, [candidateIndex])
+		}
+
+		const firstActive: Map<Array<number>, number> = new Map()
+		for (let i = 0; i < unmatchedElements.length; i++) {
+			const target = unmatchedElements[i]!
+			if (!unmatchedActive[target]) continue
+			const element = to[target] as Element
+			if (!names.has(localNameOf(element)) || this.#holdsClobbered(element)) continue
+			const candidates = candidatesByOutline.get(outlineOf(element))
+			if (!candidates) continue
+
+			// Each candidate is taken once, so the bucket skips its taken prefix.
+			let first = firstActive.get(candidates) ?? 0
+			while (first < candidates.length && !candidateActive[candidates[first]!]) first++
+			firstActive.set(candidates, first)
+			const softMatches = canSoftMatchByTagName(element, this.#idArrayMap.has(element))
+			for (let c = first; c < candidates.length; c++) {
+				const candidateIndex = candidates[c]!
+				// The outline holds the element's name, so the two are of the same kind.
+				if (!candidateActive[candidateIndex]) continue
+				const candidate = from[candidateIndex] as Element
+				if (
+					((softMatches && canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) ||
+						sharesMatchKey(element, candidate)) &&
+					!this.#holdsOtherChoice(candidate, element)
+				) {
+					siblings.take(target, candidateIndex, Operation.SameElement)
+					break
+				}
+			}
 		}
 	}
 
@@ -1767,22 +1830,14 @@ class Morph {
 			if (!unmatchedActive[target]) continue
 
 			const element = to[target] as Element
-			const name = getAttribute(element, "name")
-			const href = getAttribute(element, "href")
-			const src = getAttribute(element, "src")
-			if (!name && !href && !src) continue
+			if (!hasMatchKeyAttribute(element)) continue
 
 			for (let c = 0; c < candidateElements.length; c++) {
 				const candidateIndex = candidateElements[c]!
 				if (!candidateActive[candidateIndex] || !siblings.sameKind(target, candidateIndex)) continue
 				const candidate = from[candidateIndex] as Element
 
-				if (
-					((name && name === getAttribute(candidate, "name")) ||
-						(href && href === getAttribute(candidate, "href")) ||
-						(src && src === getAttribute(candidate, "src"))) &&
-					!this.#holdsOtherChoice(candidate, element)
-				) {
+				if (sharesMatchKey(element, candidate) && !this.#holdsOtherChoice(candidate, element)) {
 					siblings.take(target, candidateIndex, Operation.SameElement)
 					break
 				}
@@ -1824,15 +1879,14 @@ class Morph {
 	// changed element's live node, and the changed target then takes the sibling's place, so the two swap.
 	// Identical candidates are interchangeable, so give each set of them to its targets in order instead, when that
 	// leaves more nodes in place. This runs after the other nodes are matched, since they count too.
-	// An element holding the user's changes isn't equal to anything, so it trades with the untouched siblings of
-	// its shape that took equal targets instead.
+	// An element holding the user's changes isn't equal to anything, so it's first ordered with the siblings of its
+	// shape among targets with the same outline and choices, whatever targets they took, so it keeps its place.
 	#orderIdenticalCandidates(siblings: Siblings): void {
 		const { from, to, unmatchedElements, matches, op } = siblings
 		const dirtyElements = this.#dirtyElements
 
 		if (dirtyElements) {
-			// The changed elements, and the untouched candidates that took an equal target, unless the target discards
-			// the user's changes, so no changed element trades into it.
+			// The matched candidates, unless the target discards the user's changes, so no changed element trades into it.
 			const candidates: Array<number> = []
 			const changed: Array<number> = []
 			const targetOf: Array<number> = []
@@ -1841,43 +1895,46 @@ class Morph {
 				const candidate = matches[target]
 				if (candidate === undefined || this.#holdsClobbered(to[target] as Element)) continue
 				if (dirtyElements.has(from[candidate] as Element)) changed.push(candidate)
-				else if (op[target] !== Operation.EqualNode) continue
 				candidates.push(candidate)
 				targetOf[candidate] = target
 			}
-			if (changed.length && candidates.length > changed.length) {
+			if (changed.length) {
 				// A shape spans the whole subtree, so it's only worked out for candidates with a changed element's name
-				// and text, and they're bucketed by it rather than compared pair by pair.
+				// and text, and they're bucketed by it rather than compared pair by pair. The kind pass can give a
+				// candidate a target with another outline, and the choice pass a target holding other choices than its
+				// identical sibling's, so the target's outline and choices count too, and a changed element never trades
+				// into another outline or takes the user's choices to another value. The choice pass prefers targets with
+				// the same attributes apart from class and style, so targets holding choices count those attributes too.
 				const keyOf = (index: number): string => `${localNameOf(from[index] as Element)} ${textContentOf(from[index]!)}`
 				const changedKeys = new Set(changed.map(keyOf))
 				const candidatesByShape: Map<string, Array<number>> = new Map()
 				for (const candidate of candidates) {
 					if (!changedKeys.has(keyOf(candidate))) continue
-					const shape = shapeOf(from[candidate]!)
+					const target = to[targetOf[candidate]!] as Element
+					const choices = [...this.#targetChoicesOf(target).counts].map(([choice, count]) => `${count} ${choice}`).sort()
+					if (choices.length) choices.push(attributesKeyOf(target, STYLING_ATTRIBUTES))
+					const shape = shapeOf(from[candidate]!) + outlineOf(target) + JSON.stringify(choices)
 					const bucket = candidatesByShape.get(shape)
 					if (bucket) bucket.push(candidate)
 					else candidatesByShape.set(shape, [candidate])
 				}
-				// Each set takes its targets in order, except that the changed elements keep the order of their own
-				// targets among themselves, since a pass that matched them by the user's choices may have crossed them.
+				// Each set holding a changed element takes its targets in order. The other sets are left to the ordering
+				// below, which keeps the passes' order on a tie.
 				const ordered = matches.slice()
 				let reordered = false
 				for (const bucket of candidatesByShape.values()) {
+					if (!bucket.some((candidate) => dirtyElements.has(from[candidate] as Element))) continue
 					bucket.sort((a, b) => a - b)
 					const targets = bucket.map((candidate) => targetOf[candidate]!).sort((a, b) => a - b)
-					const changedInBucket = bucket.filter((candidate) => dirtyElements.has(from[candidate] as Element))
-					changedInBucket.sort((a, b) => targetOf[a]! - targetOf[b]!)
-					for (let t = 0, c = 0; t < bucket.length; t++) {
-						const candidate = dirtyElements.has(from[bucket[t]!] as Element) ? changedInBucket[c++]! : bucket[t]!
+					for (let t = 0; t < bucket.length; t++) {
+						const candidate = bucket[t]!
 						if (ordered[targets[t]!] !== candidate) {
 							ordered[targets[t]!] = candidate
 							reordered = true
 						}
 					}
 				}
-				// Keep the order the passes chose if ordering leaves fewer nodes in place. Unlike untouched siblings, on a
-				// tie the changed element keeps its position, so the user's text stays in its box.
-				if (reordered && longestIncreasingSubsequence(ordered).length >= longestIncreasingSubsequence(matches).length) {
+				if (reordered) {
 					for (let i = 0; i < unmatchedElements.length; i++) {
 						const target = unmatchedElements[i]!
 						const candidate = (matches[target] = ordered[target]!)
@@ -3062,6 +3119,19 @@ function shapeOf(node: Node): string {
 	return `<${JSON.stringify([namespaceURIOf(node), prefixOf(node), localNameOf(node), attributes.sort()])}${children}>`
 }
 
+// The shape of a subtree without its attributes, apart from `is`, which decides whether an element can be morphed.
+function outlineOf(node: Node): string {
+	if (!isElement(node)) return JSON.stringify([nodeTypeOf(node), node.nodeName, node.nodeValue])
+	let children = ""
+	for (const child of childNodesOf(node)) children += outlineOf(child)
+	if (isTemplateElement(node)) {
+		children += "<#content"
+		for (const child of node.content.childNodes) children += outlineOf(child)
+		children += ">"
+	}
+	return `<${JSON.stringify([namespaceURIOf(node), prefixOf(node), localNameOf(node), getAttribute(node, "is")])}${children}>`
+}
+
 // `isEqualNode` ignores template content, so templates need comparing separately.
 function isEqualNode(from: Node, to: Node): boolean {
 	if (!Node.prototype.isEqualNode.call(from, to)) return false
@@ -3179,6 +3249,15 @@ function canSoftMatchByTagName(element: Element, hasDescendantIdMarker: boolean)
 
 function hasStableSoftMatchIdentity(element: Element, hasDescendantIdMarker: boolean): boolean {
 	return idOf(element) !== "" || isFormControl(element) || hasDescendantIdMarker || hasMatchKeyAttribute(element)
+}
+
+// Whether the elements have the same non-empty name, href or src.
+function sharesMatchKey(element: Element, other: Element): boolean {
+	for (const name of ["name", "href", "src"]) {
+		const value = getAttribute(element, name)
+		if (value && value === getAttribute(other, name)) return true
+	}
+	return false
 }
 
 function hasMatchKeyAttribute(element: Element): boolean {

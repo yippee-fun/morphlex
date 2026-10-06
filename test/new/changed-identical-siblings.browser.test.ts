@@ -80,7 +80,10 @@ test("typed text doesn't trade places into a target that discards it", () => {
 		preserveChanges: true,
 	})
 
-	expect([...form.querySelectorAll("input")]).toEqual([second, first])
+	const inputsAfter = form.querySelectorAll("input")
+	expect(inputsAfter).toHaveLength(2)
+	expect(inputsAfter[0]).toBe(second)
+	expect(inputsAfter[1]).toBe(first)
 	expect(first!.value).toBe("typed")
 	form.parentElement!.remove()
 })
@@ -119,7 +122,10 @@ test("typed text stays in its input when an element is added between it and an i
 
 	morph(form, `<form><input class="q"><p></p><input class="q"></form>`, { preserveChanges: true })
 
-	expect([...form.querySelectorAll("input")]).toEqual([first, second])
+	const inputsAfter = form.querySelectorAll("input")
+	expect(inputsAfter).toHaveLength(2)
+	expect(inputsAfter[0]).toBe(first)
+	expect(inputsAfter[1]).toBe(second)
 	expect(first!.value).toBe("typed")
 	form.parentElement!.remove()
 })
@@ -137,7 +143,11 @@ test("a changed element doesn't trade places into a target that discards its cha
 	)
 
 	expect(first!.value).toBe("first")
-	expect([...form.querySelectorAll("input")]).toEqual([second, first, third])
+	const inputsAfter = form.querySelectorAll("input")
+	expect(inputsAfter).toHaveLength(3)
+	expect(inputsAfter[0]).toBe(second)
+	expect(inputsAfter[1]).toBe(first)
+	expect(inputsAfter[2]).toBe(third)
 	form.parentElement!.remove()
 })
 
@@ -153,7 +163,11 @@ test("selects matched by the user's picks keep their targets when an identical s
 	})
 
 	expect([first!.value, second!.value]).toEqual(["b", "c"])
-	expect([...form.querySelectorAll("select")]).toEqual([second, first, third])
+	const selectsAfter = form.querySelectorAll("select")
+	expect(selectsAfter).toHaveLength(3)
+	expect(selectsAfter[0]).toBe(second)
+	expect(selectsAfter[1]).toBe(first)
+	expect(selectsAfter[2]).toBe(third)
 	form.parentElement!.remove()
 })
 
@@ -168,5 +182,214 @@ test("identical forms with a field named textContent are ordered by their text",
 	)
 
 	expect([...root.children]).toEqual(forms)
+	root.parentElement!.remove()
+})
+
+test("typed text keeps its box when an untouched identical input before it changes", () => {
+	const form = mount(`<form><input name="n[]"><input name="n[]"><input name="n[]"></form>`)
+	const [first, second, third] = form.querySelectorAll("input")
+	second!.value = "second"
+	third!.value = "third"
+
+	morph(form, `<form><input name="n[]" class="error"><input name="n[]"><input name="n[]"></form>`, { preserveChanges: true })
+
+	const inputs = [...form.querySelectorAll("input")]
+	expect(inputs.map((input) => input.value)).toEqual(["", "second", "third"])
+	expect(inputs[0]).toBe(first)
+	expect(inputs[1]).toBe(second)
+	expect(inputs[2]).toBe(third)
+	expect(first!.className).toBe("error")
+	form.parentElement!.remove()
+})
+
+test("typed text keeps its box among identical wrappers when the first wrapper changes", () => {
+	const row = `<div><input class="q"></div>`
+	const form = mount(`<form>${row.repeat(3)}</form>`)
+	const [first, second, third] = form.querySelectorAll("input")
+	second!.value = "second"
+	third!.value = "third"
+
+	morph(form, `<form><div class="error"><input class="q"></div>${row.repeat(2)}</form>`, { preserveChanges: true })
+
+	const inputs = [...form.querySelectorAll("input")]
+	expect(inputs.map((input) => input.value)).toEqual(["", "second", "third"])
+	expect(inputs[0]).toBe(first)
+	expect(inputs[1]).toBe(second)
+	expect(inputs[2]).toBe(third)
+	expect(form.firstElementChild!.className).toBe("error")
+	form.parentElement!.remove()
+})
+
+test("typed text keeps its box when the rows around it and its own row change", () => {
+	const form = mount(`<form><input name="t[]"><input name="t[]"><input name="t[]"></form>`)
+	const [first, second, third] = form.querySelectorAll("input")
+	second!.value = "typed"
+
+	morph(form, `<form><input name="t[]" class="changed"><input name="t[]" class="changed"><input name="t[]"></form>`, {
+		preserveChanges: true,
+	})
+
+	const inputs = form.querySelectorAll("input")
+	expect([...inputs].map((input) => input.value)).toEqual(["", "typed", ""])
+	expect(inputs[0]).toBe(first)
+	expect(inputs[1]).toBe(second)
+	expect(inputs[2]).toBe(third)
+	form.parentElement!.remove()
+})
+
+test("typed text keeps its box when the elements between the rows shift", () => {
+	const row = `<div><input class="q"></div>`
+	const form = mount(`<form>${row}<p>old</p>${row}<p>old</p>${row}${row}</form>`)
+	const inputs = form.querySelectorAll("input")
+	inputs[1]!.value = "one"
+	inputs[2]!.value = "two"
+
+	morph(form, `<form>${row}${row}<p>new</p>${row}<p>new</p><div class="changed"><input class="q"></div></form>`, {
+		preserveChanges: true,
+	})
+
+	const after = form.querySelectorAll("input")
+	expect([...after].map((input) => input.value)).toEqual(["", "one", "two", ""])
+	expect(after[1]).toBe(inputs[1])
+	expect(after[2]).toBe(inputs[2])
+	form.parentElement!.remove()
+})
+
+test("typed text keeps its box when a row of another kind changes", () => {
+	const form = mount(
+		`<form><input name="t[]"><textarea name="a[]"></textarea><input name="t[]"><textarea name="a[]"></textarea><input name="t[]"></form>`,
+	)
+	const textarea = form.querySelector("textarea")!
+	textarea.value = "typed"
+
+	morph(
+		form,
+		`<form><input name="t[]" class="changed"><textarea name="a[]"></textarea><input name="t[]"><textarea name="a[]"></textarea><input name="t[]"></form>`,
+		{ preserveChanges: true },
+	)
+
+	const textareas = form.querySelectorAll("textarea")
+	expect(textareas[0]).toBe(textarea)
+	expect([...textareas].map((area) => area.value)).toEqual(["typed", ""])
+	form.parentElement!.remove()
+})
+
+test("typed text stays with its content when a row of the same tag holding other content changes", () => {
+	const plain = `<div><input class="q"></div>`
+	const noted = `<div><input class="q"><p>x</p></div>`
+	const form = mount(`<form>${noted}${plain}${plain}${noted}${plain}</form>`)
+	const inputs = form.querySelectorAll("input")
+	inputs[3]!.value = "typed"
+
+	morph(
+		form,
+		`<form><div class="changed"><input class="q"><p>x</p></div><div class="changed"><input class="q"></div>${plain}<div class="changed"><input class="q"><p>x</p></div>${plain}</form>`,
+		{ preserveChanges: true },
+	)
+
+	const after = form.querySelectorAll("input")
+	expect([...after].map((input) => input.value)).toEqual(["", "", "", "typed", ""])
+	expect(after[3]).toBe(inputs[3])
+	form.parentElement!.remove()
+})
+
+test("typed texts keep their boxes when every row holds typed text and the first changes", () => {
+	const form = mount(`<form><div><input class="q"></div><div><input class="q"></div></form>`)
+	const [first, second] = form.querySelectorAll("input")
+	first!.value = "first"
+	second!.value = "second"
+
+	morph(form, `<form><div class="error"><input class="q"></div><div><input class="q"></div></form>`, { preserveChanges: true })
+
+	const inputs = form.querySelectorAll("input")
+	expect(inputs[0]).toBe(first)
+	expect(inputs[1]).toBe(second)
+	expect([first!.value, second!.value]).toEqual(["first", "second"])
+	expect(form.firstElementChild!.className).toBe("error")
+	form.parentElement!.remove()
+})
+
+test("a row whose name keeps it from the target's kind is passed over for the next row holding the same content", () => {
+	const row = `<div><input class="q"></div>`
+	const form = mount(`<form><div name="x"><input class="q"></div>${row}${row}</form>`)
+	const inputs = form.querySelectorAll("input")
+	inputs[1]!.value = "typed"
+
+	morph(form, `<form><div class="c"><input class="q"></div><div class="c"><input class="q"></div></form>`, {
+		preserveChanges: true,
+	})
+
+	const after = form.querySelectorAll("input")
+	expect(after[0]).toBe(inputs[1])
+	expect(after[1]).toBe(inputs[2])
+	expect([...after].map((input) => input.value)).toEqual(["typed", ""])
+	form.parentElement!.remove()
+})
+
+test("a checkbox matched by the user's choice keeps its target when an identical untouched checkbox is ordered", () => {
+	const form = mount(`<form><input type="checkbox" name="c" value="a"><input type="checkbox" name="c" value="a"></form>`)
+	const [first, second] = form.querySelectorAll("input")
+	first!.checked = true
+
+	morph(
+		form,
+		`<form><input type="checkbox" name="c" value="b" class="x"><input type="checkbox" name="c" value="a" class="x"></form>`,
+		{ preserveChanges: true },
+	)
+
+	const inputs = form.querySelectorAll("input")
+	expect(inputs[1]).toBe(first)
+	expect(inputs[0]).toBe(second)
+	expect(first!.checked).toBe(true)
+	expect(first!.value).toBe("a")
+	expect(new FormData(form as HTMLFormElement).getAll("c")).toEqual(["a"])
+	form.parentElement!.remove()
+})
+
+test("a wrapper holding duplicate choices keeps the target holding as many of them", () => {
+	const inputs = (values: Array<string>) => values.map((value) => `<input type="checkbox" name="c" value="${value}">`).join("")
+	const form = mount(`<form><label>${inputs(["a", "a", "b"])}</label><label>${inputs(["a", "a", "b"])}</label></form>`)
+	const [first, second] = form.querySelectorAll("input")
+	first!.checked = true
+	second!.checked = true
+
+	morph(
+		form,
+		`<form><label class="x">${inputs(["a", "b", "b"])}</label><label class="x">${inputs(["a", "a", "b"])}</label></form>`,
+		{ preserveChanges: true },
+	)
+
+	expect(new FormData(form as HTMLFormElement).getAll("c")).toEqual(["a", "a"])
+	expect(form.children[1]!.contains(first!)).toBe(true)
+	form.parentElement!.remove()
+})
+
+test("a wrapper matched by the user's choice keeps the target with its is", () => {
+	const row = `<label is="x-label"><input type="checkbox" name="c" value="a"></label>`
+	const form = mount(`<form>${row}${row}</form>`)
+	const checkbox = form.querySelector("input")!
+	checkbox.checked = true
+
+	morph(form, `<form><label is="y-label"><input type="checkbox" name="c" value="a"></label>${row}</form>`, {
+		preserveChanges: true,
+	})
+
+	expect(form.children[1]!.contains(checkbox)).toBe(true)
+	expect(new FormData(form as HTMLFormElement).getAll("c")).toEqual(["a"])
+	form.parentElement!.remove()
+})
+
+test("a form matched by the user's choice keeps the target with its attributes", () => {
+	const form = (action: string, extra: string) =>
+		`<form action="${action}"><input type="checkbox" name="c" value="1">${extra}</form>`
+	const root = mount(`<div>${form("/a", "")}${form("/a", "")}</div>`)
+	const checkbox = root.querySelector("input")!
+	checkbox.checked = true
+
+	morph(root, `<div>${form("/b", "<p>x</p>")}${form("/a", "<p>x</p>")}</div>`, { preserveChanges: true })
+
+	expect(root.children[1]!.contains(checkbox)).toBe(true)
+	expect(root.children[1]!.getAttribute("action")).toBe("/a")
+	expect(checkbox.checked).toBe(true)
 	root.parentElement!.remove()
 })
