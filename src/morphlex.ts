@@ -768,10 +768,18 @@ class Siblings {
 	dirtyCandidatesByShape: Map<string, Array<number>> | null = null
 	// The untouched candidates that gave their equal target to a candidate holding the user's changes.
 	readonly displaced: Array<number> = []
+	// A shape spans the whole subtree, so it's worked out once for each node.
+	readonly #shapes: Map<Node, string> = new Map()
 	readonly #fromLocalNames: Array<string> = []
 	readonly #fromNamespaces: Array<string | null> = []
 	readonly #toLocalNames: Array<string> = []
 	readonly #toNamespaces: Array<string | null> = []
+
+	shapeOf(node: Node, ignoresOpen: boolean): string {
+		let shape = this.#shapes.get(node)
+		if (shape === undefined) this.#shapes.set(node, (shape = shapeOf(node, ignoresOpen)))
+		return shape
+	}
 
 	constructor(from: Element, to: Element) {
 		this.from = nodeListToArray(childNodesOf(from))
@@ -1568,7 +1576,7 @@ class Morph {
 			const candidateIndex = candidateElements[c]!
 			const candidate = from[candidateIndex] as Element
 			if (!candidateActive[candidateIndex] || !dirtyElements.has(candidate)) continue
-			const shape = shapeOf(candidate, this.#preserveChanges)
+			const shape = siblings.shapeOf(candidate, this.#preserveChanges)
 			const bucket = candidatesByShape.get(shape)
 			if (bucket) bucket.push(candidateIndex)
 			else candidatesByShape.set(shape, [candidateIndex])
@@ -1579,7 +1587,7 @@ class Morph {
 			const target = unmatchedElements[i]!
 			if (!unmatchedActive[target]) continue
 			const element = to[target] as Element
-			const candidates = candidatesByShape.get(shapeOf(element, this.#preserveChanges))
+			const candidates = candidatesByShape.get(siblings.shapeOf(element, this.#preserveChanges))
 			// A target discarding user changes can't keep them, so it's left for the passes that rank it last.
 			if (!candidates || this.#holdsClobbered(element)) continue
 
@@ -1750,6 +1758,7 @@ class Morph {
 				choiceCandidates.push([candidateIndex, dirtyChoices.choices, dirtyChoices.picked])
 			}
 		}
+		if (!choiceCandidates.length) return
 		choiceCandidates.sort((a, b) => b[1].length - a[1].length)
 
 		// Passes needing the same attributes index targets by their attributes too, so candidates skip the others.
@@ -1856,7 +1865,7 @@ class Morph {
 						if (op[target] !== Operation.EqualNode) continue
 						const element = to[target] as Element
 						if (this.#holdsClobbered(element)) continue
-						const targetShape = shapeOf(element, this.#preserveChanges)
+						const targetShape = siblings.shapeOf(element, this.#preserveChanges)
 						const list = equalTargets.get(targetShape)
 						if (list) list.push(target)
 						else equalTargets.set(targetShape, [target])
@@ -1971,7 +1980,7 @@ class Morph {
 					const target = to[targetOf[candidate]!] as Element
 					const choices = [...this.#targetChoicesOf(target).counts].map(([choice, count]) => `${count} ${choice}`).sort()
 					if (choices.length) choices.push(attributesKeyOf(target, STYLING_ATTRIBUTES))
-					const shape = shapeOf(from[candidate]!, this.#preserveChanges) + outlineOf(target) + JSON.stringify(choices)
+					const shape = siblings.shapeOf(from[candidate]!, this.#preserveChanges) + outlineOf(target) + JSON.stringify(choices)
 					const bucket = candidatesByShape.get(shape)
 					if (bucket) bucket.push(candidate)
 					else candidatesByShape.set(shape, [candidate])
@@ -1985,7 +1994,7 @@ class Morph {
 				const goingByShape: Map<string, Array<number>> = new Map()
 				for (const candidateIndex of siblings.candidateElements) {
 					if (!candidateActive[candidateIndex] || isChanged(candidateIndex) || !changedKeys.has(keyOf(candidateIndex))) continue
-					const shape = shapeOf(from[candidateIndex]!, this.#preserveChanges)
+					const shape = siblings.shapeOf(from[candidateIndex]!, this.#preserveChanges)
 					const going = goingByShape.get(shape)
 					if (going) going.push(candidateIndex)
 					else goingByShape.set(shape, [candidateIndex])
@@ -1994,7 +2003,7 @@ class Morph {
 				// when the crossings are counted.
 				const buckets = [...candidatesByShape.values()].filter((bucket) => bucket.some(isChanged))
 				const goingOf = buckets.map((bucket) =>
-					goingByShape.size ? goingByShape.get(shapeOf(from[bucket[0]!]!, this.#preserveChanges)) : undefined,
+					goingByShape.size ? goingByShape.get(siblings.shapeOf(from[bucket[0]!]!, this.#preserveChanges)) : undefined,
 				)
 				const order = buckets.map((_, b) => b).sort((a, b) => Number(!!goingOf[a]) - Number(!!goingOf[b]))
 				const targetsOf = buckets.map((bucket) => bucket.map((candidate) => targetOf[candidate]!).sort((a, b) => a - b))
