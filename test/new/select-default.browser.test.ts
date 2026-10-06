@@ -524,3 +524,33 @@ test("a new option that comes out of its parsed select selected doesn't take the
 		host.remove()
 	}
 })
+
+test("morphing an option to a selected one shows the drop-down's last selected option", () => {
+	const host = mount(`<div><select><option id="o">r</option><option selected>a</option></select></div>`)
+	const select = host.querySelector("select")!
+
+	morph(select.options[0]!, parse(`<option selected>b</option>`))
+
+	expect(select.selectedIndex).toBe(1)
+	host.remove()
+})
+
+test("morphing an optgroup that enables its selected option shows that option", () => {
+	const host = mount(`<div><select><optgroup label="g"><option selected disabled>a</option></optgroup></select></div>`)
+	const select = host.querySelector("select")!
+
+	morph(host.querySelector("optgroup")!, parse(`<optgroup label="g"><option>a</option></optgroup>`))
+
+	expect(select.selectedIndex).toBe(0)
+	host.remove()
+})
+
+test("an inner morph of an optgroup that removes the only selected attribute shows that option", () => {
+	const host = mount(`<div><select><optgroup label="g"><option selected>a</option></optgroup></select></div>`)
+	const select = host.querySelector("select")!
+
+	morphInner(host.querySelector("optgroup")!, `<optgroup label="g"><option>a</option></optgroup>`)
+
+	expect(select.selectedIndex).toBe(0)
+	host.remove()
+})
