@@ -378,3 +378,18 @@ test("a wrapper matched by the user's choice keeps the target with its is", () =
 	expect(new FormData(form as HTMLFormElement).getAll("c")).toEqual(["a"])
 	form.parentElement!.remove()
 })
+
+test("a form matched by the user's choice keeps the target with its attributes", () => {
+	const form = (action: string, extra: string) =>
+		`<form action="${action}"><input type="checkbox" name="c" value="1">${extra}</form>`
+	const root = mount(`<div>${form("/a", "")}${form("/a", "")}</div>`)
+	const checkbox = root.querySelector("input")!
+	checkbox.checked = true
+
+	morph(root, `<div>${form("/b", "<p>x</p>")}${form("/a", "<p>x</p>")}</div>`, { preserveChanges: true })
+
+	expect(root.children[1]!.contains(checkbox)).toBe(true)
+	expect(root.children[1]!.getAttribute("action")).toBe("/a")
+	expect(checkbox.checked).toBe(true)
+	root.parentElement!.remove()
+})
