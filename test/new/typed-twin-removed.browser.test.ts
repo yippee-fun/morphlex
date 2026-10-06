@@ -129,3 +129,17 @@ test("a typed input isn't given a target with another name", () => {
 	expect(after[1]!.value).toBe("")
 	form.parentElement!.remove()
 })
+
+test("removing many of many identical inputs keeps the typed ones", () => {
+	const form = mount(`<form>${"<input><p>x</p>".repeat(1500)}</form>`)
+	const inputs = [...form.querySelectorAll("input")]
+	inputs[10]!.value = "first"
+	inputs[1200]!.value = "second"
+
+	morph(form, `<form>${"<input><p>x</p>".repeat(700)}</form>`, { preserveChanges: true })
+
+	const after = [...form.querySelectorAll("input")]
+	expect(after).toHaveLength(700)
+	expect(after.filter((input) => input.value)).toEqual([inputs[10], inputs[1200]])
+	form.parentElement!.remove()
+})

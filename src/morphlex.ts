@@ -6,6 +6,8 @@ const DOCUMENT_FRAGMENT_NODE_TYPE = 11
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
 const CLOBBER_ATTRIBUTE = "morphlex-clobber"
 const DIRTY_ATTRIBUTE = "morphlex-dirty"
+// The most cells `chooseStaying` fills, about 8 MB, so a morph removing many of many identical siblings stays fast.
+const STAYING_CELLS = 1 << 20
 const DETACHED_NODE_ERROR = "[Morphlex] Cannot replace a detached node. It needs a parent."
 
 // The passes matching wrappers by choice, as [targets with their own identity, same attributes, all choices,
@@ -3031,7 +3033,8 @@ function takeInOrder(
 // Choose which of the identical candidates stay when there are more of them than targets. The changed ones always
 // stay, and the others are chosen so that, taking the targets in order, they cross the fewest other matches, where
 // crossing a changed element outweighs crossing all the others, since the user's changes keep their order. On a tie,
-// the candidates already staying stay. A changed candidate never takes a target discarding the user's changes.
+// the candidates already staying stay. A changed candidate never takes a target discarding the user's changes. With
+// too many candidates and too many going, the candidates already staying stay.
 function chooseStaying(
 	candidates: Array<number>,
 	targets: Array<number>,
@@ -3043,6 +3046,8 @@ function chooseStaying(
 	candidates.sort((a, b) => a - b)
 	const n = candidates.length
 	const spare = n - targets.length
+	const width = spare + 1
+	if ((n + 1) * width > STAYING_CELLS) return candidates.filter((candidate) => staying.has(candidate))
 	const own = new Set(targets)
 	const others: Array<[number, number]> = []
 	for (let target = 0; target < matches.length; target++) {
@@ -3065,7 +3070,6 @@ function chooseStaying(
 
 	// cost[i * width + k] is the least crossing weight, then the fewest staying candidates going, for the first i
 	// candidates when k of them go. Crossings outweigh any number of those going.
-	const width = spare + 1
 	const cost = new Float64Array((n + 1) * width).fill(Infinity)
 	cost[0] = 0
 	let before = 0
