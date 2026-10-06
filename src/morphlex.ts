@@ -1587,15 +1587,8 @@ class Morph {
 			if (bucket) bucket.push(candidateIndex)
 			else candidatesByOutline.set(outline, [candidateIndex])
 		}
-		// When there are fewer targets than candidates, the untouched candidates go rather than the user's changes. The
-		// identical candidates are put back in order later.
-		for (const bucket of candidatesByOutline.values()) {
-			bucket.sort(
-				(a, b) => Number(dirtyElements.has(from[b] as Element)) - Number(dirtyElements.has(from[a] as Element)) || a - b,
-			)
-		}
-
-		const firstActive: Map<Array<number>, number> = new Map()
+		const targets: Array<[number, Array<number>]> = []
+		const targetCounts: Map<Array<number>, number> = new Map()
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
 			if (!unmatchedActive[target]) continue
@@ -1603,7 +1596,21 @@ class Morph {
 			if (!names.has(localNameOf(element)) || this.#holdsClobbered(element)) continue
 			const candidates = candidatesByOutline.get(outlineOf(element))
 			if (!candidates) continue
+			targets.push([target, candidates])
+			targetCounts.set(candidates, (targetCounts.get(candidates) ?? 0) + 1)
+		}
+		// When there are fewer targets than candidates, the untouched candidates go rather than the user's changes. The
+		// identical candidates are put back in order later.
+		for (const [candidates, count] of targetCounts) {
+			if (count >= candidates.length) continue
+			candidates.sort(
+				(a, b) => Number(dirtyElements.has(from[b] as Element)) - Number(dirtyElements.has(from[a] as Element)) || a - b,
+			)
+		}
 
+		const firstActive: Map<Array<number>, number> = new Map()
+		for (const [target, candidates] of targets) {
+			const element = to[target] as Element
 			// Each candidate is taken once, so the bucket skips its taken prefix.
 			let first = firstActive.get(candidates) ?? 0
 			while (first < candidates.length && !candidateActive[candidates[first]!]) first++
@@ -1933,9 +1940,7 @@ class Morph {
 					else candidatesByShape.set(shape, [candidate])
 				}
 				// Each set holding a changed element takes its targets in order. The other sets are left to the ordering
-				// below, which keeps the passes' order on a tie. A target discarding the user's changes takes the first
-				// untouched candidate, so no changed element trades into it, and the other targets take the first free
-				// candidate while enough untouched ones are left for those.
+				// below, which keeps the passes' order on a tie.
 				const ordered = matches.slice()
 				let reordered = false
 				const isChanged = (candidate: number): boolean => dirtyElements.has(from[candidate] as Element)
@@ -1951,7 +1956,7 @@ class Morph {
 				// The sets that can trade candidates with those going are ordered last, so the other sets are in order
 				// when the crossings are counted.
 				const buckets = [...candidatesByShape.values()].filter((bucket) => bucket.some(isChanged))
-				const goingOf = buckets.map((bucket) => goingByShape.get(shapeOf(from[bucket[0]!]!)))
+				const goingOf = buckets.map((bucket) => (goingByShape.size ? goingByShape.get(shapeOf(from[bucket[0]!]!)) : undefined))
 				const order = buckets.map((_, b) => b).sort((a, b) => Number(!!goingOf[a]) - Number(!!goingOf[b]))
 				const targetsOf = buckets.map((bucket) => bucket.map((candidate) => targetOf[candidate]!).sort((a, b) => a - b))
 				const canTake = (candidate: number, target: number): boolean =>
@@ -1971,29 +1976,10 @@ class Morph {
 					} else {
 						bucket.sort((a, b) => a - b)
 					}
-					let untouched = bucket.length - bucket.filter(isChanged).length
-					let clobbered = targets.filter((target) => this.#holdsClobbered(to[target] as Element)).length
-					const taken: Set<number> = new Set()
-					const firsts = [0, 0, 0]
-					// The first free candidate, of any kind, untouched or changed.
-					const first = (kind: number): number => {
-						let c = firsts[kind]!
-						while (taken.has(bucket[c]!) || (kind === 1 && isChanged(bucket[c]!)) || (kind === 2 && !isChanged(bucket[c]!))) c++
-						firsts[kind] = c
-						return bucket[c]!
-					}
-					for (const target of targets) {
-						let candidate: number
-						if (clobbered && this.#holdsClobbered(to[target] as Element)) {
-							candidate = first(1)
-							clobbered--
-						} else {
-							candidate = first(untouched > clobbered ? 0 : 2)
-						}
-						taken.add(candidate)
-						if (!isChanged(candidate)) untouched--
-						if (ordered[target] !== candidate) {
-							ordered[target] = candidate
+					const takers = takeInOrder(bucket, targets, isChanged, (target) => this.#holdsClobbered(to[target] as Element))
+					for (let t = 0; t < targets.length; t++) {
+						if (ordered[targets[t]!] !== takers[t]) {
+							ordered[targets[t]!] = takers[t]!
 							reordered = true
 						}
 					}
@@ -3006,6 +2992,42 @@ function hasExcessAttributes(from: Element, to: Element): boolean {
 
 // Give each changed candidate's set of interchangeable candidates, from `identicalTo`, to their targets in order in
 // `matches`. Returns whether any target changed hands.
+// The candidate each target takes, both in order. A target discarding the user's changes takes the first untouched
+// candidate, so no changed candidate trades into it, and the other targets take the first free candidate while enough
+// untouched ones are left for those.
+function takeInOrder(
+	candidates: Array<number>,
+	targets: Array<number>,
+	isChanged: (candidate: number) => boolean,
+	discards: (target: number) => boolean,
+): Array<number> {
+	let discarding = targets.filter(discards).length
+	if (!discarding) return candidates
+	let untouched = candidates.filter((candidate) => !isChanged(candidate)).length
+	const taken: Set<number> = new Set()
+	// Where the search for the first free candidate, the first untouched one and the first changed one starts.
+	const starts = [0, 0, 0]
+	const first = (kind: number): number => {
+		let c = starts[kind]!
+		while (taken.has(candidates[c]!) || (kind === 1 && isChanged(candidates[c]!)) || (kind === 2 && !isChanged(candidates[c]!)))
+			c++
+		starts[kind] = c
+		return candidates[c]!
+	}
+	return targets.map((target) => {
+		let candidate: number
+		if (discarding && discards(target)) {
+			candidate = first(1)
+			discarding--
+		} else {
+			candidate = first(untouched > discarding ? 0 : 2)
+		}
+		taken.add(candidate)
+		if (!isChanged(candidate)) untouched--
+		return candidate
+	})
+}
+
 // Choose which of the identical candidates stay when there are more of them than targets. The changed ones always
 // stay, and the others are chosen so that, taking the targets in order, they cross the fewest other matches, where
 // crossing a changed element outweighs crossing all the others, since the user's changes keep their order. On a tie,
