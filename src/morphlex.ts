@@ -2150,12 +2150,13 @@ class Morph {
 	}
 	/* v8 ignore stop */
 
-	// The matches, keeping only those in order with the child holding the focused element, so the longest
-	// increasing subsequence includes that child and its siblings move around it.
+	// Without `moveBefore`, moving the focused element loses focus. So keep only the matches in order with the child
+	// holding it, so the longest increasing subsequence includes that child and its siblings move around it, even when
+	// that moves more of them. `moveBefore` keeps focus, so there the fewest nodes move.
 	#pinFocused(parent: Element, siblings: Siblings): Array<number | undefined> {
 		const { from, matches } = siblings
 		const holders = this.#focusHolders
-		if (!holders?.has(parent)) return matches
+		if (SUPPORTS_MOVE_BEFORE || !holders?.has(parent)) return matches
 
 		const pinnedIndex = matches.findIndex((match) => match !== undefined && holders.has(from[match]!))
 		if (pinnedIndex === -1) return matches

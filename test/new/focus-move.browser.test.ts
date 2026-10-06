@@ -28,10 +28,14 @@ function movesSelectionOutOfRemovedNodes(): boolean {
 	return moved
 }
 
-test("a focused item that the target moves to the end stays put while its siblings move", () => {
+const SUPPORTS_MOVE_BEFORE = "moveBefore" in Element.prototype
+
+// `moveBefore` keeps focus, so there the focused item moves like any other. Without it, the focused item stays put
+// and its siblings move around it, even when that moves more of them.
+test("a focused item that the target moves to the end moves alone with moveBefore, and otherwise stays put", () => {
 	const host = mount(`<ul><li id="a"><input id="ia" value="hello"></li><li id="b">b</li><li id="c">c</li></ul>`)
 	const ul = host.firstElementChild!
-	const item = host.querySelector("#a")!
+	const [item, b, c] = [...ul.children]
 	const input = host.querySelector("input")!
 	input.focus()
 	input.setSelectionRange(2, 3)
@@ -40,8 +44,8 @@ test("a focused item that the target moves to the end stays put while its siblin
 		morph(ul, `<ul><li id="b">b</li><li id="c">c</li><li id="a"><input id="ia" value="hello"></li></ul>`),
 	)
 
-	expect(removed).not.toContain(item)
-	expect([...ul.children].map((child) => child.id)).toEqual(["b", "c", "a"])
+	expect(removed).toEqual(SUPPORTS_MOVE_BEFORE ? [item] : [b, c])
+	expect([...ul.children]).toEqual([b, c, item])
 	expect(host.querySelector("input")).toBe(input)
 	expect(document.activeElement).toBe(input)
 	expect([input.selectionStart, input.selectionEnd]).toEqual([2, 3])
@@ -49,7 +53,28 @@ test("a focused item that the target moves to the end stays put while its siblin
 	host.remove()
 })
 
-test("a focused item nested two levels down stays put at each level", () => {
+test("a focused item that the target moves to the front of a long list moves alone with moveBefore", () => {
+	const items = Array.from({ length: 50 }, (_, i) => `<li id="i${i}">${i}</li>`).join("")
+	const focused = `<li id="f"><input id="x" value="hello"></li>`
+	const host = mount(`<ul>${items}${focused}</ul>`)
+	const ul = host.firstElementChild!
+	const siblings = [...ul.children]
+	const item = siblings.pop()!
+	const input = host.querySelector("input")!
+	input.focus()
+	input.setSelectionRange(2, 3)
+
+	const removed = removedNodes(ul, () => morph(ul, `<ul>${focused}${items}</ul>`))
+
+	expect(removed).toEqual(SUPPORTS_MOVE_BEFORE ? [item] : siblings)
+	expect(ul.innerHTML).toBe(`${focused}${items}`)
+	expect(document.activeElement).toBe(input)
+	expect([input.selectionStart, input.selectionEnd]).toEqual([2, 3])
+
+	host.remove()
+})
+
+test("a focused item nested two levels down stays put at each level without moveBefore, and keeps focus either way", () => {
 	const host = mount(
 		`<div id="x">x</div><section id="s"><p id="p1">1</p><p id="p2"><textarea id="t">hello</textarea></p></section>`,
 	)
@@ -66,8 +91,12 @@ test("a focused item nested two levels down stays put at each level", () => {
 		),
 	)
 
-	expect(removed).not.toContain(section)
-	expect(removed).not.toContain(paragraph)
+	// Each level swaps two nodes, so one moves at each level either way.
+	expect(removed).toHaveLength(2)
+	if (!SUPPORTS_MOVE_BEFORE) {
+		expect(removed).not.toContain(section)
+		expect(removed).not.toContain(paragraph)
+	}
 	expect(host.innerHTML).toBe(
 		`<section id="s"><p id="p2"><textarea id="t">hello</textarea></p><p id="p1">1</p></section><div id="x">x</div>`,
 	)
