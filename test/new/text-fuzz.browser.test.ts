@@ -18,7 +18,7 @@ const ROWS: Array<{ html: string; changed: string }> = [
 
 vi.setConfig({ testTimeout: Math.max(30_000, SEED_COUNT * 50) })
 
-test("seeded fuzz keeps typed text in its own box when identical rows change around it", () => {
+test("seeded fuzz keeps typed text in its own box when identical rows change or go around it", () => {
 	for (let seed = SEED_START; seed < SEED_START + SEED_COUNT; seed++) {
 		const scenario = createScenario(seed)
 		const from = parse(scenario.from)
@@ -34,40 +34,59 @@ test("seeded fuzz keeps typed text in its own box when identical rows change aro
 
 			const message = `seed ${seed}\n${scenario.from}\n${scenario.to}\ntyped ${JSON.stringify(scenario.typed)}`
 			const after = [...from.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")]
-			expect(
-				after.map((control) => control.value),
-				message,
-			).toEqual(scenario.typed)
-			for (let i = 0; i < controls.length; i++) {
-				if (scenario.typed[i]) expect(after[i], message).toBe(controls[i])
+			if (scenario.removed.includes(true)) {
+				// Identical untouched rows are interchangeable, so any of them can go, but every typed box stays, in order.
+				const typed = controls.filter((control) => control.value)
+				expect(
+					after.filter((control) => control.value),
+					message,
+				).toEqual(typed)
+				expect(after.length, message).toBe(controls.length - scenario.removed.filter(Boolean).length)
+			} else {
+				expect(
+					after.map((control) => control.value),
+					message,
+				).toEqual(scenario.typed)
+				for (let i = 0; i < controls.length; i++) {
+					if (scenario.typed[i]) expect(after[i], message).toBe(controls[i])
+				}
 			}
-			expect(from.outerHTML, message).toBe(parse(scenario.to).outerHTML)
+			expect(from.outerHTML, message).toBe(parse(scenario.to.replaceAll(" morphlex-clobber", "")).outerHTML)
 		} finally {
 			from.remove()
 		}
 	}
 })
 
-// A list of rows of one or two kinds, some holding typed text, and a target giving some rows a class and adding or
-// removing paragraphs between them. Every row stays, so each typed text has one box it belongs in.
+// A list of rows of one or two kinds, some holding typed text, and a target giving some rows a class, removing or
+// clobbering some untouched rows, and adding or removing paragraphs between them. Every typed row stays, so each typed
+// text has one box it belongs in.
 function createScenario(seed: number) {
 	const random = createRandom(seed)
 	const kinds = [pick(random, ROWS), pick(random, ROWS)]
 	const rows = Array.from({ length: randomInt(random, 2, 6) }, () => pick(random, kinds))
 	const typed = rows.map((_, i) => (random() < 0.5 ? `typed ${i}` : ""))
 	const changed = rows.map(() => random() < 0.3)
+	const removed = typed.map((text) => !text && random() < 0.3)
+	const clobbered = typed.map((text) => !text && random() < 0.15)
 	const join = random() < 0.5 ? "\n" : ""
 
 	const render = (isTarget: boolean) => {
 		const nodes: Array<string> = []
 		rows.forEach((row, i) => {
 			if (random() < 0.2) nodes.push(`<p>${isTarget ? "new" : "old"}</p>`)
-			nodes.push(isTarget && changed[i] ? row.changed : row.html)
+			if (!isTarget) nodes.push(row.html)
+			else if (!removed[i]) nodes.push(clobber(changed[i] ? row.changed : row.html, clobbered[i]!))
 		})
 		return `<form>${nodes.join(join)}</form>`
 	}
 
-	return { from: render(false), to: render(true), typed }
+	return { from: render(false), to: render(true), typed, removed }
+}
+
+// Adds `morphlex-clobber` to a row's first element.
+function clobber(html: string, clobbered: boolean): string {
+	return clobbered ? html.replace(/^<(\w+)/, "<$1 morphlex-clobber") : html
 }
 
 function parse(html: string): HTMLFormElement {
