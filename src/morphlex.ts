@@ -749,12 +749,18 @@ function parentOrHost(node: Node): Node | null {
 }
 
 // Modal dialogs and open popovers are in the top layer. A move without `moveBefore` takes them out of it, so a
-// modal dialog stays open but stops being modal, and a popover closes.
-const TOP_LAYER = "dialog:modal, :popover-open"
+// modal dialog stays open but stops being modal, and a popover closes. A browser that doesn't know one of these
+// selectors has no such elements, and would throw on it.
+/* v8 ignore start -- tests run in browsers that know both */
+const TOP_LAYER =
+	typeof CSS === "undefined"
+		? ""
+		: ["dialog:modal", ":popover-open"].filter((selector) => CSS.supports(`selector(${selector})`)).join(", ")
+/* v8 ignore stop */
 
 // The modal dialogs and open popovers that a move of the node would take out of the top layer, in document order.
 function topLayerHeldBy(node: Node): Array<Element> | null {
-	if (!isElement(node)) return null
+	if (!isElement(node) || !TOP_LAYER) return null
 	const elements = Array.from(querySelectorAll(node, TOP_LAYER))
 	if (matchesSelector(node, TOP_LAYER)) elements.unshift(node)
 	return elements.length ? elements : null
@@ -2290,13 +2296,13 @@ class Morph {
 	}
 
 	// Showing a modal dialog again focuses inside it, and a popover can focus its autofocus element, so focus goes
-	// back to where it was straight after. Focus that the move took is put back after this.
+	// back to where it was straight after, inside open shadow roots too. Focus that the move took is put back after this.
 	#showAgain(elements: Array<Element>): void {
 		const document = ownerDocumentOf(elements[0]!)!
-		const focused = isFocusLost(document) ? null : activeElementOf(document)
+		const focused = focusOf(document)?.element
 		this.#showingAgain = true
 		showAgain(elements)
-		const focusedNow = isFocusLost(document) ? null : activeElementOf(document)
+		const focusedNow = focusOf(document)?.element
 		if (focusedNow !== focused) {
 			if (focused) focusElement(focused)
 			else blurElement(focusedNow!)

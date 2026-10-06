@@ -188,6 +188,25 @@ test("open popovers in a live target that the morph inserts stay open, and focus
 	host.remove()
 })
 
+test("focus inside a shadow root outside a live target stays put when the morph shows the target's popover again", () => {
+	const host = mount(`<div></div><div><div popover="manual"><input autofocus></div></div><span></span>`)
+	const [from, to, shadowHost] = host.children
+	const shadowInput = document.createElement("input")
+	shadowHost!.attachShadow({ mode: "open" }).append(shadowInput)
+	const popover = host.querySelector<HTMLElement>("[popover]")!
+	popover.showPopover()
+	shadowInput.focus()
+
+	morph(from!, to!)
+
+	expect(popover.matches(":popover-open")).toBe(true)
+	expect(document.activeElement).toBe(shadowHost)
+	expect(shadowHost!.shadowRoot!.activeElement).toBe(shadowInput)
+
+	popover.hidePopover()
+	host.remove()
+})
+
 test("an open popover in a live target that the morph inserts stays open while nothing is focused", () => {
 	const host = mount(`<div></div><div><div popover="manual">x</div></div>`)
 	const [from, to] = host.children
