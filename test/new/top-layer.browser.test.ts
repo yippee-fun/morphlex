@@ -207,11 +207,59 @@ test("focus inside a shadow root outside a live target stays put when the morph 
 	host.remove()
 })
 
+test("focus that a handler sends elsewhere when the morph shows a live target's popover again stays there", () => {
+	const host = mount(`<input id="a"><input id="b"><div></div><div><div popover="manual"><input autofocus></div></div>`)
+	const [a, b, from, to] = host.children as unknown as Array<HTMLElement>
+	const popover = host.querySelector<HTMLElement>("[popover]")!
+	popover.showPopover()
+	a!.focus()
+	popover.querySelector("input")!.addEventListener("focus", () => b!.focus())
+
+	morph(from!, to!)
+
+	expect(popover.matches(":popover-open")).toBe(true)
+	expect(document.activeElement).toBe(b)
+
+	popover.hidePopover()
+	host.remove()
+})
+
+test("a modal dialog in a live target that the morph inserts keeps the value of its open attribute", () => {
+	const host = mount(`<div></div><div><dialog>x</dialog></div>`)
+	const [from, to] = host.children
+	const dialog = host.querySelector("dialog")!
+	dialog.showModal()
+	dialog.setAttribute("open", "yes")
+
+	morph(from!, to!)
+
+	expect(dialog.matches(":modal")).toBe(true)
+	expect(dialog.getAttribute("open")).toBe("yes")
+
+	dialog.close()
+	host.remove()
+})
+
+test("a form shown as a popover stays open when a live target holding it is inserted, though a field shadows showPopover", () => {
+	const host = mount(`<div></div><div><form popover="manual"><input name="showPopover"></form></div>`)
+	const [from, to] = host.children
+	const form = host.querySelector("form")!
+	HTMLElement.prototype.showPopover.call(form)
+
+	morph(from!, to!)
+
+	expect(form.matches(":popover-open")).toBe(true)
+
+	HTMLElement.prototype.hidePopover.call(form)
+	host.remove()
+})
+
 test("an open popover in a live target that the morph inserts stays open while nothing is focused", () => {
 	const host = mount(`<div></div><div><div popover="manual">x</div></div>`)
 	const [from, to] = host.children
 	const popover = host.querySelector<HTMLElement>("[popover]")!
 	popover.showPopover()
+	;(document.activeElement as HTMLElement).blur()
 
 	morph(from!, to!)
 

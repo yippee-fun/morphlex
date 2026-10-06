@@ -774,10 +774,14 @@ function showAgain(elements: Array<Element>): void {
 		// A callback can have changed the element so it can't be shown, such as by removing its `popover`.
 		try {
 			if (isDialogElement(element) && element.open) {
+				// Showing it sets `open` to "", so it gets back the value the markup gave it.
+				const open = getAttribute(element, "open")!
 				removeAttribute(element, "open")
 				element.showModal()
+				setAttribute(element, "open", open)
 			} else {
-				;(element as HTMLElement).showPopover()
+				// A form's field can shadow the method, and a custom element can define its own.
+				HTMLElement.prototype.showPopover.call(element)
 			}
 		} catch {}
 	}
@@ -2303,9 +2307,10 @@ class Morph {
 		this.#showingAgain = true
 		showAgain(elements)
 		const focusedNow = focusOf(document)?.element
-		if (focusedNow !== focused) {
+		// Focus that a focus handler sent elsewhere stays there.
+		if (focusedNow && focusedNow !== focused && elements.some((element) => holds(element, focusedNow))) {
 			if (focused) focusElement(focused)
-			else blurElement(focusedNow!)
+			else blurElement(focusedNow)
 		}
 		this.#showingAgain = false
 	}
