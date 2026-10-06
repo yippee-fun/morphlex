@@ -752,6 +752,14 @@ function parentOrHost(node: Node): Node | null {
 // modal dialog stays open but stops being modal, and a popover closes.
 const TOP_LAYER = "dialog:modal, :popover-open"
 
+// The modal dialogs and open popovers that a move of the node would take out of the top layer, in document order.
+function topLayerHeldBy(node: Node): Array<Element> | null {
+	if (!isElement(node)) return null
+	const elements = Array.from(querySelectorAll(node, TOP_LAYER))
+	if (matchesSelector(node, TOP_LAYER)) elements.unshift(node)
+	return elements.length ? elements : null
+}
+
 // Show the elements a move took out of the top layer again, in document order, so a popover nested in another
 // stays open. A dialog that's still open was modal, and anything else was a popover.
 function showAgain(elements: Array<Element>): void {
@@ -1095,9 +1103,9 @@ class Morph {
 	#watchedDocuments: Array<Document> = []
 	// Whether elements a move took out of the top layer are being shown again, which can move focus.
 	#showingAgain = false
-	// The modal dialogs and open popovers in each document or shadow root that a move starts from, found when a move
-	// first needs them.
-	#topLayers: Map<Node, Array<Element>> | null = null
+	// The modal dialogs and open popovers inside the root when the morph starts, which a move without `moveBefore`
+	// takes out of the top layer.
+	#topLayer: Array<Element> | null = null
 
 	constructor(
 		options: Options = {},
@@ -1124,6 +1132,8 @@ class Morph {
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
 		this.#root = from
 		this.#focusHolders = focusHoldersIn(from)
+		/* v8 ignore next -- only browsers without moveBefore lose the top layer when they move a node */
+		if (!SUPPORTS_MOVE_BEFORE) this.#topLayer = topLayerHeldBy(from)
 		// A detached root has no siblings, so it's its own scope.
 		this.#scope = parentNodeOf(from) ?? from
 		this.#scopeStart = previousSiblingOf(from)
@@ -1152,6 +1162,8 @@ class Morph {
 	morphChildren(from: Element, to: Element): void {
 		this.#root = from
 		this.#focusHolders = focusHoldersIn(from)
+		/* v8 ignore next -- as above */
+		if (!SUPPORTS_MOVE_BEFORE) this.#topLayer = topLayerHeldBy(from)
 		this.#scope = from
 		this.#targetRoots.add(to)
 		this.#mapIdSets(from)
@@ -2267,23 +2279,14 @@ class Morph {
 		if (!this.#showingAgain && event.composedPath()[0] !== focus.element) focus.taken = true
 	}
 
-	// The modal dialogs and open popovers that a move of the connected node would take out of the top layer.
-	#topLayerHeldBy(node: Node): Array<Element> | null {
-		const root = getRootNode(node)
-		const topLayers = (this.#topLayers ??= new Map<Node, Array<Element>>())
-		let elements = topLayers.get(root)
-		if (!elements) {
-			elements = Array.from(querySelectorAll(root as Document | ShadowRoot, TOP_LAYER))
-			topLayers.set(root, elements)
-		}
-		const held = elements.filter((element) => holds(node, element) && matchesSelector(element, TOP_LAYER))
-		return held.length ? held : null
-	}
-
-	// Only a move without `moveBefore` takes elements out of the top layer, and only a connected node holds any.
+	// The modal dialogs and open popovers inside the root that a move of the node takes out of the top layer. Only a
+	// move without `moveBefore` takes them, and a morph only moves nodes inside its root.
 	#topLayerMovedWith(node: Node): Array<Element> | null {
-		/* v8 ignore next -- only browsers without moveBefore lose the top layer when they move a node */
-		return SUPPORTS_MOVE_BEFORE || !isConnected(node) ? null : this.#topLayerHeldBy(node)
+		/* v8 ignore start -- only browsers without moveBefore lose the top layer when they move a node */
+		if (!this.#topLayer) return null
+		const held = this.#topLayer.filter((element) => holds(node, element) && matchesSelector(element, TOP_LAYER))
+		return held.length ? held : null
+		/* v8 ignore stop */
 	}
 
 	// Showing a modal dialog again focuses inside it, and a popover can focus its autofocus element, so focus goes
@@ -2780,7 +2783,7 @@ class Morph {
 		// A live target can hold the focused element, which its claimed descendants take out of it next.
 		const focus = this.#watchFocus(node, parent)
 		// A live target is inserted without `moveBefore`, so it takes the top layer it holds out of it in every browser.
-		const topLayer = isConnected(node) ? this.#topLayerHeldBy(node) : null
+		const topLayer = isConnected(node) ? topLayerHeldBy(node) : null
 		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, parent)
 		if (this.#targetOpensDetails && isElement(node)) this.#noteAddedDetails(node)

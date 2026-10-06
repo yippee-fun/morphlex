@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { morph } from "../../src/morphlex"
+import { morph, morphInner } from "../../src/morphlex"
 
 function mount(html: string): HTMLElement {
 	const host = document.createElement("div")
@@ -97,6 +97,20 @@ test("an item holding a modal dialog keeps it modal when the target reorders the
 	morph(host.firstElementChild!, `<ul><li id="b">b</li><li id="c">c</li><li id="a"><dialog open>x</dialog></li></ul>`)
 
 	expect(host.querySelector("li:last-child > dialog")).toBe(dialog)
+	expect(dialog.matches(":modal")).toBe(true)
+
+	dialog.close()
+	host.remove()
+})
+
+test("a modal dialog that morphInner moves into a new wrapper stays modal", () => {
+	const host = mount(`<div><dialog id="d">x</dialog></div>`)
+	const dialog = host.querySelector("dialog")!
+	dialog.showModal()
+
+	morphInner(host.firstElementChild!, `<div><section><dialog id="d" open>x</dialog></section></div>`)
+
+	expect(host.querySelector("section > dialog")).toBe(dialog)
 	expect(dialog.matches(":modal")).toBe(true)
 
 	dialog.close()
