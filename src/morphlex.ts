@@ -241,7 +241,7 @@ function run(
 	const keySelect = isElement(from) && isSelectElement(from) ? from : select
 	try {
 		const morpher = new Morph(options, clobbered, flagged, keySelect)
-		if (select) morpher.setEnclosingSelect(select, markupSelectionOf(select))
+		if (select) morpher.setEnclosingSelect(select, selectionOf(select))
 		morph(morpher)
 	} finally {
 		if (flagged) clearDirtyFlags(flagged)
@@ -546,10 +546,14 @@ function addOptionSelects(optionSelects: Map<Element, HTMLSelectElement>, select
 	for (const option of select.options) optionSelects.set(option, select)
 }
 
-// The options the markup selects, to tell whether a morph inside the select changed them.
-function markupSelectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null> {
-	if (!select.multiple) return [defaultOptionOf(select)]
-	return Array.from(select.options).filter((option) => option.hasAttribute("selected"))
+// The options the markup selects, then the options the select shows, to tell whether a morph inside
+// the select changed either. Updating an option's `selected` or `disabled` attribute can change what
+// the select shows even when the markup selects the same options. A multiple select's lists are
+// separated by null.
+function selectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null> {
+	if (!select.multiple) return [defaultOptionOf(select), select.options[select.selectedIndex] ?? null]
+	const markup = Array.from(select.options).filter((option) => option.hasAttribute("selected"))
+	return [...markup, null, ...select.selectedOptions]
 }
 
 function clearDirtyFlags(elements: Array<Element>): void {
@@ -2269,7 +2273,8 @@ class Morph {
 	/* v8 ignore stop */
 
 	// A morph inside a select never visits the select, so sync it when the morph settles if the morph
-	// changed what the markup selects. A vetoed morph changes nothing, so it leaves it alone.
+	// changed what the markup selects or what the select shows. A vetoed morph changes nothing, so it
+	// leaves it alone.
 	setEnclosingSelect(select: HTMLSelectElement, selection: Array<HTMLOptionElement | null>): void {
 		this.#enclosingSelect = [select, selection]
 	}
@@ -2282,7 +2287,7 @@ class Morph {
 		const [select, selection] = enclosing
 		if (this.#preserveChanges) return
 
-		const newSelection = markupSelectionOf(select)
+		const newSelection = selectionOf(select)
 		if (newSelection.length === selection.length && newSelection.every((option, i) => option === selection[i])) return
 
 		this.#syncDefaultSelection(select)

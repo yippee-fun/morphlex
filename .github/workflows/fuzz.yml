@@ -71,3 +71,10 @@ jobs:
         env:
           VITE_MORPHLEX_FUZZ_FOCUS_SEEDS: ${{ env.SEEDS_PER_SHARD }}
           VITE_MORPHLEX_FUZZ_FOCUS_SEED_START: ${{ env.SEED_START }}
+
+      - name: Run the select fuzzer
+        if: ${{ !cancelled() }}
+        run: aube exec vitest run -c vitest.config.browser.ts --project chromium --retry 0 test/new/select-root-fuzz.browser.test.ts
+        env:
+          VITE_MORPHLEX_FUZZ_SELECT_SEEDS: ${{ env.SEEDS_PER_SHARD }}
+          VITE_MORPHLEX_FUZZ_SELECT_SEED_START: ${{ env.SEED_START }}
