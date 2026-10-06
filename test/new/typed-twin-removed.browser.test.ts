@@ -143,3 +143,15 @@ test("removing many of many identical inputs keeps the typed ones", () => {
 	expect(after.filter((input) => input.value)).toEqual([inputs[10], inputs[1200]])
 	form.parentElement!.remove()
 })
+
+test("many typed rows of one shape whose targets all differ stay when their twins go", () => {
+	const form = mount(`<form>${"<div><input></div>".repeat(1400)}</form>`)
+	const inputs = [...form.querySelectorAll("input")]
+	const typed = inputs.filter((_, i) => i % 2 === 0)
+	typed.forEach((input, i) => (input.value = `typed ${i}`))
+
+	morph(form, `<form>${typed.map((_, i) => `<div><input>${i}</div>`).join("")}</form>`, { preserveChanges: true })
+
+	expect([...form.querySelectorAll("input")]).toEqual(typed)
+	form.parentElement!.remove()
+})

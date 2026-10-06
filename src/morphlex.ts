@@ -6,7 +6,8 @@ const DOCUMENT_FRAGMENT_NODE_TYPE = 11
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
 const CLOBBER_ATTRIBUTE = "morphlex-clobber"
 const DIRTY_ATTRIBUTE = "morphlex-dirty"
-// The most cells `chooseStaying` fills, about 8 MB, so a morph removing many of many identical siblings stays fast.
+// The most cells `chooseStaying` fills for one set of siblings, about 8 MB in all, so a morph removing many of many
+// identical siblings stays fast.
 const STAYING_CELLS = 1 << 20
 const DETACHED_NODE_ERROR = "[Morphlex] Cannot replace a detached node. It needs a parent."
 
@@ -1965,11 +1966,16 @@ class Morph {
 					!isChanged(candidate) || !this.#holdsClobbered(to[target] as Element)
 				// Choosing which candidates stay in one set moves the matches the next set counts crossings with, so the sets
 				// that can trade with those going are ordered twice.
+				let budget = STAYING_CELLS
 				for (const b of [...order, ...order.filter((b) => goingOf[b])]) {
 					let bucket = buckets[b]!
 					const targets = targetsOf[b]!
 					const going = goingOf[b]
-					if (going?.length) {
+					// Each choice fills a table of cells and walks every match, out of a budget for all the sets, so many sets
+					// sharing many candidates going stay fast. Past it, the candidates the passes kept stay.
+					const cells = going?.length ? (bucket.length + going.length + 1) * (going.length + 1) + ordered.length : 0
+					if (going?.length && cells <= budget) {
+						budget -= cells
 						const staying = new Set(bucket)
 						bucket = buckets[b] = chooseStaying([...bucket, ...going], targets, ordered, isChanged, staying, canTake)
 						const stays = new Set(bucket)
@@ -3033,8 +3039,7 @@ function takeInOrder(
 // Choose which of the identical candidates stay when there are more of them than targets. The changed ones always
 // stay, and the others are chosen so that, taking the targets in order, they cross the fewest other matches, where
 // crossing a changed element outweighs crossing all the others, since the user's changes keep their order. On a tie,
-// the candidates already staying stay. A changed candidate never takes a target discarding the user's changes. With
-// too many candidates and too many going, the candidates already staying stay.
+// the candidates already staying stay. A changed candidate never takes a target discarding the user's changes.
 function chooseStaying(
 	candidates: Array<number>,
 	targets: Array<number>,
@@ -3047,7 +3052,6 @@ function chooseStaying(
 	const n = candidates.length
 	const spare = n - targets.length
 	const width = spare + 1
-	if ((n + 1) * width > STAYING_CELLS) return candidates.filter((candidate) => staying.has(candidate))
 	const own = new Set(targets)
 	const others: Array<[number, number]> = []
 	for (let target = 0; target < matches.length; target++) {
