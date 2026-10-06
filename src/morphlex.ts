@@ -1903,7 +1903,8 @@ class Morph {
 				// and text, and they're bucketed by it rather than compared pair by pair. The kind pass can give a
 				// candidate a target with another outline, and the choice pass a target holding other choices than its
 				// identical sibling's, so the target's outline and choices count too, and a changed element never trades
-				// into another outline or takes the user's choices to another value.
+				// into another outline or takes the user's choices to another value. The choice pass prefers targets with
+				// the same attributes apart from class and style, so targets holding choices count those attributes too.
 				const keyOf = (index: number): string => `${localNameOf(from[index] as Element)} ${textContentOf(from[index]!)}`
 				const changedKeys = new Set(changed.map(keyOf))
 				const candidatesByShape: Map<string, Array<number>> = new Map()
@@ -1911,15 +1912,18 @@ class Morph {
 					if (!changedKeys.has(keyOf(candidate))) continue
 					const target = to[targetOf[candidate]!] as Element
 					const choices = [...this.#targetChoicesOf(target).counts].map(([choice, count]) => `${count} ${choice}`).sort()
+					if (choices.length) choices.push(attributesKeyOf(target, STYLING_ATTRIBUTES))
 					const shape = shapeOf(from[candidate]!) + outlineOf(target) + JSON.stringify(choices)
 					const bucket = candidatesByShape.get(shape)
 					if (bucket) bucket.push(candidate)
 					else candidatesByShape.set(shape, [candidate])
 				}
-				// Each set takes its targets in order.
+				// Each set holding a changed element takes its targets in order. The other sets are left to the ordering
+				// below, which keeps the passes' order on a tie.
 				const ordered = matches.slice()
 				let reordered = false
 				for (const bucket of candidatesByShape.values()) {
+					if (!bucket.some((candidate) => dirtyElements.has(from[candidate] as Element))) continue
 					bucket.sort((a, b) => a - b)
 					const targets = bucket.map((candidate) => targetOf[candidate]!).sort((a, b) => a - b)
 					for (let t = 0; t < bucket.length; t++) {
