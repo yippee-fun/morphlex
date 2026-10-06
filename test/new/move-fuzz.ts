@@ -30,6 +30,7 @@ const VOID_TAGS = ["input", "img"]
 const INPUT_TYPES = ["text", "checkbox", "radio", "hidden", "range", "color"]
 const TEXTS = ["hello", "x y", "123", " "]
 const IS_VALUES = ["x-a", "x-b"]
+const EDITORS = ["div", "span", "section", "b", "label", "form", "details"]
 
 // Defines every test over one part of the seeds. The fuzzer is split across several files,
 // so its parts run in parallel, each in a fresh page.
@@ -131,6 +132,57 @@ export function testMoves(part: number, parts: number): void {
 				if (document.activeElement === element) fail(host, `#${element.id} lost focus`)
 			} else if (element.value === value && `${element.selectionStart}-${element.selectionEnd}` !== selection) {
 				fail(host, `#${element.id} has selection ${element.selectionStart}-${element.selectionEnd}, not ${selection}`)
+			}
+		})
+	})
+
+	test("the caret in a focused contenteditable stays inside it while the nodes around it move", () => {
+		check(seeds, (scenario, fail) => {
+			const host = mount(scenario.fromHtml)
+			const target = parse(scenario.toHtml)
+			const random = createRandom(scenario.seed ^ 0x27d4eb2f)
+
+			// An editor that the morph keeps, on both sides, with text inside it for the caret.
+			const root = host.firstChild as Element
+			const kept = [...movableElements(host, scenario).values()]
+			if (scenario.shape === "inner") kept.unshift(root)
+			const targetOf = (element: Element) => (element === root ? target : target.querySelector(`[id="${element.id}"]`)!)
+			// Text inside an element that the target moves out of the editor, taking the caret with it.
+			const leavingTextsIn = (editor: Element) =>
+				caretTextsIn(editor).filter((text) =>
+					kept.some(
+						(element) =>
+							element !== editor &&
+							editor.contains(element) &&
+							element.contains(text) &&
+							!targetOf(editor).contains(targetOf(element)),
+					),
+				)
+			const editors = kept.filter((element) => EDITORS.includes(element.localName) && caretTextsIn(element).length > 0)
+			// Mostly put the caret in text that leaves the editor, since that's the rarer case.
+			const leaving = random() < 0.75 ? editors.filter((editor) => leavingTextsIn(editor).length > 0) : []
+			const candidates = leaving.length > 0 ? leaving : editors
+			if (candidates.length === 0) return
+			const editor = pick(random, candidates) as HTMLElement
+			const texts = caretTextsIn(editor)
+			const anchor = pick(random, leaving.length > 0 ? leavingTextsIn(editor) : texts)
+			editor.contentEditable = "true"
+			targetOf(editor).setAttribute("contenteditable", "true")
+
+			editor.focus()
+			if (document.activeElement !== editor) return
+			const anchorOffset = randomInt(random, 0, anchor.length)
+			// Half the time a collapsed caret, otherwise a selection that may span several nodes.
+			const collapsed = random() < 0.5
+			const focus = collapsed ? anchor : pick(random, texts)
+			const selection = getSelection()!
+			selection.setBaseAndExtent(anchor, anchorOffset, focus, collapsed ? anchorOffset : randomInt(random, 0, focus.length))
+
+			run(host, scenario, {}, target)
+
+			if (document.activeElement !== editor) return
+			if (!editor.contains(selection.anchorNode) || !editor.contains(selection.focusNode)) {
+				fail(host, `the caret is outside the focused #${editor.id}`)
 			}
 		})
 	})
@@ -812,6 +864,17 @@ function describe(element: Element): string {
 
 function isElement(node: Node): node is Element {
 	return node.nodeType === Node.ELEMENT_NODE
+}
+
+// Text the user can put the caret in: not inside a control, whose text isn't editable.
+function caretTextsIn(element: Element): Array<Text> {
+	const texts: Array<Text> = []
+	const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+	while (walker.nextNode()) {
+		const text = walker.currentNode as Text
+		if (!text.parentElement!.closest("button, select, textarea")) texts.push(text)
+	}
+	return texts
 }
 
 function isTextControl(element: Element): element is HTMLInputElement | HTMLTextAreaElement {

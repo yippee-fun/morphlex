@@ -654,7 +654,12 @@ function restoreFocus(focus: Focus): boolean {
 			if (control.selectionStart !== start || control.selectionEnd !== end || control.selectionDirection !== direction) {
 				control.setSelectionRange(start, end, direction)
 			}
-		} else if (range) {
+		} else if (range && contains(element, range[0]) && contains(element, range[2])) {
+			// A selection that moved out of the focused element stays where the browser put it, inside the element,
+			// because putting it back would leave the caret where typing goes nowhere.
+			// Until its styles are brought up to date, Chromium 153 can drop a selection set in a node that `moveBefore`
+			// just moved, and crashes when the node moved into a `details`.
+			getBoundingClientRect(element)
 			getSelection(document)!.setBaseAndExtent(...range)
 		}
 	} catch {}
@@ -3432,6 +3437,10 @@ function hasChildNodes(node: Node): boolean {
 
 function getRootNode(node: Node): Node {
 	return Node.prototype.getRootNode.call(node)
+}
+
+function getBoundingClientRect(element: Element): DOMRect {
+	return Element.prototype.getBoundingClientRect.call(element)
 }
 
 function getSelection(document: Document): Selection | null {
