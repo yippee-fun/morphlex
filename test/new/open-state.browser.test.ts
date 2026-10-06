@@ -131,3 +131,74 @@ test("preserveChanges still updates the value of an existing open attribute", ()
 	expect(details.getAttribute("open")).toBe("server")
 	from.remove()
 })
+
+test("preserveChanges keeps the details the user opened in its place among identical ones", () => {
+	const from = mount(`<div><details><summary>More</summary></details><details><summary>More</summary></details></div>`)
+	const [first, second] = from.querySelectorAll("details")
+	first!.open = true
+
+	morph(from, `<div><details><summary>More</summary></details><details><summary>More</summary></details></div>`, {
+		preserveChanges: true,
+	})
+
+	expect([...from.querySelectorAll("details")]).toEqual([first, second])
+	expect([first!.open, second!.open]).toEqual([true, false])
+	from.remove()
+})
+
+test("preserveChanges keeps the details the user closed in its place among identical ones", () => {
+	const from = mount(`<div><details open><summary>More</summary></details><details open><summary>More</summary></details></div>`)
+	const [first, second] = from.querySelectorAll("details")
+	first!.open = false
+
+	morph(from, `<div><details open><summary>More</summary></details><details open><summary>More</summary></details></div>`, {
+		preserveChanges: true,
+	})
+
+	expect([...from.querySelectorAll("details")]).toEqual([first, second])
+	expect([first!.open, second!.open]).toEqual([false, true])
+	from.remove()
+})
+
+test("preserveChanges keeps the details the user opened when an item is added before it", () => {
+	const from = mount(`<div><details><summary>q1</summary></details></div>`)
+	const details = from.querySelector("details")!
+	details.open = true
+
+	morph(from, `<div><details><summary>q0</summary></details><details><summary>q1</summary></details></div>`, {
+		preserveChanges: true,
+	})
+
+	const [added, kept] = from.querySelectorAll("details")
+	expect(kept).toBe(details)
+	expect([added!.open, kept!.open]).toEqual([false, true])
+	from.remove()
+})
+
+test("preserveChanges keeps the details the user closed when an item is added before it", () => {
+	const from = mount(`<div><details open><summary>q1</summary></details></div>`)
+	const details = from.querySelector("details")!
+	details.open = false
+
+	morph(from, `<div><details open><summary>q0</summary></details><details open><summary>q1</summary></details></div>`, {
+		preserveChanges: true,
+	})
+
+	const [added, kept] = from.querySelectorAll("details")
+	expect(kept).toBe(details)
+	expect([added!.open, kept!.open]).toEqual([true, false])
+	from.remove()
+})
+
+test("preserveChanges keeps the dialog the user opened in its place among identical ones", () => {
+	const from = mount(`<div><dialog>Dialog</dialog><dialog>Dialog</dialog></div>`)
+	const [first, second] = from.querySelectorAll("dialog")
+	first!.show()
+
+	morph(from, `<div><dialog>Dialog</dialog><dialog>Dialog</dialog></div>`, { preserveChanges: true })
+
+	expect([...from.querySelectorAll("dialog")]).toEqual([first, second])
+	expect([first!.open, second!.open]).toEqual([true, false])
+	first!.close()
+	from.remove()
+})

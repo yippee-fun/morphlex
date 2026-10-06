@@ -231,7 +231,7 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 // rename is vetoed.
 function run(from: ChildNode, clobbered: Set<Element> | null, options: Options, morph: (morpher: Morph) => void): void {
 	const select = selectOf(from)
-	const flagged = isElement(from) ? flagDirtyInputs(from) : null
+	const flagged = isElement(from) ? flagDirtyInputs(from, options.preserveChanges ?? false) : null
 	const keySelect = isElement(from) && isSelectElement(from) ? from : select
 	try {
 		const morpher = new Morph(options, clobbered, flagged, keySelect)
@@ -272,15 +272,20 @@ function stripMarkerAttributes(element: Element): boolean {
 	return true
 }
 
-function flagDirtyInputs(node: Element): Array<Element> {
+// With `preserveChanges`, every `details` and `dialog` is flagged too, since its open state is the user's, open or
+// closed, and there's no default to tell whether they changed it.
+function flagDirtyInputs(node: Element, preserveChanges: boolean): Array<Element> {
 	const flagged: Array<Element> = []
 	const defaultOptions: DefaultOptionMap = new Map()
 	let optionSelects: Map<Element, HTMLSelectElement> | null = null
 
 	// The selector also matches elements with these names in other namespaces, like SVG.
-	for (const element of [node, ...querySelectorAll(node, "input, option, textarea")]) {
+	const selector = preserveChanges ? "input, option, textarea, details, dialog" : "input, option, textarea"
+	for (const element of [node, ...querySelectorAll(node, selector)]) {
 		let dirty = false
-		if (isInputElement(element)) {
+		if (preserveChanges && hasOpenState(element)) {
+			dirty = true
+		} else if (isInputElement(element)) {
 			dirty = isDirtyInput(element)
 		} else if (isOptionElement(element)) {
 			optionSelects ??= optionSelectsOf(node)
@@ -1534,7 +1539,7 @@ class Morph {
 			const candidateIndex = candidateElements[c]!
 			const candidate = from[candidateIndex] as Element
 			if (!candidateActive[candidateIndex] || !dirtyElements.has(candidate)) continue
-			const shape = shapeOf(candidate)
+			const shape = shapeOf(candidate, this.#preserveChanges)
 			const bucket = candidatesByShape.get(shape)
 			if (bucket) bucket.push(candidateIndex)
 			else candidatesByShape.set(shape, [candidateIndex])
@@ -1545,7 +1550,7 @@ class Morph {
 			const target = unmatchedElements[i]!
 			if (!unmatchedActive[target]) continue
 			const element = to[target] as Element
-			const candidates = candidatesByShape.get(shapeOf(element))
+			const candidates = candidatesByShape.get(shapeOf(element, this.#preserveChanges))
 			// A target discarding user changes can't keep them, so it's left for the passes that rank it last.
 			if (!candidates || this.#holdsClobbered(element)) continue
 
@@ -1822,7 +1827,7 @@ class Morph {
 						if (op[target] !== Operation.EqualNode) continue
 						const element = to[target] as Element
 						if (this.#holdsClobbered(element)) continue
-						const targetShape = shapeOf(element)
+						const targetShape = shapeOf(element, this.#preserveChanges)
 						const list = equalTargets.get(targetShape)
 						if (list) list.push(target)
 						else equalTargets.set(targetShape, [target])
@@ -1937,7 +1942,7 @@ class Morph {
 					const target = to[targetOf[candidate]!] as Element
 					const choices = [...this.#targetChoicesOf(target).counts].map(([choice, count]) => `${count} ${choice}`).sort()
 					if (choices.length) choices.push(attributesKeyOf(target, STYLING_ATTRIBUTES))
-					const shape = shapeOf(from[candidate]!) + outlineOf(target) + JSON.stringify(choices)
+					const shape = shapeOf(from[candidate]!, this.#preserveChanges) + outlineOf(target) + JSON.stringify(choices)
 					const bucket = candidatesByShape.get(shape)
 					if (bucket) bucket.push(candidate)
 					else candidatesByShape.set(shape, [candidate])
@@ -1951,7 +1956,7 @@ class Morph {
 				const goingByShape: Map<string, Array<number>> = new Map()
 				for (const candidateIndex of siblings.candidateElements) {
 					if (!candidateActive[candidateIndex] || isChanged(candidateIndex) || !changedKeys.has(keyOf(candidateIndex))) continue
-					const shape = shapeOf(from[candidateIndex]!)
+					const shape = shapeOf(from[candidateIndex]!, this.#preserveChanges)
 					const going = goingByShape.get(shape)
 					if (going) going.push(candidateIndex)
 					else goingByShape.set(shape, [candidateIndex])
@@ -1959,7 +1964,9 @@ class Morph {
 				// The sets that can trade candidates with those going are ordered last, so the other sets are in order
 				// when the crossings are counted.
 				const buckets = [...candidatesByShape.values()].filter((bucket) => bucket.some(isChanged))
-				const goingOf = buckets.map((bucket) => (goingByShape.size ? goingByShape.get(shapeOf(from[bucket[0]!]!)) : undefined))
+				const goingOf = buckets.map((bucket) =>
+					goingByShape.size ? goingByShape.get(shapeOf(from[bucket[0]!]!, this.#preserveChanges)) : undefined,
+				)
 				const order = buckets.map((_, b) => b).sort((a, b) => Number(!!goingOf[a]) - Number(!!goingOf[b]))
 				const targetsOf = buckets.map((bucket) => bucket.map((candidate) => targetOf[candidate]!).sort((a, b) => a - b))
 				const canTake = (candidate: number, target: number): boolean =>
@@ -3278,18 +3285,22 @@ function isLeftChoice(element: Element): boolean {
 }
 
 // A key that's the same for nodes that are equal apart from `morphlex-dirty`, as `isEqualNode` compares them,
-// template content included.
-function shapeOf(node: Node): string {
+// template content included. With `ignoresOpen`, the `open` attribute of a `details` or `dialog` is left out too,
+// since `preserveChanges` keeps it as the user left it.
+function shapeOf(node: Node, ignoresOpen: boolean): string {
 	if (!isElement(node)) return JSON.stringify([nodeTypeOf(node), node.nodeName, node.nodeValue])
+	const ignored = ignoresOpen && hasOpenState(node) ? "open" : DIRTY_ATTRIBUTE
 	const attributes: Array<string> = []
 	for (const { namespaceURI, localName, value } of attributesOf(node)) {
-		if (namespaceURI !== null || localName !== DIRTY_ATTRIBUTE) attributes.push(JSON.stringify([namespaceURI, localName, value]))
+		if (namespaceURI !== null || (localName !== DIRTY_ATTRIBUTE && localName !== ignored)) {
+			attributes.push(JSON.stringify([namespaceURI, localName, value]))
+		}
 	}
 	let children = ""
-	for (const child of childNodesOf(node)) children += shapeOf(child)
+	for (const child of childNodesOf(node)) children += shapeOf(child, ignoresOpen)
 	if (isTemplateElement(node)) {
 		children += "<#content"
-		for (const child of node.content.childNodes) children += shapeOf(child)
+		for (const child of node.content.childNodes) children += shapeOf(child, ignoresOpen)
 		children += ">"
 	}
 	return `<${JSON.stringify([namespaceURIOf(node), prefixOf(node), localNameOf(node), attributes.sort()])}${children}>`
