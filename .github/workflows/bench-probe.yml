@@ -23,5 +23,6 @@ jobs:
       - run: cp bench-probe/v/a.js bench-probe/a.js
       - name: Valgrind instruction counts
         run: |
+          find ~/.cache/ms-playwright -maxdepth 3
           time (for r in 0 1; do for i in 1 2; do bench-probe/vg.sh "keyed%201000%20edit%20all" $r & done; done; wait)
-          time (for r in 0 1; do for i in 1 2; do bench-probe/vg.sh "attr%20churn%201000" $r & done; done; wait)
+          find ~/.cache/ms-playwright -maxdepth 3; time (for r in 0 1; do for i in 1 2; do bench-probe/vg.sh "attr%20churn%201000" $r & done; done; wait)
