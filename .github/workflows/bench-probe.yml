@@ -1,0 +1,27 @@
+name: Bench probe
+
+# Temporary: measures how stable A/A benchmarks are on GitHub's standard runners.
+on:
+  push:
+    branches: [claude/project-thread-i8p1ir]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: aube ci
+      - run: aube exec playwright install --with-deps chromium
+      - run: nproc; lscpu | head -20; ls /sys/bus/event_source/devices/; python3 bench-probe/pmu.py
+      - run: node bench-probe/build.mjs src/morphlex.ts bench-probe/v/a.js morphlex && cp bench-probe/v/a.js bench-probe/v/b.js
+      - run: node bench-probe/run.mjs --variants a,b --rounds 15
+      - run: node bench-probe/run.mjs --variants a,b --rounds 15
+      - uses: actions/upload-artifact@v4
+        with:
+          name: raw-${{ matrix.run }}
+          path: bench-probe/raw.json
