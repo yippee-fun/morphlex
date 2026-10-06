@@ -136,7 +136,9 @@ export function testMoves(part: number, parts: number): void {
 		})
 	})
 
-	test("a focused text control doesn't make the morph move more nodes than it would without focus", () => {
+	// `moveBefore` keeps focus, so there focus mustn't cost extra moves. Without it, the focus fuzzer checks the pin instead.
+	test("a focused text control doesn't make the morph move more elements with moveBefore", () => {
+		if (!("moveBefore" in Element.prototype)) return
 		check(seeds, (scenario, fail) => {
 			const unfocused = mount(scenario.fromHtml)
 			const expected = removedElementCount(unfocused, () => run(unfocused, scenario))

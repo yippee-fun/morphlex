@@ -8,15 +8,19 @@ const SEED_COUNT = readPositiveIntEnv("MORPHLEX_FUZZ_FOCUS_SEEDS", 300)
 // A failure names its seed, which reruns with MORPHLEX_FUZZ_FOCUS_SEED_START set to it and MORPHLEX_FUZZ_FOCUS_SEEDS=1.
 const SEED_START = readPositiveIntEnv("MORPHLEX_FUZZ_FOCUS_SEED_START", 0x4f01)
 
+const SUPPORTS_MOVE_BEFORE = "moveBefore" in Element.prototype
+
 vi.setConfig({ testTimeout: Math.max(30_000, SEED_COUNT * 50) })
 
-test("seeded fuzz moves no more nodes around a focused input than it would without focus, and keeps focus", () => {
+// `moveBefore` keeps focus, so there focus mustn't make the morph move more elements. Without it, the elements
+// holding the focused input stay put instead.
+test("seeded fuzz moves no more elements around a focused input with moveBefore, otherwise keeps its holders still, and keeps focus", () => {
 	for (let seed = SEED_START; seed < SEED_START + SEED_COUNT; seed++) {
 		const scenario = createScenario(seed)
 		const message = `seed ${seed}\n${scenario.from}\n${scenario.to}`
 
 		const unfocused = mount(scenario.from)
-		const expected = removedElementCount(unfocused, () => morph(unfocused, scenario.to))
+		const expected = removedElements(unfocused, () => morph(unfocused, scenario.to)).length
 		unfocused.remove()
 
 		const host = mount(scenario.from)
@@ -25,9 +29,16 @@ test("seeded fuzz moves no more nodes around a focused input than it would witho
 			input.focus()
 			input.setSelectionRange(1, 3)
 
-			const removed = removedElementCount(host, () => morph(host, scenario.to))
+			const holders = new Set<Node>()
+			for (let node: Node | null = input; node; node = node.parentNode) holders.add(node)
+			const removed = removedElements(host, () => morph(host, scenario.to))
 
-			expect(removed, message).toBeLessThanOrEqual(expected)
+			if (SUPPORTS_MOVE_BEFORE) expect(removed.length, message).toBeLessThanOrEqual(expected)
+			else
+				expect(
+					removed.filter((element) => holders.has(element)),
+					message,
+				).toEqual([])
 			expect(host.outerHTML, message).toBe(parse(scenario.to).outerHTML)
 			expect(host.querySelector("input"), message).toBe(input)
 			expect(document.activeElement, message).toBe(input)
@@ -94,15 +105,13 @@ function render(items: Array<Item>, join: string, id = ""): string {
 
 // Each move removes the element before it's inserted again, with or without `moveBefore`. Whitespace holds no state,
 // and which of it a move reuses can change with the nodes that move, so it isn't counted.
-function removedElementCount(host: HTMLElement, run: () => void): number {
+function removedElements(host: HTMLElement, run: () => void): Array<Node> {
 	const observer = new MutationObserver(() => {})
 	observer.observe(host, { childList: true, subtree: true })
 	run()
-	const count = observer
-		.takeRecords()
-		.reduce((sum, record) => sum + [...record.removedNodes].filter((node) => node.nodeType === Node.ELEMENT_NODE).length, 0)
+	const removed = observer.takeRecords().flatMap((record) => [...record.removedNodes])
 	observer.disconnect()
-	return count
+	return removed.filter((node) => node.nodeType === Node.ELEMENT_NODE)
 }
 
 function mount(html: string): HTMLElement {
