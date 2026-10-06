@@ -345,3 +345,36 @@ test("a checkbox matched by the user's choice keeps its target when an identical
 	expect(new FormData(form as HTMLFormElement).getAll("c")).toEqual(["a"])
 	form.parentElement!.remove()
 })
+
+test("a wrapper holding duplicate choices keeps the target holding as many of them", () => {
+	const inputs = (values: Array<string>) => values.map((value) => `<input type="checkbox" name="c" value="${value}">`).join("")
+	const form = mount(`<form><label>${inputs(["a", "a", "b"])}</label><label>${inputs(["a", "a", "b"])}</label></form>`)
+	const [first, second] = form.querySelectorAll("input")
+	first!.checked = true
+	second!.checked = true
+
+	morph(
+		form,
+		`<form><label class="x">${inputs(["a", "b", "b"])}</label><label class="x">${inputs(["a", "a", "b"])}</label></form>`,
+		{ preserveChanges: true },
+	)
+
+	expect(new FormData(form as HTMLFormElement).getAll("c")).toEqual(["a", "a"])
+	expect(form.children[1]!.contains(first!)).toBe(true)
+	form.parentElement!.remove()
+})
+
+test("a wrapper matched by the user's choice keeps the target with its is", () => {
+	const row = `<label is="x-label"><input type="checkbox" name="c" value="a"></label>`
+	const form = mount(`<form>${row}${row}</form>`)
+	const checkbox = form.querySelector("input")!
+	checkbox.checked = true
+
+	morph(form, `<form><label is="y-label"><input type="checkbox" name="c" value="a"></label>${row}</form>`, {
+		preserveChanges: true,
+	})
+
+	expect(form.children[1]!.contains(checkbox)).toBe(true)
+	expect(new FormData(form as HTMLFormElement).getAll("c")).toEqual(["a"])
+	form.parentElement!.remove()
+})
