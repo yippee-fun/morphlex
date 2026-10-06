@@ -179,7 +179,7 @@ export function morphDocument(from: Document, to: Document | string, options?: O
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
 	if (typeof to === "string") to = parseFragment(to).childNodes
 
-	run(from, takeClobbered(to), options, (morpher) => morpher.morph(from, to))
+	run(from, to, takeClobbered(to), options, (morpher) => morpher.morph(from, to))
 }
 
 /**
@@ -220,7 +220,7 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 		const toElement = to as Element
 		const clobbered = takeClobbered(toElement)
 		if (clobbered?.has(toElement)) options = { ...options, preserveChanges: false }
-		run(fromElement, clobbered, options, (morpher) => morpher.morphChildren(fromElement, toElement))
+		run(fromElement, toElement, clobbered, options, (morpher) => morpher.morphChildren(fromElement, toElement))
 	} else {
 		throw new Error("[Morphlex] You can only do an inner morph with matching elements.")
 	}
@@ -229,9 +229,15 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 // Flag the controls the user changed, note the select around the root and what its markup selects, and
 // run the morph. A root select's options are keyed by the live select, even if the target renames it and the
 // rename is vetoed.
-function run(from: ChildNode, clobbered: Set<Element> | null, options: Options, morph: (morpher: Morph) => void): void {
+function run(
+	from: ChildNode,
+	to: ChildNode | NodeListOf<ChildNode>,
+	clobbered: Set<Element> | null,
+	options: Options,
+	morph: (morpher: Morph) => void,
+): void {
 	const select = selectOf(from)
-	const flagged = isElement(from) ? flagDirtyInputs(from, options.preserveChanges ?? false) : null
+	const flagged = isElement(from) ? flagDirtyInputs(from, options.preserveChanges ? to : null) : null
 	const keySelect = isElement(from) && isSelectElement(from) ? from : select
 	try {
 		const morpher = new Morph(options, clobbered, flagged, keySelect)
@@ -272,19 +278,21 @@ function stripMarkerAttributes(element: Element): boolean {
 	return true
 }
 
-// With `preserveChanges`, every `details` and `dialog` is flagged too, since its open state is the user's, open or
-// closed, and there's no default to tell whether they changed it.
-function flagDirtyInputs(node: Element, preserveChanges: boolean): Array<Element> {
+// With `preserveChanges`, the target is given, and the `details` and `dialog` elements are flagged too when some are open
+// and others closed, here or in the target, since an element's open state is the user's, and there's no default to
+// tell whether they changed it. When they're all open or all closed, matching one to any other keeps what it shows.
+function flagDirtyInputs(node: Element, to: ChildNode | NodeListOf<ChildNode> | null): Array<Element> {
 	const flagged: Array<Element> = []
 	const defaultOptions: DefaultOptionMap = new Map()
 	let optionSelects: Map<Element, HTMLSelectElement> | null = null
+	const openStateElements: Array<Element> = []
 
 	// The selector also matches elements with these names in other namespaces, like SVG.
-	const selector = preserveChanges ? "input, option, textarea, details, dialog" : "input, option, textarea"
+	const selector = to ? "input, option, textarea, details, dialog" : "input, option, textarea"
 	for (const element of [node, ...querySelectorAll(node, selector)]) {
 		let dirty = false
-		if (preserveChanges && hasOpenState(element)) {
-			dirty = true
+		if (hasOpenState(element)) {
+			openStateElements.push(element)
 		} else if (isInputElement(element)) {
 			dirty = isDirtyInput(element)
 		} else if (isOptionElement(element)) {
@@ -294,6 +302,27 @@ function flagDirtyInputs(node: Element, preserveChanges: boolean): Array<Element
 			dirty = isDirtyTextArea(element)
 		}
 		if (dirty) flagDirty(element, flagged)
+	}
+
+	if (to && openStateElements.length) {
+		const open: Set<string> = new Set()
+		const closed: Set<string> = new Set()
+		for (const element of openStateElements) {
+			;(hasAttributeNS(element, null, "open") ? open : closed).add(localNameOf(element))
+		}
+		const targets: Array<Element> = []
+		for (const target of isNodeList(to) ? to : [to]) {
+			if (nodeTypeOf(target) === ELEMENT_NODE_TYPE) targets.push(target as Element)
+		}
+		// The selectors can also match elements in other namespaces, which only flags more elements than needed.
+		const targetHas = (selector: string) =>
+			targets.some((target) => matchesSelector(target, selector) || querySelector(target, selector) !== null)
+		const mixed = [...new Set([...open, ...closed])].filter(
+			(name) => (open.has(name) || targetHas(`${name}[open]`)) && (closed.has(name) || targetHas(`${name}:not([open])`)),
+		)
+		for (const element of openStateElements) {
+			if (mixed.includes(localNameOf(element))) flagDirty(element, flagged)
+		}
 	}
 
 	return flagged
