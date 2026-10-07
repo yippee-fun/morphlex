@@ -1735,6 +1735,7 @@ class Morph {
 		}
 		const targets: Array<[number, Array<number>]> = []
 		const targetCounts: Map<Array<number>, number> = new Map()
+		const reserved: Set<number> = new Set()
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
 			if (!unmatchedActive[target]) continue
@@ -1743,14 +1744,18 @@ class Morph {
 			const candidates = candidatesByOutline.get(outlineOf(element))
 			if (!candidates) continue
 			targets.push([target, candidates])
-			// Only a target some candidate can take counts, since one none can take leaves a candidate without a target.
-			// Targets usually go to candidates in order, so the search starts at the candidate in this target's place.
+			// A target counts when a candidate not yet counted for another target can take it, since a target none can
+			// take leaves a candidate without one. Targets usually go to candidates in order, so the search starts at the
+			// candidate in this target's place.
 			const count = targetCounts.get(candidates) ?? 0
-			let takeable = false
-			for (let c = 0; !takeable && c < candidates.length; c++) {
-				takeable = this.#canTakeByOutline(element, candidates[(count + c) % candidates.length]!, siblings)
+			for (let c = 0; c < candidates.length; c++) {
+				const candidateIndex = candidates[(count + c) % candidates.length]!
+				if (!reserved.has(candidateIndex) && this.#canTakeByOutline(element, candidateIndex, siblings)) {
+					reserved.add(candidateIndex)
+					targetCounts.set(candidates, count + 1)
+					break
+				}
 			}
-			targetCounts.set(candidates, count + Number(takeable))
 		}
 		// When there are fewer targets than candidates, the untouched candidates go rather than the user's changes. The
 		// identical candidates are put back in order later.

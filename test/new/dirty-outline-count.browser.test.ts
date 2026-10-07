@@ -63,3 +63,17 @@ test("typed inputs keep their order when every target with their outline can be 
 	expect(second!.value).toBe("typed")
 	root.parentElement!.remove()
 })
+
+test("typed input stays when two targets can only be taken by the same other input", () => {
+	const root = mount(`<div><input name="a"><input name="a"><input name="b"></div>`)
+	const typed = root.children[1] as HTMLInputElement
+	typed.value = "typed"
+
+	morph(root, `<div><input name="b" class="x"><input name="b" class="y"><input name="a" class="z"></div>`, {
+		preserveChanges: true,
+	})
+
+	expect(root.children[2]).toBe(typed)
+	expect(typed.value).toBe("typed")
+	root.parentElement!.remove()
+})
