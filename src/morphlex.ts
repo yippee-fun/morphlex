@@ -250,6 +250,7 @@ function run(
 
 // Remove `morphlex-clobber` from the target so it never reaches the live DOM,
 // and return the elements that had it so the morph can discard user changes inside them.
+// Template content is left alone, so a template keeps it for when its content is used as a target.
 // Also remove `morphlex-dirty` from the target, so a dirty element can never look equal to it.
 function takeClobbered(to: ChildNode | NodeListOf<ChildNode>): Set<Element> | null {
 	let clobbered: Set<Element> | null = null

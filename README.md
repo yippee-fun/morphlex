@@ -136,7 +136,7 @@ Sometimes the server does want to overwrite what the user typed, for example to 
 </form>
 ```
 
-The attribute only applies to the morph it arrives in. Morphlex removes it from the new markup before morphing, so it never appears in the live DOM.
+The attribute only applies to the morph it arrives in. Morphlex removes it from the new markup before morphing, so it never appears in the live DOM. Inside a `<template>`, it’s kept, so it applies when that template’s content is morphed in later.
 
 With `morphInner`, putting the attribute on the target element itself applies it to all of its children.
 
