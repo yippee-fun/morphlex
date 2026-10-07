@@ -1529,8 +1529,9 @@ class Morph {
 			// The markup decides, so it doesn't get back a check another radio took from it.
 			if (hasAttribute(from, "checked") === checked) this.#displacedRadios?.delete(from)
 			if (from.checked !== checked && hasAttribute(from, "checked") === checked) {
-				// Checking a radio unchecks the rest of its group, which gets its check back if the radio then leaves.
-				const group = checked && from.type === "radio" ? checkedRadiosInGroup(from) : null
+				// Checking a radio unchecks the rest of its group, which gets its check back if the radio then leaves,
+				// as a radio with a `form` attribute does when the morph adds or changes its form later.
+				const group = checked && from.type === "radio" && from.hasAttribute("form") ? checkedRadiosInGroup(from) : null
 				from.checked = checked
 				if (group) this.#noteDisplacedRadios(group, from)
 				if (from.type === "radio") (this.#radiosToSync ??= new Set()).add(from)
