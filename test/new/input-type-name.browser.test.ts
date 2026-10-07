@@ -64,3 +64,28 @@ test("untouched input keeps its same-name target when an input of another type c
 	expect(text.className).toBe("x")
 	form.parentElement!.remove()
 })
+
+test("vetoing the target keeps the only same-name input of another type", () => {
+	const form = mount(`<form><input name="u" type="search"></form>`)
+	const search = form.children[0]
+
+	morph(form, `<form><input name="u" type="text"></form>`, { beforeNodeAdded: () => false })
+
+	expect([...form.children]).toEqual([search])
+	form.parentElement!.remove()
+})
+
+test("vetoing the target keeps a changed same-name input of another type", () => {
+	const form = mount(`<form><input name="u" type="search"></form>`)
+	const search = form.children[0] as HTMLInputElement
+	search.value = "typed"
+
+	morph(form, `<form><input name="u" type="text" class="x"></form>`, {
+		preserveChanges: true,
+		beforeNodeAdded: () => false,
+	})
+
+	expect([...form.children]).toEqual([search])
+	expect(search.value).toBe("typed")
+	form.parentElement!.remove()
+})
