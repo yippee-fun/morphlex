@@ -20,13 +20,15 @@ vi.setConfig({ testTimeout: Math.max(30_000, SEED_COUNT * 50) })
 test("seeded fuzz of morphs rooted at or inside a select shows what its markup selects, and the selected option", () => {
 	for (let seed = SEED_START; seed < SEED_START + SEED_COUNT; seed++) {
 		const random = createRandom(seed)
+		// Buttons and preserveChanges are drawn from their own sequence, so each seed's selects stay as they were.
+		const extra = createRandom(seed + 0x40000000)
 		const kind = pick(random, KINDS)
 		const rooted = kind.includes("optgroup")
 			? group(random, ` id="root"`)
 			: kind.includes("option")
 				? `<option id="root">r</option>`
 				: null
-		const from = `<select${selectAttributes(random)}>${button(random)}${children(random, rooted)}</select>`
+		const from = `<select${selectAttributes(random)}>${button(extra)}${children(random, rooted)}</select>`
 		const host = document.createElement("div")
 		host.innerHTML = from
 		document.body.append(host)
@@ -43,12 +45,12 @@ test("seeded fuzz of morphs rooted at or inside a select shows what its markup s
 			}
 
 			// With preserveChanges the user's picks stay, so only what the select shows is checked.
-			const preserveChanges = kind.includes("select") && random() < 0.3
+			const preserveChanges = kind.includes("select") && extra() < 0.3
 			const root = host.querySelector("#root") ?? select
 			let to: string
 			if (kind === "select" || kind === "inner-select") {
 				const attributes = random() < 0.6 ? from.match(/^<select([^>]*)>/)![1]! : selectAttributes(random)
-				to = `<select${attributes}>${button(random)}${children(random, null)}</select>`
+				to = `<select${attributes}>${button(extra)}${children(random, null)}</select>`
 				const target = parse(to).firstElementChild!
 				if (kind === "select") morph(root, target, { preserveChanges })
 				else morphInner(root, target, { preserveChanges })

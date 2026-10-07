@@ -1,4 +1,6 @@
 const SUPPORTS_MOVE_BEFORE = typeof Element !== "undefined" && "moveBefore" in Element.prototype
+// Browsers with customizable selects fill a drop-down's `selectedcontent` with a copy of its selected option.
+const FILLS_SELECTED_CONTENT = "HTMLSelectedContentElement" in globalThis
 const ELEMENT_NODE_TYPE = 1
 const TEXT_NODE_TYPE = 3
 const DOCUMENT_NODE_TYPE = 9
@@ -557,13 +559,20 @@ function selectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null>
 	return [...markup, null, ...select.selectedOptions]
 }
 
-// The browser copies the selected option's content into each `selectedcontent` of a drop-down, but only when the
-// selection changes or the `selectedcontent` is inserted, so changing the option's content leaves the old copy.
-// The morph also copies the target's `selectedcontent`, which shows what the target's markup selects rather than
-// what the user picked. So when the morph settles, each one that doesn't match the selected option is inserted
-// again, for the browser to copy the option afresh. Browsers without customizable selects leave it as it is.
+// The browser copies the selected option's content into each `selectedcontent` of a drop-down, so the morph leaves
+// its children alone. The target's copy shows what the target's markup selects rather than what the user picked,
+// and WebKit leaves it empty when parsing a template.
+function isFilledSelectedContent(element: Element): boolean {
+	if (!FILLS_SELECTED_CONTENT || element.localName !== "selectedcontent") return false
+	const select = selectOf(element)
+	return select !== null && !select.multiple
+}
+
+// The browser copies the option only when the selection changes or the `selectedcontent` is inserted, so changing
+// the selected option's content leaves the old copy. So when the morph settles, each one that doesn't match the
+// selected option is inserted again, for the browser to copy the option afresh.
 function refreshSelectedContent(select: HTMLSelectElement): void {
-	if (select.multiple) return
+	if (!FILLS_SELECTED_CONTENT || select.multiple) return
 
 	const elements = getElementsByTagName(select, "selectedcontent")
 	const option = select.options[select.selectedIndex] ?? null
@@ -1523,6 +1532,12 @@ class Morph {
 		if (!(this.#options.beforeChildrenVisited?.(from) ?? true)) {
 			this.#pinSubtree(from)
 			this.#settleIfRoot(from)
+			return
+		}
+
+		if (isFilledSelectedContent(from)) {
+			this.#settleIfRoot(from)
+			this.#options.afterChildrenVisited?.(from)
 			return
 		}
 
