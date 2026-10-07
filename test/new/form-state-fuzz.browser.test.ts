@@ -241,10 +241,11 @@ function recordDirtyControls(root: Element, target: Element): Array<DirtyControl
 function countFreeTargets(target: Element, root: Element): Map<string, number> {
 	const liveIds = idsIn(root)
 	const targetIds = idsIn(target)
+	const formAroundMorph = root.closest("form")?.id ?? null
 	const controls = [...root.querySelectorAll<FormControl>("input, textarea, select")]
 	const free = new Map<string, Array<Element>>()
 	for (const control of target.querySelectorAll<FormControl>("input, textarea, select")) {
-		const key = keyOf(control, liveIds)
+		const key = keyOf(control, liveIds, formAroundMorph)
 		free.set(key, [...(free.get(key) ?? []), control])
 	}
 	for (const control of controls) {
@@ -280,8 +281,9 @@ function idsIn(root: Element): Set<string> {
 
 // A control whose id is on both sides is matched by it. Otherwise the key is the nearest ancestor with an id, the
 // tags between it and the control, the control's kind and name, and for a checkbox or radio its value and `form`
-// attribute, which make up its choice.
-function keyOf(control: FormControl, otherSideIds: Set<string>): string {
+// attribute, which make up its choice. A `form` attribute naming the form the control is in counts as none, and a
+// target's control outside any form in the target is in the form around the morph, since that's where it ends up.
+function keyOf(control: FormControl, otherSideIds: Set<string>, formAroundMorph: string | null = null): string {
 	if (control.id && otherSideIds.has(control.id)) return JSON.stringify(["id", control.id])
 	const path: Array<string> = []
 	let ancestor = control.parentElement!
@@ -290,7 +292,9 @@ function keyOf(control: FormControl, otherSideIds: Set<string>): string {
 		ancestor = ancestor.parentElement!
 	}
 	const kind = isInput(control) ? (isCheckable(control) ? control.type : "text") : control.localName
-	const choice = isInput(control) && isCheckable(control) ? [control.value, control.getAttribute("form")] : []
+	const enclosingForm = control.closest("form")?.id ?? formAroundMorph
+	const form = control.getAttribute("form")
+	const choice = isInput(control) && isCheckable(control) ? [control.value, form === enclosingForm ? null : form] : []
 	return JSON.stringify([ancestor.id, path, kind, control.name, ...choice, isSelect(control) && control.multiple])
 }
 
@@ -353,9 +357,9 @@ function applyUserChanges(random: Random, root: Element, preserveChanges: boolea
 }
 
 // With `preserveChanges` every form and wrapper has an id, so each control's targets are the ones in its own
-// container, which is what the README promises to pair, and no two checkboxes or radios make the same choice, since
-// which of two twins keeps the user's choice is the choice fuzzer's business. Without it the tree is heavy on
-// radios, where the browser's own group logic has to be matched.
+// container, which is what the README promises to pair. No two checkboxes or radios make the same choice and no two
+// selects share a name, since which of two twins keeps the user's choice is the choice fuzzer's business. Without it
+// the tree is heavy on radios, where the browser's own group logic has to be matched.
 function createScenario(random: Random): Scenario {
 	const preserveChanges = MODE === "preserve" || (MODE !== "default" && random() < 0.5)
 	let nextId = 0
@@ -451,6 +455,8 @@ function createControl(random: Random, nextId: () => string, preserveChanges: bo
 }
 
 function makesSameChoice(control: Control, others: Array<Control>): boolean {
+	if (control.kind === "select")
+		return others.some((other) => other !== control && other.kind === "select" && other.name === control.name)
 	if (control.kind !== "radio" && control.kind !== "checkbox") return false
 	return others.some((other) => other !== control && other.name === control.name && other.value === control.value)
 }
