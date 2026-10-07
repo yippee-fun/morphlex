@@ -47,13 +47,24 @@ test("seeded fuzz of morphs rooted at or inside a select shows what its markup s
 			// With preserveChanges the user's picks stay, so only what the select shows is checked.
 			const preserveChanges = kind.includes("select") && extra() < 0.3
 			const root = host.querySelector("#root") ?? select
+			let picked: string | null = null
 			let to: string
 			if (kind === "select" || kind === "inner-select") {
 				const attributes = random() < 0.6 ? from.match(/^<select([^>]*)>/)![1]! : selectAttributes(random)
 				to = `<select${attributes}>${button(extra)}${children(random, null)}</select>`
 				const target = parse(to).firstElementChild!
-				if (kind === "select") morph(root, target, { preserveChanges })
-				else morphInner(root, target, { preserveChanges })
+				if (kind === "select") {
+					// The root's after callbacks see the finished DOM, so what its afterChildrenVisited selects stands.
+					const pickAt = extra() < 0.3 ? extra() : null
+					morph(root, target, {
+						preserveChanges,
+						afterChildrenVisited: (parent) => {
+							if (pickAt === null || parent !== root || select.options.length === 0) return
+							select.options[Math.floor(pickAt * select.options.length)]!.selected = true
+							picked = selection(select)
+						},
+					})
+				} else morphInner(root, target, { preserveChanges })
 			} else if (kind === "optgroup" || kind === "inner-optgroup") {
 				to = `<select>${group(random, random() < 0.7 ? ` id="root"` : "")}</select>`
 				const target = parse(to).firstElementChild!.firstElementChild!
@@ -69,7 +80,8 @@ test("seeded fuzz of morphs rooted at or inside a select shows what its markup s
 
 			const live = host.querySelector("select")!
 			const message = `seed ${seed} ${kind}\n${from}\n${to}\n${live.outerHTML}`
-			if (!preserveChanges) expect(markupSelections(live), message).toContain(selection(live))
+			if (picked !== null) expect(selection(live), message).toBe(picked)
+			else if (!preserveChanges) expect(markupSelections(live), message).toContain(selection(live))
 			if (fillsSelectedContent && !live.multiple) {
 				const shown = live.options[live.selectedIndex]?.innerHTML ?? ""
 				for (const selectedContent of live.querySelectorAll("selectedcontent")) {

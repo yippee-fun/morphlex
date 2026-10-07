@@ -1642,8 +1642,9 @@ class Morph {
 		// changes it, so the browser decides whether the user changed it. Text that still differs from the target's
 		// means a callback vetoed the update, so the value is left alone too.
 		if (isTextAreaElement(from) && textContentOf(from) === textAreaText) this.#resetTextArea(from)
-		this.#settleIfRoot(from)
+		// Sync the select before a root settles, which syncs it again, so nothing changes it after its callbacks.
 		if (isSelectElement(from)) this.#syncDefaultSelection(from)
+		this.#settleIfRoot(from)
 
 		this.#options.afterChildrenVisited?.(from)
 	}
