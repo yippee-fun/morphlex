@@ -2,7 +2,7 @@ import { expect, test, vi } from "vitest"
 import { morph } from "../../src/morphlex"
 
 type Random = () => number
-type Input = { id: string; type: string; name: string; checked: boolean; form: boolean }
+type Input = { id: string; type: string; name: string; checked: boolean; form: boolean; formId: string }
 
 const SEED_COUNT = readPositiveIntEnv("MORPHLEX_FUZZ_RADIO_SEEDS", 300)
 // A failure names its seed, which reruns with MORPHLEX_FUZZ_RADIO_SEED_START set to it and MORPHLEX_FUZZ_RADIO_SEEDS=1.
@@ -12,6 +12,8 @@ const SEED_START = readPositiveIntEnv("MORPHLEX_FUZZ_RADIO_SEED_START", 0x4ad1)
 const TYPES = ["radio", "radio", "checkbox", "text"]
 const NAMES = ["g", "h", ""]
 const IDS = ["a", "b", "c", "d"]
+// A `form` attribute names a form that may only be in one tree, so changing or adding the form moves the radio to another group.
+const FORM_IDS = ["", "", "", "f1", "f2"]
 
 vi.setConfig({ testTimeout: Math.max(30_000, SEED_COUNT * 50) })
 
@@ -36,6 +38,9 @@ test("seeded fuzz leaves radios outside the morph checked unless the morph check
 				// Radios only form groups in a document or shadow root, so parse the target in one, apart from the radios outside.
 				const shadow = expectedHost.attachShadow({ mode: "open" })
 				shadow.innerHTML = scenario.to
+				// The parser checks a radio in the group it's in at that point, before a later form takes it to another group,
+				// so check them again in their final groups, where the last one wins.
+				for (const input of shadow.querySelectorAll<HTMLInputElement>("input[checked]")) input.checked = true
 				expect(checkedIds(root), message).toEqual(checkedIds(shadow))
 			}
 
@@ -55,7 +60,8 @@ test("seeded fuzz leaves radios outside the morph checked unless the morph check
 })
 
 // A list of inputs, some in forms, between two checked radios outside the morph, and a target that keeps, drops,
-// reorders and adds inputs by id, changing their type, name and checkedness.
+// reorders and adds inputs by id, changing their type, name, checkedness and `form` attribute. Each side can end
+// with an empty form with an id, which the target can change.
 function createScenario(seed: number) {
 	const random = createRandom(seed)
 	const from = shuffle(random, IDS).slice(0, randomInt(random, 1, IDS.length))
@@ -64,17 +70,30 @@ function createScenario(seed: number) {
 
 	return {
 		preserveChanges: random() < 0.5,
-		from: `${outside("g")}<div id="root">${from.map((id) => serialize(createInput(random, id))).join("")}</div>${outside("h")}`,
-		to: `<div id="root">${to.map((id) => serialize(createInput(random, id))).join("")}</div>`,
+		from: `${outside("g")}<div id="root">${from.map((id) => serialize(createInput(random, id))).join("")}${createForm(random)}</div>${outside("h")}`,
+		to: `<div id="root">${to.map((id) => serialize(createInput(random, id))).join("")}${createForm(random)}</div>`,
 	}
 }
 
 function createInput(random: Random, id: string): Input {
-	return { id, type: pick(random, TYPES), name: pick(random, NAMES), checked: random() < 0.5, form: random() < 0.2 }
+	return {
+		id,
+		type: pick(random, TYPES),
+		name: pick(random, NAMES),
+		checked: random() < 0.5,
+		form: random() < 0.2,
+		formId: pick(random, FORM_IDS),
+	}
 }
 
-function serialize({ id, type, name, checked, form }: Input): string {
-	const input = `<input id="${id}" type="${type}"${name ? ` name="${name}"` : ""}${checked ? " checked" : ""}>`
+function createForm(random: Random): string {
+	const id = pick(random, FORM_IDS)
+	return id ? `<form id="${id}"></form>` : ""
+}
+
+function serialize({ id, type, name, checked, form, formId }: Input): string {
+	const attributes = `${name ? ` name="${name}"` : ""}${formId ? ` form="${formId}"` : ""}${checked ? " checked" : ""}`
+	const input = `<input id="${id}" type="${type}"${attributes}>`
 	return form ? `<form>${input}</form>` : input
 }
 

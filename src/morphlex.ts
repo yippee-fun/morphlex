@@ -1542,7 +1542,11 @@ class Morph {
 			// The markup decides, so it doesn't get back a check another radio took from it.
 			if (hasAttribute(from, "checked") === checked) this.#displacedRadios?.delete(from)
 			if (from.checked !== checked && hasAttribute(from, "checked") === checked) {
+				// Checking a radio unchecks the rest of its group, which gets its check back if the radio then leaves,
+				// as a radio with a `form` attribute does when the morph adds or changes its form later.
+				const group = checked && from.type === "radio" && from.hasAttribute("form") ? checkedRadiosInGroup(from) : null
 				from.checked = checked
+				if (group) this.#noteDisplacedRadios(group, from)
 				if (from.type === "radio") (this.#radiosToSync ??= new Set()).add(from)
 			} else if (checked && from.type === "radio") {
 				// Adding `checked` checks the radio, which unchecks the others in its group, even later ones.
@@ -2537,6 +2541,22 @@ class Morph {
 		return ids && this.#uncheckRadiosNaming(ids, root, inside ? null : node)
 	}
 
+	// A new radio with a `form` attribute is checked in the group it joins, but can leave that group when the
+	// morph adds or changes its form later. So it's inserted unchecked and checked again straight after, which
+	// notes the radios it unchecks, to give them their check back if it leaves.
+	#uncheckRadiosWithForm(element: Element): Array<HTMLInputElement> | null {
+		let unchecked: Array<HTMLInputElement> | null = null
+		const inputs = isInputElement(element) ? [element] : querySelectorAll(element, "input[form]:checked")
+		for (let i = 0; i < inputs.length; i++) {
+			const input = inputs[i]!
+			if (isCheckedRadio(input) && input.hasAttribute("form")) {
+				this.#uncheckRadio(input)
+				;(unchecked ??= []).push(input)
+			}
+		}
+		return unchecked
+	}
+
 	#uncheckRadiosNaming(ids: ReadonlySet<string>, root: Node, except: Node | null): Array<HTMLInputElement> | null {
 		let unchecked: Array<HTMLInputElement> | null = null
 		// Only checked inputs matter, which keeps this short on pages with many radios.
@@ -2893,10 +2913,12 @@ class Morph {
 		this.#placeMovableDescendants(node, parent)
 		if (this.#targetOpensDetails && isElement(node)) this.#noteAddedDetails(node)
 		const radios = this.#uncheckRadiosNamingFormsIn(node, getRootNode(parent))
+		const addedRadios = this.#targetChecksInputs && isElement(node) ? this.#uncheckRadiosWithForm(node) : null
 		moveInto(parent, node, insertionPoint)
 		if (focus) this.#restoreFocus(focus)
 		this.#checkRadios(radios)
 		this.#checkRadios(sourceRadios, true)
+		this.#checkRadios(addedRadios, true)
 		if (this.#targetChecksInputs && !this.#preserveChanges && isElement(node)) this.#noteAddedRadios(node)
 		this.#options.afterNodeAdded?.(node)
 		return true
