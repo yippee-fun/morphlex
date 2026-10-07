@@ -1,5 +1,5 @@
 import { expect, onTestFinished, test } from "vitest"
-import { morph } from "../../src/morphlex"
+import { morph, morphInner } from "../../src/morphlex"
 
 // Chromium and Firefox briefly reset the form of a radio with a `form` attribute while an ancestor of it moves.
 // A checked one then joins another group for that moment and unchecks the radio there.
@@ -102,4 +102,29 @@ test("moving a form holding a radio the user checked that names a missing form k
 
 	expect(checked(host, "#c2")).toBe(true)
 	expect(checked(host, "#c4")).toBe(false)
+})
+
+test("an untouched radio with a form attribute in a moved form still follows its checked attribute", () => {
+	const form = `<form id="f1"><input type="radio" name="a" form="f1" checked id="r"></form>`
+	const host = mount(`<p></p><p></p>${form}`)
+
+	morph(host, `<section>${form}<p></p><p></p></section>`)
+	host.querySelector("#r")!.removeAttribute("checked")
+
+	expect(checked(host, "#r")).toBe(false)
+})
+
+test("inserting a live form holding radios the user checked keeps them checked when one names a missing form", () => {
+	for (const preserveChanges of [false, true]) {
+		const host = mount(
+			`<div id="root"></div><div id="source"><form><input id="c2" name="a" type="radio"><input id="c4" name="a" type="radio" form="missing"></form></div>`,
+		)
+		host.querySelector<HTMLInputElement>("#c2")!.checked = true
+		host.querySelector<HTMLInputElement>("#c4")!.checked = true
+
+		morphInner(host.querySelector("#root")!, host.querySelector("#source")!, { preserveChanges })
+
+		expect(checked(host, "#c2")).toBe(true)
+		expect(checked(host, "#c4")).toBe(true)
+	}
 })

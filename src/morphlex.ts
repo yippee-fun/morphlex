@@ -2581,7 +2581,7 @@ class Morph {
 		for (let i = 0; i < inputs.length; i++) {
 			const input = inputs[i]!
 			if (isCheckedRadio(input) && input.hasAttribute("form")) {
-				this.#uncheckRadio(input)
+				this.#uncheckRadio(input, true)
 				;(unchecked ??= []).push(input)
 			}
 		}
@@ -2625,8 +2625,8 @@ class Morph {
 
 	// Setting `.checked` stops a radio from following its `checked` attribute. So a radio that's checked
 	// again straight after, and still follows the attribute, is unchecked by removing the attribute.
-	#uncheckRadio(radio: HTMLInputElement): void {
-		const value = this.#defersRadio(radio) ? null : radio.getAttribute("checked")
+	#uncheckRadio(radio: HTMLInputElement, immediate = false): void {
+		const value = !immediate && this.#defersRadio(radio) ? null : radio.getAttribute("checked")
 		if (value !== null) {
 			radio.removeAttribute("checked")
 			if (!radio.checked) {
@@ -2939,14 +2939,20 @@ class Morph {
 		// A live target takes its forms away from the radios where it is, in its own document or shadow root
 		// and inside it, including forms that live elements claim out of it next. Those inside it are
 		// checked again straight away, since they're the target's own state, not markup the morph resets.
-		const sourceRadios = isConnected(node) ? this.#uncheckRadiosNamingFormsIn(node, getRootNode(node), true) : null
+		const live = isConnected(node)
+		const sourceRadios = live ? this.#uncheckRadiosNamingFormsIn(node, getRootNode(node), true) : null
 		// A live target can hold the focused element, which its claimed descendants take out of it next.
 		const focus = this.#watchFocus(node, parent)
 		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, parent)
 		if (this.#targetOpensDetails && isElement(node)) this.#noteAddedDetails(node)
 		const radios = this.#uncheckRadiosNamingFormsIn(node, getRootNode(parent))
-		const addedRadios = this.#targetChecksInputs && isElement(node) ? this.#uncheckRadiosWithForm(node) : null
+		const addedRadios =
+			this.#targetChecksInputs && isElement(node)
+				? this.#uncheckRadiosWithForm(node)
+				: live
+					? this.#uncheckRadiosInFormsIn(node)
+					: null
 		moveInto(parent, node, insertionPoint)
 		if (focus) this.#restoreFocus(focus)
 		this.#checkRadios(radios)
