@@ -188,6 +188,13 @@ function assertUserChangesKept(
 				const picked = state as Pick
 				const option = [...control.options].find((option) => option.value === picked.value)
 				if (option) expect(option.selected, `${message()}\npick ${picked.value} of ${key}`).toBe(picked.selected)
+				// In a multiple select the user only toggled one option, so the others still follow their markup.
+				if (control.multiple) {
+					for (const other of control.options) {
+						if (other === option) continue
+						expect(other.selected, `${message()}\noption ${other.value} of ${key}`).toBe(other.defaultSelected)
+					}
+				}
 			} else {
 				expect(stateOf(control), `${message()}\nstate of ${key}`).toEqual(state)
 			}
