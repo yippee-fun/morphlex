@@ -1744,8 +1744,13 @@ class Morph {
 			if (!candidates) continue
 			targets.push([target, candidates])
 			// Only a target some candidate can take counts, since one none can take leaves a candidate without a target.
-			const takeable = candidates.some((candidateIndex) => this.#canTakeByOutline(element, candidateIndex, siblings))
-			targetCounts.set(candidates, (targetCounts.get(candidates) ?? 0) + Number(takeable))
+			// Targets usually go to candidates in order, so the search starts at the candidate in this target's place.
+			const count = targetCounts.get(candidates) ?? 0
+			let takeable = false
+			for (let c = 0; !takeable && c < candidates.length; c++) {
+				takeable = this.#canTakeByOutline(element, candidates[(count + c) % candidates.length]!, siblings)
+			}
+			targetCounts.set(candidates, count + Number(takeable))
 		}
 		// When there are fewer targets than candidates, the untouched candidates go rather than the user's changes. The
 		// identical candidates are put back in order later.
