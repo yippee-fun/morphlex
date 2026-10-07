@@ -92,3 +92,61 @@ jobs:
           VITE_MORPHLEX_FUZZ_FOCUS_SEED_START: ${{ github.run_id }}
           VITE_MORPHLEX_FUZZ_SELECT_SEEDS: 2000
           VITE_MORPHLEX_FUZZ_SELECT_SEED_START: ${{ github.run_id }}
+          VITE_MORPHLEX_FUZZ_RADIO_SEEDS: 2000
+          VITE_MORPHLEX_FUZZ_RADIO_SEED_START: ${{ github.run_id }}
+
+  fuzz:
+    name: Fuzz (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+
+    # More fresh seeds on every run, beside the 2,000 the browser tests run. A browser gets slower
+    # the longer a fuzzer runs in it (4,000 seeds take more than twice as long as 2,000), so each
+    # batch runs 2,000 seeds in a fresh browser.
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+
+    env:
+      SEEDS_PER_BATCH: 2000
+      BATCHES: 2
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup mise
+        uses: jdx/mise-action@v2
+
+      - name: Install dependencies
+        run: aube ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v3
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright Browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: aube exec playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Install Playwright System Dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: aube exec playwright install-deps ${{ matrix.browser }}
+
+      # Batch n starts n batches after the browser tests' seeds, so no seed runs twice. A failing
+      # seed fails again, so retrying only doubles the time.
+      - name: Run the fuzzers
+        run: |
+          for batch in $(seq 1 "$BATCHES"); do
+            start=$(( ${{ github.run_id }} + batch * SEEDS_PER_BATCH ))
+            for fuzzer in MOVE CHOICE TEXT OPEN FOCUS SELECT RADIO; do
+              export "VITE_MORPHLEX_FUZZ_${fuzzer}_SEEDS=$SEEDS_PER_BATCH" "VITE_MORPHLEX_FUZZ_${fuzzer}_SEED_START=$start"
+            done
+            echo "Seeds $start to $(( start + SEEDS_PER_BATCH - 1 ))"
+            aube exec vitest run -c vitest.config.browser.ts --project ${{ matrix.browser }} --retry 0 \
+              test/new/move-fuzz-*.browser.test.ts test/new/choice-fuzz.browser.test.ts test/new/text-fuzz.browser.test.ts \
+              test/new/open-state-fuzz.browser.test.ts test/new/focus-fuzz.browser.test.ts \
+              test/new/select-root-fuzz.browser.test.ts test/new/radio-fuzz.browser.test.ts
+          done

@@ -588,17 +588,61 @@ function clearDirtyFlags(elements: Array<Element>): void {
 	}
 }
 
+// `setHTMLUnsafe` and `Document.parseHTMLUnsafe` attach declarative shadow roots, as a page does, so a
+// `<template shadowrootmode>` never lands in a host's light DOM. Older browsers fall back to parsers that don't.
 function parseFragment(string: string): DocumentFragment {
 	const template = createElement(document, "template") as HTMLTemplateElement
-	template.innerHTML = string
+	setTemplateHTML(template, string)
 	trimFragmentEdgeWhitespace(template.content)
+	/* v8 ignore next -- only Firefox parses a template's content with scripting enabled */
+	if (!templateKeepsNoscriptText()) flattenNoscripts(template.content)
 
 	return template.content
 }
 
+function setTemplateHTML(template: HTMLTemplateElement, string: string): void {
+	/* v8 ignore next -- every browser the tests run in has setHTMLUnsafe */
+	if (template.setHTMLUnsafe) template.setHTMLUnsafe(string)
+	else template.innerHTML = string
+}
+
 function parseDocument(string: string): Document {
-	const parser = new DOMParser()
-	return parser.parseFromString(trimAsciiWhitespace(string), "text/html")
+	const trimmed = trimAsciiWhitespace(string)
+	/* v8 ignore next -- every browser the tests run in has parseHTMLUnsafe */
+	const parsed = Document.parseHTMLUnsafe
+		? Document.parseHTMLUnsafe(trimmed)
+		: new DOMParser().parseFromString(trimmed, "text/html")
+	flattenNoscripts(parsed)
+
+	return parsed
+}
+
+let noscriptTextKept: boolean | undefined
+
+// Whether a template parses a noscript's content as text, as a page does with scripting enabled.
+function templateKeepsNoscriptText(): boolean {
+	if (noscriptTextKept === undefined) {
+		const template = createElement(document, "template") as HTMLTemplateElement
+		setTemplateHTML(template, "<noscript><p></p></noscript>")
+		noscriptTextKept = nodeTypeOf(template.content.firstChild!.firstChild!) === TEXT_NODE_TYPE
+	}
+	return noscriptTextKept
+}
+
+// Parsing with scripting disabled turns a noscript's content into elements, but a page parsed with scripting
+// enabled holds it as text. So it's turned back into text, so the morph never adds its elements.
+function flattenNoscripts(parent: ParentNode): void {
+	const noscripts = querySelectorAll(parent, "noscript")
+	for (let i = 0; i < noscripts.length; i++) {
+		const noscript = noscripts[i] as HTMLElement
+		if (namespaceURIOf(noscript) === HTML_NAMESPACE) noscript.textContent = noscript.innerHTML
+	}
+
+	const templates = querySelectorAll(parent, "template")
+	for (let i = 0; i < templates.length; i++) {
+		const template = templates[i]!
+		if (isTemplateElement(template)) flattenNoscripts(template.content)
+	}
 }
 
 /* v8 ignore start -- reorder fast paths are environment-sensitive */
@@ -1016,8 +1060,12 @@ class Morph {
 	#scope: Node | null = null
 	#scopeStart: Node | null = null
 	#scopeEnd: Node | null = null
-	// The target's root nodes, which bound the search for an option's select.
+	// The target's root nodes, which bound the search for an option's select or a control's form.
 	readonly #targetRoots: Set<Node> = new Set()
+	// The live form a target's control past the target's roots ends up in, and an inner morph's target, which
+	// stands for the live root rather than a form of its own.
+	#keyForm: HTMLFormElement | null = null
+	#innerTarget: Element | null = null
 	// Nodes whose visit or children's visit was vetoed, and controls with a vetoed attribute update.
 	#vetoedNodes: Array<Node> | null = null
 	#vetoedControls: Set<Element> | null = null
@@ -1088,6 +1136,8 @@ class Morph {
 	// Focus a move took to where it couldn't be put back straight away, such as into a closed `details` that the
 	// morph opens later. It's tried again when the morph settles.
 	#unrestoredFocus: Focus | null = null
+	// Where the ends of its selection are, followed through later moves and removals.
+	#unrestoredRange: [Range, Range] | null = null
 	#watchedFocus: Focus | null = null
 	#watchedDocuments: Array<Document> = []
 
@@ -1120,6 +1170,7 @@ class Morph {
 		this.#scope = parentNodeOf(from) ?? from
 		this.#scopeStart = previousSiblingOf(from)
 		this.#scopeEnd = nextSiblingOf(from)
+		this.#keyForm = enclosingForm(parentElementOf(from))
 		if (isParentNode(from)) {
 			this.#mapIdSets(from)
 		}
@@ -1145,6 +1196,8 @@ class Morph {
 		this.#root = from
 		this.#focusHolders = focusHoldersIn(from)
 		this.#scope = from
+		this.#keyForm = enclosingForm(from)
+		this.#innerTarget = to
 		this.#targetRoots.add(to)
 		this.#mapIdSets(from)
 		this.#mapIdArrays(to, false)
@@ -1228,6 +1281,13 @@ class Morph {
 		if (focus) {
 			this.#unrestoredFocus = null
 			removeEventListener(focus.document, "focusin", this.#dropUnrestoredFocus)
+			const range = this.#unrestoredRange
+			/* v8 ignore next 5 -- as in #restoreFocus */
+			if (range) {
+				this.#unrestoredRange = null
+				const [anchor, focusEnd] = range
+				focus.range = [anchor.startContainer, anchor.startOffset, focusEnd.startContainer, focusEnd.startOffset]
+			}
 			restoreFocus(focus)
 		}
 	}
@@ -1342,9 +1402,16 @@ class Morph {
 			return
 		}
 
-		// Nodes of the same type here aren't elements, so neither is a form.
-		if (nodeTypeOf(from) === nodeTypeOf(to) && from.nodeValue !== null && to.nodeValue !== null) {
+		// Nodes of the same type here aren't elements, so neither is a form. A processing instruction's target is its name.
+		if (
+			nodeTypeOf(from) === nodeTypeOf(to) &&
+			from.nodeName === to.nodeName &&
+			from.nodeValue !== null &&
+			to.nodeValue !== null
+		) {
 			from.nodeValue = to.nodeValue
+			// A root settles here, so its afterNodeVisited sees the finished DOM.
+			this.#settleIfRoot(from)
 		} else {
 			this.#replaceNode(from, to)
 		}
@@ -1374,6 +1441,9 @@ class Morph {
 				// Go through `Attr` nodes, because `setAttribute` rejects names the parser accepts, like `@click`.
 				// Look the attribute up after the callback, which may have removed or replaced it.
 				const radios = namespaceURI ? null : this.#uncheckRadiosForAttribute(from, name, value)
+				// Checking a radio unchecks the rest of its group, which gets its check back if the radio then leaves.
+				const group =
+					name === "checked" && namespaceURI === null && isRadio(from) && !from.checked ? checkedRadiosInGroup(from) : null
 				const existing = getAttributeNodeNS(from, namespaceURI, localName)
 				if (existing) {
 					existing.value = value
@@ -1383,6 +1453,7 @@ class Morph {
 					setAttributeNodeNS(from, attribute.cloneNode() as Attr)
 				}
 				this.#checkRadios(radios)
+				if (group) this.#noteDisplacedRadios(group, from as HTMLInputElement)
 				this.#options.afterAttributeUpdated?.(from, name, oldValue)
 			} else {
 				this.#noteVetoedAttribute(from, name, namespaceURI)
@@ -1510,11 +1581,13 @@ class Morph {
 			from.textContent = newTextContent
 		}
 
-		if (this.#preserveChanges) return
+		this.#resetTextArea(from)
+	}
 
+	#resetTextArea(textarea: HTMLTextAreaElement): void {
 		// Assigning `.value` marks it dirty, so only do it when it has actually diverged.
-		if (isDirtyTextArea(from)) {
-			from.value = from.defaultValue
+		if (!this.#preserveChanges && isDirtyTextArea(textarea)) {
+			textarea.value = textarea.defaultValue
 		}
 	}
 
@@ -1563,6 +1636,8 @@ class Morph {
 		}
 		this.#placeChildren(from, siblings)
 
+		// A textarea's children are only visited when it's the root of `morphInner`.
+		if (isTextAreaElement(from)) this.#resetTextArea(from)
 		this.#settleIfRoot(from)
 		if (isSelectElement(from)) this.#syncDefaultSelection(from)
 
@@ -2275,6 +2350,17 @@ class Morph {
 		/* v8 ignore next -- tests haven't found a way to take focus between a failed restore and the retry */
 		if (unrestored) removeEventListener(unrestored.document, "focusin", this.#dropUnrestoredFocus)
 		focus.document = ownerDocumentOf(focus.element)!
+		// The nodes holding the selection can still move or go before then, so follow its ends with live ranges, which
+		// a removal leaves where the node was. A custom element's lifecycle callback can shorten the text during the
+		// move, so the selection may no longer fit.
+		const range = focus.range
+		/* v8 ignore start -- Chromium's moveBefore keeps focus in an element holding the document's selection */
+		try {
+			this.#unrestoredRange = range && [rangeAt(focus.document, range[0], range[1]), rangeAt(focus.document, range[2], range[3])]
+		} catch {
+			this.#unrestoredRange = null
+		}
+		/* v8 ignore stop */
 		this.#unrestoredFocus = focus
 		EventTarget.prototype.addEventListener.call(focus.document, "focusin", this.#dropUnrestoredFocus, {
 			capture: true,
@@ -2352,18 +2438,22 @@ class Morph {
 		if (this.#preserveChanges) return
 
 		const options = select.options
-		const vetoed = this.#vetoedControls
-		if (vetoed) {
+		const defaultOption = select.multiple ? null : defaultOptionOf(select)
+		const isSelected = (option: HTMLOptionElement) =>
+			select.multiple ? option.hasAttribute("selected") : option === defaultOption
+
+		// Leave the select alone when that would change an option whose update or visit was vetoed. A drop-down's
+		// vetoed option can still be selected again, since an earlier option gaining `selected` takes the selection from it.
+		if (this.#vetoedControls || this.#vetoedNodes) {
 			for (let i = 0; i < options.length; i++) {
-				if (vetoed.has(options[i]!)) return
+				const option = options[i]!
+				if (option.selected !== isSelected(option) && (select.multiple || option.selected) && this.#isVetoed(option)) return
 			}
 		}
 
-		const defaultOption = select.multiple ? null : defaultOptionOf(select)
-
 		for (let i = 0; i < options.length; i++) {
 			const option = options[i]!
-			const selected = select.multiple ? option.hasAttribute("selected") : option === defaultOption
+			const selected = isSelected(option)
 			if (option.selected !== selected) option.selected = selected
 		}
 
@@ -2399,24 +2489,28 @@ class Morph {
 	// Moving an element can change the form of radios inside it, and briefly of radios outside it
 	// whose form is inside it, and a checked radio that changes form unchecks the rest of its new
 	// group. So checked radios outside the element move unchecked and are checked again straight
-	// after. Without `preserveChanges`, checked radios inside it that change form move unchecked too,
-	// and are checked again when the morph settles if the markup or a veto keeps them checked.
-	// Returns the radios outside.
+	// after. Checked radios inside it that change form move unchecked too. With `preserveChanges`
+	// they're checked again straight after, so the radios they uncheck get their check back if the
+	// markup then unchecks them. Without it, they're checked again when the morph settles if the
+	// markup or a veto keeps them checked. Returns the radios to check again straight after.
 	#uncheckRadiosForMove(element: Element, parent: ParentNode): Array<HTMLInputElement> | null {
-		const outside = this.#uncheckRadiosNamingFormsIn(element, getRootNode(element))
+		let radios = this.#uncheckRadiosNamingFormsIn(element, getRootNode(element))
 
-		if (!this.#preserveChanges) {
-			const inputs = isInputElement(element) ? [element] : querySelectorAll(element, "input")
-			for (let i = 0; i < inputs.length; i++) {
-				const input = inputs[i]!
-				if (isCheckedRadio(input) && input.form !== formAfterMove(input, element, parent)) {
+		const inputs = isInputElement(element) ? [element] : querySelectorAll(element, "input")
+		for (let i = 0; i < inputs.length; i++) {
+			const input = inputs[i]!
+			if (isCheckedRadio(input) && input.form !== formAfterMove(input, element, parent)) {
+				if (this.#preserveChanges) {
+					this.#uncheckRadio(input)
+					;(radios ??= []).push(input)
+				} else {
 					input.checked = false
 					;(this.#radiosUncheckedForMove ??= new Set()).add(input)
 				}
 			}
 		}
 
-		return outside
+		return radios
 	}
 
 	// A radio with a `form` attribute changes form when a form with that id is added, moved or removed,
@@ -2451,9 +2545,16 @@ class Morph {
 	}
 
 	// Changing a radio's `form` attribute or a form's id changes the form of radios, like moving a form,
-	// and changing a radio's name changes its group too.
+	// changing a radio's name changes its group too, and a checked input that becomes a radio joins one.
 	#uncheckRadiosForAttribute(element: Element, name: string, value: string | null): Array<HTMLInputElement> | null {
-		if ((name === "form" || name === "name") && isCheckedRadio(element)) {
+		if (
+			((name === "form" || name === "name") && isCheckedRadio(element)) ||
+			(name === "type" &&
+				value?.toLowerCase() === "radio" &&
+				isInputElement(element) &&
+				element.type !== "radio" &&
+				element.checked)
+		) {
 			this.#uncheckRadio(element)
 			return [element]
 		}
@@ -2510,14 +2611,26 @@ class Morph {
 			if (checkedInMorph) {
 				checkedInMorph.checked = true
 				// The radio can still join another group later in the morph, and then gets its check back.
-				;(this.#displacedRadios ??= new Map()).set(radio, checkedInMorph)
+				this.#noteDisplacedRadio(radio, checkedInMorph)
 			}
 
-			for (let j = 0; j < checked.length; j++) {
-				const member = checked[j]!
-				if (!member.checked) (this.#displacedRadios ??= new Map()).set(member, radio)
-			}
+			this.#noteDisplacedRadios(checked, radio)
 		}
+	}
+
+	// Note the radios that were checked before `radio` took their group.
+	#noteDisplacedRadios(checked: Array<HTMLInputElement>, radio: HTMLInputElement): void {
+		for (let i = 0; i < checked.length; i++) {
+			const member = checked[i]!
+			if (!member.checked) this.#noteDisplacedRadio(member, radio)
+		}
+	}
+
+	// Radios are given back newest first, so a radio displaced again moves to the end.
+	#noteDisplacedRadio(member: HTMLInputElement, radio: HTMLInputElement): void {
+		const displaced = (this.#displacedRadios ??= new Map())
+		displaced.delete(member)
+		displaced.set(member, radio)
 	}
 
 	// A radio that passed through a group on its way elsewhere, say when the morph removes a form and
@@ -2526,7 +2639,8 @@ class Morph {
 	// another radio in its group is checked.
 	#restoreDisplacedRadios(displaced: Map<HTMLInputElement, HTMLInputElement>): void {
 		const groups: RadioGroups = new Map()
-		for (const [member, radio] of displaced) {
+		// Newest first, so a radio that took a group and then lost it to another gets it back before the one it took it from.
+		for (const [member, radio] of Array.from(displaced).reverse()) {
 			const group = radioGroupOf(member, groups)
 			if (radio.checked && group.includes(radio)) continue
 			if (group.some((other) => other.checked)) continue
@@ -2683,7 +2797,7 @@ class Morph {
 	// An option is keyed by the nearest select around it up to the morph's root, or else the select around the
 	// morph, unless it's in a datalist the select doesn't own. A target can still be in another select past its root.
 	#choiceOf(element: Element): string | null {
-		if (!isOptionElement(element)) return choiceOf(element, null)
+		if (!isOptionElement(element)) return choiceOf(element, null, this.#formOf(element))
 		let select: HTMLSelectElement | null = null
 		for (
 			let node: Element = element, parent = parentElementOf(node);
@@ -2697,7 +2811,17 @@ class Morph {
 			}
 		}
 		select ??= this.#keySelect
-		return choiceOf(element, (select && this.#liveSelects.get(select)) ?? select)
+		select = (select && this.#liveSelects.get(select)) ?? select
+		return choiceOf(element, select, select && this.#formOf(select))
+	}
+
+	// The form around the control. A target's control past the target's roots ends up in the form around the morph.
+	#formOf(control: Element): HTMLFormElement | null {
+		for (let node: Element | null = control; node; node = parentElementOf(node)) {
+			if (isFormElement(node) && node !== this.#innerTarget) return node
+			if (this.#targetRoots.has(node)) return this.#keyForm
+		}
+		return null
 	}
 
 	// The choices of the checkboxes, radios and options the user changed in this element, or null when there are none.
@@ -2808,12 +2932,12 @@ class Morph {
 
 		if (!inCycle && this.#liveElementsById.get(idOf(target)) === live && !contains(live, parent)) {
 			this.#liveElementsById.delete(idOf(target))
-			const outsideRadios = this.#uncheckRadiosForMove(live, parent)
+			const radios = this.#uncheckRadiosForMove(live, parent)
 			const focus = this.#watchFocus(live, parent)
 			moveInto(parent, live, placeholder)
 			if (focus) this.#restoreFocus(focus)
 			remove(placeholder)
-			this.#checkRadios(outsideRadios)
+			this.#checkRadios(radios)
 			if (!this.#preserveChanges) this.#noteRadioGroups(live)
 			this.#morphOneToOne(live, target)
 		} else {
@@ -3318,28 +3442,34 @@ function trimFragmentEdgeWhitespace(fragment: DocumentFragment): void {
 }
 
 // What choosing this element means: an option's value in its select, or a checkbox or radio's type, name,
-// value and form, along with its `is`, since a control with another `is` is recreated. An option's select is passed in, since a target's option is keyed by the live select.
-function choiceOf(element: Element, select: HTMLSelectElement | null): string | null {
+// value and form, along with its `is`, since a control with another `is` is recreated. An option's select is passed in, since a target's option is keyed by the live select,
+// and so is the form around the select or the control, since a target's control is keyed by the form it ends up in.
+function choiceOf(element: Element, select: HTMLSelectElement | null, form: Element | null): string | null {
 	if (isOptionElement(element)) {
 		return JSON.stringify([
 			select?.getAttribute("name") ?? "",
-			select && formOf(select),
+			select && formOf(select, form),
 			select && (select.hasAttribute("multiple") ? 2 : displaySizeOf(select) > 1 ? 1 : 0),
 			element.value,
 			getAttribute(element, "is"),
 		])
 	}
 	if (isInputElement(element) && (element.type === "checkbox" || element.type === "radio")) {
-		return JSON.stringify([element.type, element.name, element.value, formOf(element), getAttribute(element, "is")])
+		return JSON.stringify([element.type, element.name, element.value, formOf(element, form), getAttribute(element, "is")])
 	}
 	return null
 }
 
-// The control's `form` attribute, or null when it names the form the control is already in.
-function formOf(control: Element): string | null {
-	const form = getAttribute(control, "form")
-	const closestForm = closest(control, "form")
-	return form && closestForm && form === idOf(closestForm) ? null : form
+// The form the element is, or is in.
+function enclosingForm(element: Element | null): HTMLFormElement | null {
+	for (let node = element; node; node = parentElementOf(node)) if (isFormElement(node)) return node
+	return null
+}
+
+// The control's `form` attribute, or null when it names the form the control is in.
+function formOf(control: Element, form: Element | null): string | null {
+	const name = getAttribute(control, "form")
+	return name && form && name === idOf(form) ? null : name
 }
 
 // The namespaces, names and `is` of the elements between the wrapper and the control. The wrapper's morph only keeps a
@@ -3487,7 +3617,32 @@ function isFormElement(element: Element): element is HTMLFormElement {
 }
 
 function isCheckedRadio(element: Element): element is HTMLInputElement {
-	return isInputElement(element) && element.type === "radio" && element.checked
+	return isRadio(element) && element.checked
+}
+
+function isRadio(element: Element): element is HTMLInputElement {
+	return isInputElement(element) && element.type === "radio"
+}
+
+// Only the form's controls with the radio's name, or the checked inputs in a tree, are read, which keeps
+// this short in forms with many radios.
+function checkedRadiosInGroup(radio: HTMLInputElement): Array<HTMLInputElement> {
+	if (radio.name === "") return []
+	const form = radio.form
+	let inputs: ArrayLike<Node> = []
+	if (form) {
+		// A list of the controls with that name, or just the radio itself when it's alone.
+		const named = elementsOf(form).namedItem(radio.name)
+		if (named && "length" in named) inputs = named
+	} else {
+		inputs = querySelectorAll(radio.getRootNode() as ParentNode, "input:checked")
+	}
+	const checked: Array<HTMLInputElement> = []
+	for (let i = 0; i < inputs.length; i++) {
+		const input = inputs[i] as Element
+		if (isRadio(input) && input.checked && input.name === radio.name && input.form === form) checked.push(input)
+	}
+	return checked
 }
 
 function isInputElement(element: Element): element is HTMLInputElement {
@@ -3685,6 +3840,13 @@ function remove(node: ChildNode): void {
 	if (parent) Node.prototype.removeChild.call(parent, node)
 }
 
+/* v8 ignore next 5 -- only used where Chromium's moveBefore keeps focus */
+function rangeAt(document: Document, node: Node, offset: number): Range {
+	const range = Document.prototype.createRange.call(document)
+	range.setStart(node, offset)
+	return range
+}
+
 function contains(node: Node, other: Node | null): boolean {
 	return Node.prototype.contains.call(node, other)
 }
@@ -3759,10 +3921,6 @@ function removeAttributeNS(element: Element, namespace: string | null, localName
 
 function matchesSelector(element: Element, selectors: string): boolean {
 	return Element.prototype.matches.call(element, selectors)
-}
-
-function closest(element: Element, selectors: string): Element | null {
-	return Element.prototype.closest.call(element, selectors)
 }
 
 function getElementsByTagName(element: Element, name: string): HTMLCollectionOf<Element> {

@@ -4,7 +4,7 @@ import { observeMutations } from "./utils"
 
 type Random = () => number
 
-type NodeSpec = ElementSpec | TextSpec | CommentSpec
+type NodeSpec = ElementSpec | TextSpec | CommentSpec | ProcessingInstructionSpec
 
 type ElementSpec = {
 	kind: "element"
@@ -22,6 +22,12 @@ type TextSpec = {
 
 type CommentSpec = {
 	kind: "comment"
+	value: string
+}
+
+type ProcessingInstructionSpec = {
+	kind: "processing-instruction"
+	target: string
 	value: string
 }
 
@@ -432,10 +438,13 @@ function createNoiseNodes(random: Random, label: string): Array<NodeSpec> {
 	const count = randomInt(random, 0, 2)
 
 	for (let index = 0; index < count; index++) {
-		if (random() > 0.5) {
+		const kind = random()
+		if (kind > 0.6) {
 			nodes.push({ kind: "text", value: ` ${label}-space-${index} ` })
-		} else {
+		} else if (kind > 0.2) {
 			nodes.push({ kind: "comment", value: `${label}-comment-${index}` })
+		} else {
+			nodes.push({ kind: "processing-instruction", target: `${label}-pi`, value: `index-${index}` })
 		}
 	}
 
@@ -553,6 +562,7 @@ function appendChildren(parent: HTMLElement, specs: Array<NodeSpec>): void {
 function createNode(spec: NodeSpec): ChildNode {
 	if (spec.kind === "text") return document.createTextNode(spec.value)
 	if (spec.kind === "comment") return document.createComment(spec.value)
+	if (spec.kind === "processing-instruction") return document.createProcessingInstruction(spec.target, spec.value)
 
 	const element = document.createElement(spec.tag)
 	for (const [name, value] of Object.entries(spec.attrs)) {

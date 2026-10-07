@@ -1013,3 +1013,92 @@ test("a radio whose name and form change together leaves the group it passes thr
 		host.remove()
 	}
 })
+
+test("a checked checkbox that becomes an unchecked radio leaves a radio outside the morph checked", () => {
+	for (const preserveChanges of [false, true]) {
+		const host = mount(
+			`<input id="outside" type="radio" name="g" checked><div><input id="inside" type="checkbox" name="g" checked></div>`,
+		)
+
+		morph(host.querySelector("div")!, parse(`<div><input id="inside" type="radio" name="g"></div>`), { preserveChanges })
+
+		expect(checkedIds(host)).toBe("outside")
+		host.remove()
+	}
+})
+
+test("a checked checkbox that becomes a checked radio takes the group from a radio outside the morph", () => {
+	for (const preserveChanges of [false, true]) {
+		const host = mount(
+			`<input id="outside" type="radio" name="g" checked><div><input id="inside" type="checkbox" name="g" checked></div>`,
+		)
+
+		morph(host.querySelector("div")!, parse(`<div><input id="inside" type="radio" name="g" checked></div>`), {
+			preserveChanges,
+		})
+
+		expect(checkedIds(host)).toBe("inside")
+		host.remove()
+	}
+})
+
+test("a text input with a checked attribute that becomes an unchecked radio leaves a radio outside the morph checked", () => {
+	const host = mount(`<input id="outside" type="radio" name="g" checked><div><input id="inside" name="g" checked></div>`)
+
+	morph(host.querySelector("div")!, parse(`<div><input id="inside" type="radio" name="g"></div>`))
+
+	expect(checkedIds(host)).toBe("outside")
+	host.remove()
+})
+
+test("with preserveChanges, a checked radio that leaves its form and is unchecked gives the group back to a radio outside the morph", () => {
+	const host = mount(
+		`<input id="outside" type="radio" name="g" checked><div><form><input id="inside" type="radio" name="g" checked></form></div>`,
+	)
+
+	morph(host.querySelector("div")!, parse(`<div><input id="inside" type="radio" name="g"></div>`), { preserveChanges: true })
+
+	expect(checkedIds(host)).toBe("outside")
+	host.remove()
+})
+
+test("a radio checked before it leaves the group of a radio outside the morph gives that one its check back", () => {
+	for (const preserveChanges of [false, true]) {
+		const host = mount(`<input id="outside" type="radio" name="g" checked><div><input id="inside" type="radio" name="g"></div>`)
+
+		morph(host.querySelector("div")!, parse(`<div><input id="inside" type="radio" checked></div>`), { preserveChanges })
+
+		expect(checkedIds(host)).toBe("outside inside")
+		host.remove()
+	}
+})
+
+test("a checked radio whose type changes only in case keeps its checked attribute", () => {
+	const host = mount(`<div><input id="inside" type="radio" name="g" checked></div>`)
+	const observer = new MutationObserver(() => {})
+	observer.observe(host, { subtree: true, attributes: true })
+
+	morph(host.firstElementChild!, parse(`<div><input id="inside" type="RADIO" name="g" checked></div>`), { preserveChanges: true })
+
+	expect(observer.takeRecords().map((record) => record.attributeName)).toEqual(["type"])
+	expect(checkedIds(host)).toBe("inside")
+	observer.disconnect()
+	host.remove()
+})
+
+test("with preserveChanges, a radio that took the group from a radio outside the morph gets it back from the radio that took it next", () => {
+	const host = mount(
+		`<input id="outside" type="radio" name="g" checked><div><input id="b" type="radio" name="g"><input id="c" type="radio" name="g"></div>`,
+	)
+
+	morph(
+		host.querySelector("div")!,
+		parse(`<div><input id="b" type="radio" name="g" checked><input id="c" type="radio" checked></div>`),
+		{
+			preserveChanges: true,
+		},
+	)
+
+	expect(checkedIds(host)).toBe("b c")
+	host.remove()
+})
