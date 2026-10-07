@@ -2468,7 +2468,11 @@ class Morph {
 	#uncheckRadiosForAttribute(element: Element, name: string, value: string | null): Array<HTMLInputElement> | null {
 		if (
 			((name === "form" || name === "name") && isCheckedRadio(element)) ||
-			(name === "type" && value?.toLowerCase() === "radio" && isInputElement(element) && element.checked)
+			(name === "type" &&
+				value?.toLowerCase() === "radio" &&
+				isInputElement(element) &&
+				element.type !== "radio" &&
+				element.checked)
 		) {
 			this.#uncheckRadio(element)
 			return [element]

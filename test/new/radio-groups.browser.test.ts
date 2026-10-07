@@ -1072,3 +1072,16 @@ test("a radio checked before it leaves the group of a radio outside the morph gi
 		host.remove()
 	}
 })
+
+test("a checked radio whose type changes only in case keeps its checked attribute", () => {
+	const host = mount(`<div><input id="inside" type="radio" name="g" checked></div>`)
+	const observer = new MutationObserver(() => {})
+	observer.observe(host, { subtree: true, attributes: true })
+
+	morph(host.firstElementChild!, parse(`<div><input id="inside" type="RADIO" name="g" checked></div>`), { preserveChanges: true })
+
+	expect(observer.takeRecords().map((record) => record.attributeName)).toEqual(["type"])
+	expect(checkedIds(host)).toBe("inside")
+	observer.disconnect()
+	host.remove()
+})
