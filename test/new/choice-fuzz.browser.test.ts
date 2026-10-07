@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest"
-import { morph } from "../../src/morphlex"
+import { morph, morphInner } from "../../src/morphlex"
 
 type Random = () => number
 type Kind = "radio" | "checkbox" | "select" | "multiple"
@@ -22,7 +22,8 @@ test("seeded fuzz keeps each choice the user made with its value when items are 
 		try {
 			scenario.interact(from)
 			const before = new FormData(from).getAll("g")
-			morph(from, parse(scenario.to), { preserveChanges: true })
+			if (scenario.inner) morphInner(from, parse(scenario.to), { preserveChanges: true })
+			else morph(from, parse(scenario.to), { preserveChanges: true })
 			const message = `seed ${seed}\n${scenario.from}\n${scenario.to}`
 			expect(new FormData(from).getAll("d"), message).toEqual(scenario.decoy)
 			const expected = scenario.expect(before as Array<string>)
@@ -81,6 +82,10 @@ function createScenario(seed: number) {
 	// Both groups may sit in anonymous wrappers, and the target may change the user's one.
 	const boxed = random() < 0.5
 	const boxChanged = random() < 0.5
+	// The controls may name the form they're in, which the target of an inner morph leaves without an id.
+	const named = random() < 0.3
+	const inner = random() < 0.5
+	const formAttribute = named ? ' form="f"' : ""
 
 	const group = (
 		name: string,
@@ -91,11 +96,20 @@ function createScenario(seed: number) {
 	) => {
 		const items = values.map((value) =>
 			value === TWIN
-				? item(kind, name, twin!, false, isTarget && twinClassed, wrapped.has(twin!), isTarget ? twinIs : "x-label")
-				: item(kind, name, value, isDefault(value), hasClass(value), wrapped.has(value), "x-label"),
+				? item(
+						kind,
+						name,
+						twin!,
+						false,
+						isTarget && twinClassed,
+						wrapped.has(twin!),
+						isTarget ? twinIs : "x-label",
+						formAttribute,
+					)
+				: item(kind, name, value, isDefault(value), hasClass(value), wrapped.has(value), "x-label", formAttribute),
 		)
 		if (kind === "select" || kind === "multiple") {
-			return `<select name="${name}"${kind === "multiple" ? " multiple" : ""}>${items.join("")}</select>`
+			return `<select name="${name}"${formAttribute}${kind === "multiple" ? " multiple" : ""}>${items.join("")}</select>`
 		}
 		return name === "g" || boxed ? items.join("") : `<fieldset>${items.join("")}</fieldset>`
 	}
@@ -122,11 +136,12 @@ function createScenario(seed: number) {
 			if (isTarget && decoyFirst) groups.unshift(decoyGroup)
 			else groups.push(decoyGroup)
 		}
-		return `<form>${groups.join("")}</form>`
+		return `<form${isTarget && inner ? "" : ' id="f"'}>${groups.join("")}</form>`
 	}
 
 	return {
 		kind,
+		inner,
 		decoy: decoy ? (kind === "select" ? [fromValues[0]!] : []) : [],
 		from: render(
 			fromItems,
@@ -186,10 +201,11 @@ function item(
 	hasClass: boolean,
 	wrapped: boolean,
 	is: string,
+	formAttribute: string,
 ): string {
 	const attributes = `value="${value}"${isDefault ? (kind === "radio" || kind === "checkbox" ? " checked" : " selected") : ""}${hasClass ? ' class="changed"' : ""}`
 	if (kind === "select" || kind === "multiple") return `<option ${attributes}>${value}</option>`
-	const input = `<input type="${kind}" name="${name}" ${attributes}>`
+	const input = `<input type="${kind}" name="${name}"${formAttribute} ${attributes}>`
 	return wrapped ? `<label is="${is}">${input}<b>${value}</b></label>` : input
 }
 
