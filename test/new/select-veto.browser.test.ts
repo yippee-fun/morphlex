@@ -75,3 +75,15 @@ test("options outside a vetoed optgroup get the markup's selection", () => {
 	expect(from.options[2]!.textContent).toBe("C2")
 	expect(from.value).toBe("a")
 })
+
+test("a vetoed option keeps the selection an earlier option's new selected attribute took from it", () => {
+	const from = dom(`<select><option value="a">A</option><option value="b" selected>B</option></select>`) as HTMLSelectElement
+
+	morph(from, `<select><option value="a" selected>A</option><option value="b">B</option></select>`, {
+		beforeNodeVisited: (node) => !(node.nodeName === "OPTION" && (node as HTMLOptionElement).value === "b"),
+	})
+
+	expect(from.options[0]!.hasAttribute("selected")).toBe(true)
+	expect(from.options[1]!.hasAttribute("selected")).toBe(true)
+	expect(from.value).toBe("b")
+})

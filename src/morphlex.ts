@@ -2385,11 +2385,12 @@ class Morph {
 		const isSelected = (option: HTMLOptionElement) =>
 			select.multiple ? option.hasAttribute("selected") : option === defaultOption
 
-		// Leave the select alone when that would change an option whose update or visit was vetoed.
+		// Leave the select alone when that would change an option whose update or visit was vetoed. A drop-down's
+		// vetoed option can still be selected again, since an earlier option gaining `selected` takes the selection from it.
 		if (this.#vetoedControls || this.#vetoedNodes) {
 			for (let i = 0; i < options.length; i++) {
 				const option = options[i]!
-				if (option.selected !== isSelected(option) && this.#isVetoed(option)) return
+				if (option.selected !== isSelected(option) && (select.multiple || option.selected) && this.#isVetoed(option)) return
 			}
 		}
 
