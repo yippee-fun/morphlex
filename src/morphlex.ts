@@ -592,13 +592,27 @@ function parseFragment(string: string): DocumentFragment {
 	const template = createElement(document, "template") as HTMLTemplateElement
 	template.innerHTML = string
 	trimFragmentEdgeWhitespace(template.content)
+	flattenNoscripts(template.content)
 
 	return template.content
 }
 
 function parseDocument(string: string): Document {
 	const parser = new DOMParser()
-	return parser.parseFromString(trimAsciiWhitespace(string), "text/html")
+	const parsed = parser.parseFromString(trimAsciiWhitespace(string), "text/html")
+	flattenNoscripts(parsed)
+
+	return parsed
+}
+
+// Strings are parsed with scripting disabled, which turns a noscript's content into elements, but a page parsed
+// with scripting enabled holds it as text. So it's turned back into text, so the morph never adds its elements.
+function flattenNoscripts(parent: ParentNode): void {
+	const noscripts = querySelectorAll(parent, "noscript")
+	for (let i = 0; i < noscripts.length; i++) {
+		const noscript = noscripts[i] as HTMLElement
+		if (namespaceURIOf(noscript) === HTML_NAMESPACE) noscript.textContent = noscript.innerHTML
+	}
 }
 
 /* v8 ignore start -- reorder fast paths are environment-sensitive */
