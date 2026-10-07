@@ -149,22 +149,26 @@ function markupSelections(select: HTMLSelectElement): Array<string> {
 }
 
 // WebKit's parser can show an option the markup doesn't select (it skips an option in an optgroup), and a morph inside
-// the select that changes neither the options it shows nor what a form reset selects keeps that. So the selection from
-// before the morph is accepted when no option was added, the shown options are unchanged, and a form reset selects the
-// same options as before.
+// the select that changes neither whether the options it shows are selected or disabled in the markup, nor what a form
+// reset selects, keeps that. So the selection from before the morph is accepted when no option was added, the shown
+// options keep their `selected` and `disabled` attributes, and a form reset selects the same options as before.
 function untouchedSelection(select: HTMLSelectElement): (live: HTMLSelectElement) => string | undefined {
 	const options = [...select.options]
-	const shown = new Map(options.filter((option) => option.selected).map((option) => [option, option.outerHTML]))
+	const shown = new Map(options.filter((option) => option.selected).map((option) => [option, selectionState(option)]))
 	const reset = resetSelection(select)
 	return (live) => {
 		const survivors = [...live.options]
 		if (survivors.some((option) => !options.includes(option))) return undefined
-		for (const [option, html] of shown) if (option.outerHTML !== html) return undefined
+		for (const [option, state] of shown) if (selectionState(option) !== state) return undefined
 		const pattern = (selected: { has(option: HTMLOptionElement): boolean }) =>
 			survivors.map((option) => (selected.has(option) ? 1 : 0)).join("")
 		if (pattern(reset) !== pattern(resetSelection(live))) return undefined
 		return pattern(shown)
 	}
+}
+
+function selectionState(option: HTMLOptionElement): string {
+	return `${option.hasAttribute("selected")} ${option.hasAttribute("disabled")}`
 }
 
 // The live options a form reset of a copy of the select selects.
