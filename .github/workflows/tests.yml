@@ -94,6 +94,8 @@ jobs:
           VITE_MORPHLEX_FUZZ_SELECT_SEED_START: ${{ github.run_id }}
           VITE_MORPHLEX_FUZZ_RADIO_SEEDS: 2000
           VITE_MORPHLEX_FUZZ_RADIO_SEED_START: ${{ github.run_id }}
+          VITE_MORPHLEX_FUZZ_FORM_SEEDS: 2000
+          VITE_MORPHLEX_FUZZ_FORM_SEED_START: ${{ github.run_id }}
 
   fuzz:
     name: Fuzz (${{ matrix.browser }})
@@ -141,12 +143,13 @@ jobs:
         run: |
           for batch in $(seq 1 "$BATCHES"); do
             start=$(( ${{ github.run_id }} + batch * SEEDS_PER_BATCH ))
-            for fuzzer in MOVE CHOICE TEXT OPEN FOCUS SELECT RADIO; do
+            for fuzzer in MOVE CHOICE TEXT OPEN FOCUS SELECT RADIO FORM; do
               export "VITE_MORPHLEX_FUZZ_${fuzzer}_SEEDS=$SEEDS_PER_BATCH" "VITE_MORPHLEX_FUZZ_${fuzzer}_SEED_START=$start"
             done
             echo "Seeds $start to $(( start + SEEDS_PER_BATCH - 1 ))"
             aube exec vitest run -c vitest.config.browser.ts --project ${{ matrix.browser }} --retry 0 \
               test/new/move-fuzz-*.browser.test.ts test/new/choice-fuzz.browser.test.ts test/new/text-fuzz.browser.test.ts \
               test/new/open-state-fuzz.browser.test.ts test/new/focus-fuzz.browser.test.ts \
-              test/new/select-root-fuzz.browser.test.ts test/new/radio-fuzz.browser.test.ts
+              test/new/select-root-fuzz.browser.test.ts test/new/radio-fuzz.browser.test.ts \
+              test/new/form-state-fuzz.browser.test.ts
           done
