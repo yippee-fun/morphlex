@@ -588,9 +588,11 @@ function clearDirtyFlags(elements: Array<Element>): void {
 	}
 }
 
+// `setHTMLUnsafe` and `Document.parseHTMLUnsafe` attach declarative shadow roots, as a page does, so a
+// `<template shadowrootmode>` never lands in a host's light DOM. Older browsers fall back to parsers that don't.
 function parseFragment(string: string): DocumentFragment {
 	const template = createElement(document, "template") as HTMLTemplateElement
-	template.innerHTML = string
+	setTemplateHTML(template, string)
 	trimFragmentEdgeWhitespace(template.content)
 	/* v8 ignore next -- only Firefox parses a template's content with scripting enabled */
 	if (!templateKeepsNoscriptText()) flattenNoscripts(template.content)
@@ -598,9 +600,18 @@ function parseFragment(string: string): DocumentFragment {
 	return template.content
 }
 
+function setTemplateHTML(template: HTMLTemplateElement, string: string): void {
+	/* v8 ignore next -- every browser the tests run in has setHTMLUnsafe */
+	if (template.setHTMLUnsafe) template.setHTMLUnsafe(string)
+	else template.innerHTML = string
+}
+
 function parseDocument(string: string): Document {
-	const parser = new DOMParser()
-	const parsed = parser.parseFromString(trimAsciiWhitespace(string), "text/html")
+	const trimmed = trimAsciiWhitespace(string)
+	/* v8 ignore next -- every browser the tests run in has parseHTMLUnsafe */
+	const parsed = Document.parseHTMLUnsafe
+		? Document.parseHTMLUnsafe(trimmed)
+		: new DOMParser().parseFromString(trimmed, "text/html")
 	flattenNoscripts(parsed)
 
 	return parsed
@@ -612,7 +623,7 @@ let noscriptTextKept: boolean | undefined
 function templateKeepsNoscriptText(): boolean {
 	if (noscriptTextKept === undefined) {
 		const template = createElement(document, "template") as HTMLTemplateElement
-		template.innerHTML = "<noscript><p></p></noscript>"
+		setTemplateHTML(template, "<noscript><p></p></noscript>")
 		noscriptTextKept = nodeTypeOf(template.content.firstChild!.firstChild!) === TEXT_NODE_TYPE
 	}
 	return noscriptTextKept
