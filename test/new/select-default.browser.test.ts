@@ -554,3 +554,31 @@ test("an inner morph of an optgroup that removes the only selected attribute sho
 	expect(select.selectedIndex).toBe(0)
 	host.remove()
 })
+
+test("morphing the option the user picked shows the drop-down's first option when that's in an optgroup (#173)", () => {
+	const host = mount(`<div><select><optgroup label="g"><option>a</option></optgroup><option>r</option></select></div>`)
+	const select = host.querySelector("select")!
+	select.value = "r"
+
+	morph(select.options[1]!, parse(`<option>r2</option>`))
+
+	expect(select.selectedIndex).toBe(0)
+	host.remove()
+})
+
+// WebKit's parser selects the option with id "root", without the user picking it.
+test("morphing the option WebKit's parser shows into a disabled one shows the drop-down's first option (#173)", () => {
+	const host = mount(
+		`<div><select><optgroup label="h"><option disabled>b</option></optgroup>
+ <optgroup label="g"><option>a</option><option>b</option></optgroup>
+ <option id="root">r</option>
+ <option>a</option>
+ <option>b</option></select></div>`,
+	)
+	const select = host.querySelector("select")!
+
+	morph(host.querySelector("#root")!, parse(`<option disabled>a</option>`))
+
+	expect(select.selectedIndex).toBe(1)
+	host.remove()
+})
