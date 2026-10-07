@@ -1111,6 +1111,7 @@ class Morph {
 	#syncedSelects: Set<HTMLSelectElement> | null = null
 	// The select around a morph rooted inside it, and what its markup selected before the morph.
 	#enclosingSelect: [HTMLSelectElement, Array<HTMLOptionElement | null>] | null = null
+	#resetEnclosingOption = false
 
 	// Radios whose checkedness the morph reset or whose radio group a move changed. Their groups are
 	// synced to the markup when the morph settles, because moves complete out of document order.
@@ -1577,6 +1578,8 @@ class Morph {
 			const selected = hasAttribute(to, "selected")
 			if (from.selected !== selected && hasAttribute(from, "selected") === selected) {
 				from.selected = selected
+				// WebKit can keep showing a drop-down's option the morph deselects, so a select around the root syncs.
+				if (this.#enclosingSelect?.[0].options[from.index] === from) this.#resetEnclosingOption = true
 			}
 		}
 	}
@@ -2410,8 +2413,8 @@ class Morph {
 	/* v8 ignore stop */
 
 	// A morph inside a select never visits the select, so sync it when the morph settles if the morph
-	// changed what the markup selects or what the select shows. A vetoed morph changes nothing, so it
-	// leaves it alone.
+	// changed what the markup selects or what the select shows, or reset an option's selection. A vetoed
+	// morph changes nothing, so it leaves it alone.
 	setEnclosingSelect(select: HTMLSelectElement, selection: Array<HTMLOptionElement | null>): void {
 		this.#enclosingSelect = [select, selection]
 	}
@@ -2441,7 +2444,8 @@ class Morph {
 		if (this.#preserveChanges) return
 
 		const newSelection = selectionOf(select)
-		if (newSelection.length === selection.length && newSelection.every((option, i) => option === selection[i])) return
+		const same = newSelection.length === selection.length && newSelection.every((option, i) => option === selection[i])
+		if (same && !this.#resetEnclosingOption) return
 
 		this.#syncDefaultSelection(select)
 	}

@@ -554,3 +554,69 @@ test("an inner morph of an optgroup that removes the only selected attribute sho
 	expect(select.selectedIndex).toBe(0)
 	host.remove()
 })
+
+test("morphing the option the user picked shows the drop-down's first option when that's in an optgroup (#173)", () => {
+	const host = mount(`<div><select><optgroup label="g"><option>a</option></optgroup><option>r</option></select></div>`)
+	const select = host.querySelector("select")!
+	select.value = "r"
+
+	morph(select.options[1]!, parse(`<option>r2</option>`))
+
+	expect(select.selectedIndex).toBe(0)
+	host.remove()
+})
+
+// WebKit's parser selects the option with id "root", without the user picking it.
+test("morphing the option WebKit's parser shows into a disabled one shows the drop-down's first option (#173)", () => {
+	const host = mount(
+		`<div><select><optgroup label="h"><option disabled>b</option></optgroup>
+ <optgroup label="g"><option>a</option><option>b</option></optgroup>
+ <option id="root">r</option>
+ <option>a</option>
+ <option>b</option></select></div>`,
+	)
+	const select = host.querySelector("select")!
+
+	morph(host.querySelector("#root")!, parse(`<option disabled>a</option>`))
+
+	expect(select.selectedIndex).toBe(1)
+	host.remove()
+})
+
+test("resetting an option of a select nested in the morph leaves the user's pick in the select around it", () => {
+	const outer = document.createElement("select")
+	outer.innerHTML = `<option>a</option><option>b</option>`
+	const root = document.createElement("div")
+	root.innerHTML = `<select><option>x</option><option>y</option></select>`
+	outer.append(root)
+	document.body.append(outer)
+	outer.value = "b"
+	root.querySelector("select")!.value = "y"
+
+	const to = document.createElement("div")
+	to.innerHTML = `<select><option>x</option><option>y</option></select>`
+	morph(root, to)
+	outer.remove()
+
+	expect(root.querySelector("select")!.value).toBe("x")
+	expect(outer.value).toBe("b")
+})
+
+test("resetting an option of a datalist nested in the morph leaves the user's pick in the select around it", () => {
+	const outer = document.createElement("select")
+	outer.innerHTML = `<option>a</option><option>b</option>`
+	const root = document.createElement("div")
+	root.innerHTML = `<datalist><option>x</option><option>y</option></datalist>`
+	outer.append(root)
+	document.body.append(outer)
+	outer.value = "b"
+	root.querySelectorAll("option")[1]!.selected = true
+
+	const to = document.createElement("div")
+	to.innerHTML = `<datalist><option>x</option><option>y</option></datalist>`
+	morph(root, to)
+	outer.remove()
+
+	expect(root.querySelectorAll("option")[1]!.selected).toBe(false)
+	expect(outer.value).toBe("b")
+})
