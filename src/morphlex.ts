@@ -1807,7 +1807,7 @@ class Morph {
 		}
 	}
 
-	// The outline holds the element's name, so the two are of the same kind.
+	// The outline holds the element's name, so the two are of the same kind, but an input of another type would be replaced.
 	// A target discarding user changes only takes an untouched candidate, so it keeps its place among the rest.
 	#canTakeByOutline(element: Element, candidateIndex: number, siblings: Siblings): boolean {
 		const candidate = siblings.from[candidateIndex] as Element
@@ -1815,7 +1815,7 @@ class Morph {
 			(!this.#dirtyElements!.has(candidate) || !this.#holdsClobbered(element)) &&
 			((canSoftMatchByTagName(element, this.#idArrayMap.has(element)) &&
 				canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) ||
-				sharesMatchKey(element, candidate)) &&
+				(sharesMatchKey(element, candidate) && canMorphElementInPlace(candidate, element))) &&
 			!this.#holdsOtherChoice(candidate, element)
 		)
 	}
@@ -2029,7 +2029,7 @@ class Morph {
 		if (siblings.displaced.length) this.#matchEqualElements(siblings)
 	}
 
-	// Match by a shared `name`, `href` or `src`.
+	// Match by a shared `name`, `href` or `src`, unless the candidate would be replaced, like an input of another type.
 	#matchElementsByAttributes(siblings: Siblings): void {
 		const { from, to, candidateElements, unmatchedElements, candidateActive, unmatchedActive } = siblings
 		for (let i = 0; i < unmatchedElements.length; i++) {
@@ -2044,7 +2044,11 @@ class Morph {
 				if (!candidateActive[candidateIndex] || !siblings.sameKind(target, candidateIndex)) continue
 				const candidate = from[candidateIndex] as Element
 
-				if (sharesMatchKey(element, candidate) && !this.#holdsOtherChoice(candidate, element)) {
+				if (
+					sharesMatchKey(element, candidate) &&
+					canMorphElementInPlace(candidate, element) &&
+					!this.#holdsOtherChoice(candidate, element)
+				) {
 					siblings.take(target, candidateIndex, Operation.SameElement)
 					break
 				}
