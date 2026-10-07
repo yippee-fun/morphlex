@@ -1399,6 +1399,8 @@ class Morph {
 			to.nodeValue !== null
 		) {
 			from.nodeValue = to.nodeValue
+			// A root settles here, so its afterNodeVisited sees the finished DOM.
+			this.#settleIfRoot(from)
 		} else {
 			this.#replaceNode(from, to)
 		}
