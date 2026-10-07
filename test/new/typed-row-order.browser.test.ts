@@ -42,3 +42,21 @@ test("typed rows of two kinds keep their order when untouched rows of both kinds
 	expect(typed).toEqual([inputs[1], inputs[4]])
 	host.remove()
 })
+
+test("a typed row goes to a target keeping changes rather than a later clobbered one", () => {
+	const host = document.createElement("div")
+	host.innerHTML = `<form><div><input class="q"></div><div><input class="q"></div></form>`
+	document.body.append(host)
+	const form = host.firstElementChild as HTMLFormElement
+	const inputs = [...form.querySelectorAll("input")]
+	inputs[1]!.value = "typed"
+
+	morph(form, `<form><div class="a"><input class="q"></div><div morphlex-clobber class="a"><input class="q"></div></form>`, {
+		preserveChanges: true,
+	})
+
+	const after = [...form.querySelectorAll("input")]
+	expect(after.map((input) => input.value)).toEqual(["typed", ""])
+	expect(after[0]).toBe(inputs[1])
+	host.remove()
+})

@@ -1753,13 +1753,18 @@ class Morph {
 		const targets: Array<[number, Array<number>]> = []
 		const targetCounts: Map<Array<number>, number> = new Map()
 		const reserved: Set<number> = new Set()
+		// A target discarding user changes only takes an untouched candidate, so it's left out once none is left.
+		const untouchedLeft: Map<Array<number>, number> = new Map()
+		for (const candidates of candidatesByOutline.values()) {
+			untouchedLeft.set(candidates, candidates.filter((candidate) => !dirtyElements.has(from[candidate] as Element)).length)
+		}
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
 			if (!unmatchedActive[target]) continue
 			const element = to[target] as Element
 			if (!names.has(localNameOf(element))) continue
 			const candidates = candidatesByOutline.get(outlineOf(element))
-			if (!candidates) continue
+			if (!candidates || (!untouchedLeft.get(candidates) && this.#holdsClobbered(element))) continue
 			targets.push([target, candidates])
 			// A target counts when a candidate not yet counted for another target can take it, since a target none can
 			// take leaves a candidate without one. Targets usually go to candidates in order, so the search starts at the
@@ -1770,6 +1775,8 @@ class Morph {
 				if (!reserved.has(candidateIndex) && this.#canTakeByOutline(element, candidateIndex, siblings)) {
 					reserved.add(candidateIndex)
 					targetCounts.set(candidates, count + 1)
+					if (!dirtyElements.has(from[candidateIndex] as Element))
+						untouchedLeft.set(candidates, untouchedLeft.get(candidates)! - 1)
 					break
 				}
 			}
