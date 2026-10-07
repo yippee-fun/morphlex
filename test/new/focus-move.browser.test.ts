@@ -691,6 +691,37 @@ test("the caret in an editable body stays in a child that moves", () => {
 	host.remove()
 })
 
+test("a focused contenteditable whose text a custom element's callback shortens as it moves into an item the morph opens later doesn't stop the morph", () => {
+	class Shorten extends HTMLElement {
+		connectedCallback() {
+			if (this.hasAttribute("armed")) (this.firstChild as Text).data = "b"
+		}
+		connectedMoveCallback() {
+			this.connectedCallback()
+		}
+	}
+	if (!customElements.get("x-shorten")) customElements.define("x-shorten", Shorten)
+	const host = mount(
+		`<div><details id="e" contenteditable="true"><details name="h" open></details><x-shorten id="s">bold</x-shorten></details></div>`,
+	)
+	const editor = host.querySelector<HTMLElement>("#e")!
+	const shorten = host.querySelector("#s")!
+	editor.focus()
+	getSelection()!.setBaseAndExtent(shorten.firstChild!, 3, shorten.firstChild!, 3)
+	shorten.setAttribute("armed", "")
+
+	morphInner(
+		host.firstElementChild!,
+		`<div><details name="h" open><details id="e" contenteditable="true"><x-shorten id="s" armed>b</x-shorten></details></details></div>`,
+	)
+
+	expect(host.querySelector("#e")).toBe(editor)
+	expect(shorten.textContent).toBe("b")
+	expect(document.activeElement).toBe(editor)
+
+	host.remove()
+})
+
 test("a focused input that a custom element's callback retypes during the move doesn't stop the morph", () => {
 	class Retype extends HTMLElement {
 		connectedCallback() {

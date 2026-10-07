@@ -2290,10 +2290,16 @@ class Morph {
 		if (unrestored) removeEventListener(unrestored.document, "focusin", this.#dropUnrestoredFocus)
 		focus.document = ownerDocumentOf(focus.element)!
 		// The nodes holding the selection can still move or go before then, so follow its ends with live ranges, which
-		// a removal leaves where the node was.
+		// a removal leaves where the node was. A custom element's lifecycle callback can shorten the text during the
+		// move, so the selection may no longer fit.
 		const range = focus.range
-		/* v8 ignore next -- Chromium's moveBefore keeps focus in an element holding the document's selection */
-		this.#unrestoredRange = range && [rangeAt(focus.document, range[0], range[1]), rangeAt(focus.document, range[2], range[3])]
+		/* v8 ignore start -- Chromium's moveBefore keeps focus in an element holding the document's selection */
+		try {
+			this.#unrestoredRange = range && [rangeAt(focus.document, range[0], range[1]), rangeAt(focus.document, range[2], range[3])]
+		} catch {
+			this.#unrestoredRange = null
+		}
+		/* v8 ignore stop */
 		this.#unrestoredFocus = focus
 		EventTarget.prototype.addEventListener.call(focus.document, "focusin", this.#dropUnrestoredFocus, {
 			capture: true,
