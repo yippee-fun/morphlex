@@ -588,9 +588,11 @@ function clearDirtyFlags(elements: Array<Element>): void {
 	}
 }
 
+// `setHTMLUnsafe` and `Document.parseHTMLUnsafe` attach declarative shadow roots, as a page does, so a
+// `<template shadowrootmode>` never lands in a host's light DOM. Older browsers fall back to parsers that don't.
 function parseFragment(string: string): DocumentFragment {
 	const template = createElement(document, "template") as HTMLTemplateElement
-	template.innerHTML = string
+	setTemplateHTML(template, string)
 	trimFragmentEdgeWhitespace(template.content)
 	/* v8 ignore next -- only Firefox parses a template's content with scripting enabled */
 	if (!templateKeepsNoscriptText()) flattenNoscripts(template.content)
@@ -598,9 +600,18 @@ function parseFragment(string: string): DocumentFragment {
 	return template.content
 }
 
+function setTemplateHTML(template: HTMLTemplateElement, string: string): void {
+	/* v8 ignore next -- every browser the tests run in has setHTMLUnsafe */
+	if (template.setHTMLUnsafe) template.setHTMLUnsafe(string)
+	else template.innerHTML = string
+}
+
 function parseDocument(string: string): Document {
-	const parser = new DOMParser()
-	const parsed = parser.parseFromString(trimAsciiWhitespace(string), "text/html")
+	const trimmed = trimAsciiWhitespace(string)
+	/* v8 ignore next -- every browser the tests run in has parseHTMLUnsafe */
+	const parsed = Document.parseHTMLUnsafe
+		? Document.parseHTMLUnsafe(trimmed)
+		: new DOMParser().parseFromString(trimmed, "text/html")
 	flattenNoscripts(parsed)
 
 	return parsed
@@ -612,7 +623,7 @@ let noscriptTextKept: boolean | undefined
 function templateKeepsNoscriptText(): boolean {
 	if (noscriptTextKept === undefined) {
 		const template = createElement(document, "template") as HTMLTemplateElement
-		template.innerHTML = "<noscript><p></p></noscript>"
+		setTemplateHTML(template, "<noscript><p></p></noscript>")
 		noscriptTextKept = nodeTypeOf(template.content.firstChild!.firstChild!) === TEXT_NODE_TYPE
 	}
 	return noscriptTextKept
@@ -1100,6 +1111,7 @@ class Morph {
 	#syncedSelects: Set<HTMLSelectElement> | null = null
 	// The select around a morph rooted inside it, and what its markup selected before the morph.
 	#enclosingSelect: [HTMLSelectElement, Array<HTMLOptionElement | null>] | null = null
+	#resetEnclosingOption = false
 
 	// Radios whose checkedness the morph reset or whose radio group a move changed. Their groups are
 	// synced to the markup when the morph settles, because moves complete out of document order.
@@ -1271,12 +1283,17 @@ class Morph {
 			this.#unrestoredFocus = null
 			removeEventListener(focus.document, "focusin", this.#dropUnrestoredFocus)
 			const range = this.#unrestoredRange
-			/* v8 ignore next 5 -- as in #restoreFocus */
+			/* v8 ignore start -- as in #restoreFocus */
 			if (range) {
 				this.#unrestoredRange = null
 				const [anchor, focusEnd] = range
-				focus.range = [anchor.startContainer, anchor.startOffset, focusEnd.startContainer, focusEnd.startOffset]
+				const [anchorNode, anchorOffset, focusNode, focusOffset] = focus.range!
+				focus.range = [
+					...followedEnd(focus.element, anchor, anchorNode, anchorOffset),
+					...followedEnd(focus.element, focusEnd, focusNode, focusOffset),
+				]
 			}
+			/* v8 ignore stop */
 			restoreFocus(focus)
 		}
 	}
@@ -1361,10 +1378,10 @@ class Morph {
 			this.#visitAttributes(from, to)
 		}
 
-		if (isTextAreaElement(from) && isTextAreaElement(to)) {
-			this.#visitTextArea(from, to)
-		} else if (hasChildNodes(from) || hasChildNodes(to) || isTemplateElement(from)) {
+		if (hasChildNodes(from) || hasChildNodes(to) || isTemplateElement(from)) {
 			this.visitChildNodes(from, to)
+		} else if (isTextAreaElement(from)) {
+			this.#resetTextArea(from)
 		}
 		// A root without children to visit settles here, so its afterNodeVisited sees the finished DOM.
 		this.#settleIfRoot(from)
@@ -1531,7 +1548,11 @@ class Morph {
 			// The markup decides, so it doesn't get back a check another radio took from it.
 			if (hasAttribute(from, "checked") === checked) this.#displacedRadios?.delete(from)
 			if (from.checked !== checked && hasAttribute(from, "checked") === checked) {
+				// Checking a radio unchecks the rest of its group, which gets its check back if the radio then leaves,
+				// as a radio with a `form` attribute does when the morph adds or changes its form later.
+				const group = checked && from.type === "radio" && from.hasAttribute("form") ? checkedRadiosInGroup(from) : null
 				from.checked = checked
+				if (group) this.#noteDisplacedRadios(group, from)
 				if (from.type === "radio") (this.#radiosToSync ??= new Set()).add(from)
 			} else if (checked && from.type === "radio") {
 				// Adding `checked` checks the radio, which unchecks the others in its group, even later ones.
@@ -1557,20 +1578,10 @@ class Morph {
 			const selected = hasAttribute(to, "selected")
 			if (from.selected !== selected && hasAttribute(from, "selected") === selected) {
 				from.selected = selected
+				// WebKit can keep showing a drop-down's option the morph deselects, so a select around the root syncs.
+				if (this.#enclosingSelect?.[0].options[from.index] === from) this.#resetEnclosingOption = true
 			}
 		}
-	}
-
-	#visitTextArea(from: HTMLTextAreaElement, to: HTMLTextAreaElement): void {
-		const newTextContent = to.textContent || ""
-
-		// Update text content (which updates defaultValue). The browser keeps `.value` in sync
-		// with it until the textarea's value is dirty, so it decides whether the user changed it.
-		if (from.textContent !== newTextContent) {
-			from.textContent = newTextContent
-		}
-
-		this.#resetTextArea(from)
 	}
 
 	#resetTextArea(textarea: HTMLTextAreaElement): void {
@@ -1604,6 +1615,8 @@ class Morph {
 
 		// Each pass pairs the targets still without a candidate with the candidates still free, from the surest
 		// pairing to the loosest, and the remaining candidates are removed before the targets are placed.
+		// Placing the children moves the target's text into a textarea, so its text is read first.
+		const textAreaText = isTextAreaElement(from) ? textContentOf(to) : null
 		const siblings = new Siblings(from, to)
 		this.#matchEqualElements(siblings)
 		this.#matchDirtyElements(siblings)
@@ -1625,8 +1638,10 @@ class Morph {
 		}
 		this.#placeChildren(from, siblings)
 
-		// A textarea's children are only visited when it's the root of `morphInner`.
-		if (isTextAreaElement(from)) this.#resetTextArea(from)
+		// Changing a textarea's text updates its default value, which the browser copies to `.value` until the user
+		// changes it, so the browser decides whether the user changed it. Text that still differs from the target's
+		// means a callback vetoed the update, so the value is left alone too.
+		if (isTextAreaElement(from) && textContentOf(from) === textAreaText) this.#resetTextArea(from)
 		this.#settleIfRoot(from)
 		if (isSelectElement(from)) this.#syncDefaultSelection(from)
 
@@ -1735,9 +1750,9 @@ class Morph {
 			if (bucket) bucket.push(candidateIndex)
 			else candidatesByOutline.set(outline, [candidateIndex])
 		}
-		// A target discarding user changes only takes an untouched candidate, so it keeps its place among the rest.
-		const targets: Array<[number, Array<number>, boolean]> = []
+		const targets: Array<[number, Array<number>]> = []
 		const targetCounts: Map<Array<number>, number> = new Map()
+		const reserved: Set<number> = new Set()
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
 			if (!unmatchedActive[target]) continue
@@ -1745,12 +1760,22 @@ class Morph {
 			if (!names.has(localNameOf(element))) continue
 			const candidates = candidatesByOutline.get(outlineOf(element))
 			if (!candidates) continue
-			const takesChanged = !this.#holdsClobbered(element)
-			targets.push([target, candidates, takesChanged])
-			if (takesChanged) targetCounts.set(candidates, (targetCounts.get(candidates) ?? 0) + 1)
+			targets.push([target, candidates])
+			// A target counts when a candidate not yet counted for another target can take it, since a target none can
+			// take leaves a candidate without one. Targets usually go to candidates in order, so the search starts at the
+			// candidate in this target's place.
+			const count = targetCounts.get(candidates) ?? 0
+			for (let c = 0; c < candidates.length; c++) {
+				const candidateIndex = candidates[(count + c) % candidates.length]!
+				if (!reserved.has(candidateIndex) && this.#canTakeByOutline(element, candidateIndex, siblings)) {
+					reserved.add(candidateIndex)
+					targetCounts.set(candidates, count + 1)
+					break
+				}
+			}
 		}
-		// When there are fewer targets keeping changes than candidates, the untouched candidates go rather than the
-		// user's changes. The identical candidates are put back in order later.
+		// When there are fewer targets than candidates, the untouched candidates go rather than the user's changes. The
+		// identical candidates are put back in order later.
 		for (const [candidates, count] of targetCounts) {
 			if (count >= candidates.length) continue
 			candidates.sort(
@@ -1759,29 +1784,33 @@ class Morph {
 		}
 
 		const firstActive: Map<Array<number>, number> = new Map()
-		for (const [target, candidates, takesChanged] of targets) {
+		for (const [target, candidates] of targets) {
 			const element = to[target] as Element
 			// Each candidate is taken once, so the bucket skips its taken prefix.
 			let first = firstActive.get(candidates) ?? 0
 			while (first < candidates.length && !candidateActive[candidates[first]!]) first++
 			firstActive.set(candidates, first)
-			const softMatches = canSoftMatchByTagName(element, this.#idArrayMap.has(element))
 			for (let c = first; c < candidates.length; c++) {
 				const candidateIndex = candidates[c]!
-				// The outline holds the element's name, so the two are of the same kind.
-				if (!candidateActive[candidateIndex]) continue
-				const candidate = from[candidateIndex] as Element
-				if (!takesChanged && dirtyElements.has(candidate)) continue
-				if (
-					((softMatches && canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) ||
-						sharesMatchKey(element, candidate)) &&
-					!this.#holdsOtherChoice(candidate, element)
-				) {
+				if (candidateActive[candidateIndex] && this.#canTakeByOutline(element, candidateIndex, siblings)) {
 					siblings.take(target, candidateIndex, Operation.SameElement)
 					break
 				}
 			}
 		}
+	}
+
+	// The outline holds the element's name, so the two are of the same kind.
+	// A target discarding user changes only takes an untouched candidate, so it keeps its place among the rest.
+	#canTakeByOutline(element: Element, candidateIndex: number, siblings: Siblings): boolean {
+		const candidate = siblings.from[candidateIndex] as Element
+		return (
+			(!this.#dirtyElements!.has(candidate) || !this.#holdsClobbered(element)) &&
+			((canSoftMatchByTagName(element, this.#idArrayMap.has(element)) &&
+				canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) ||
+				sharesMatchKey(element, candidate)) &&
+			!this.#holdsOtherChoice(candidate, element)
+		)
 	}
 
 	// Match by exact id.
@@ -2386,8 +2415,8 @@ class Morph {
 	/* v8 ignore stop */
 
 	// A morph inside a select never visits the select, so sync it when the morph settles if the morph
-	// changed what the markup selects or what the select shows. A vetoed morph changes nothing, so it
-	// leaves it alone.
+	// changed what the markup selects or what the select shows, or reset an option's selection. A vetoed
+	// morph changes nothing, so it leaves it alone.
 	setEnclosingSelect(select: HTMLSelectElement, selection: Array<HTMLOptionElement | null>): void {
 		this.#enclosingSelect = [select, selection]
 	}
@@ -2417,7 +2446,8 @@ class Morph {
 		if (this.#preserveChanges) return
 
 		const newSelection = selectionOf(select)
-		if (newSelection.length === selection.length && newSelection.every((option, i) => option === selection[i])) return
+		const same = newSelection.length === selection.length && newSelection.every((option, i) => option === selection[i])
+		if (same && !this.#resetEnclosingOption) return
 
 		this.#syncDefaultSelection(select)
 	}
@@ -2520,6 +2550,22 @@ class Morph {
 			if (idOf(form) !== "" && isFormElement(form)) (ids ??= new Set()).add(idOf(form))
 		}
 		return ids && this.#uncheckRadiosNaming(ids, root, inside ? null : node)
+	}
+
+	// A new radio with a `form` attribute is checked in the group it joins, but can leave that group when the
+	// morph adds or changes its form later. So it's inserted unchecked and checked again straight after, which
+	// notes the radios it unchecks, to give them their check back if it leaves.
+	#uncheckRadiosWithForm(element: Element): Array<HTMLInputElement> | null {
+		let unchecked: Array<HTMLInputElement> | null = null
+		const inputs = isInputElement(element) ? [element] : querySelectorAll(element, "input[form]:checked")
+		for (let i = 0; i < inputs.length; i++) {
+			const input = inputs[i]!
+			if (isCheckedRadio(input) && input.hasAttribute("form")) {
+				this.#uncheckRadio(input)
+				;(unchecked ??= []).push(input)
+			}
+		}
+		return unchecked
 	}
 
 	#uncheckRadiosNaming(ids: ReadonlySet<string>, root: Node, except: Node | null): Array<HTMLInputElement> | null {
@@ -2878,10 +2924,12 @@ class Morph {
 		this.#placeMovableDescendants(node, parent)
 		if (this.#targetOpensDetails && isElement(node)) this.#noteAddedDetails(node)
 		const radios = this.#uncheckRadiosNamingFormsIn(node, getRootNode(parent))
+		const addedRadios = this.#targetChecksInputs && isElement(node) ? this.#uncheckRadiosWithForm(node) : null
 		moveInto(parent, node, insertionPoint)
 		if (focus) this.#restoreFocus(focus)
 		this.#checkRadios(radios)
 		this.#checkRadios(sourceRadios, true)
+		this.#checkRadios(addedRadios, true)
 		if (this.#targetChecksInputs && !this.#preserveChanges && isElement(node)) this.#noteAddedRadios(node)
 		this.#options.afterNodeAdded?.(node)
 		return true
@@ -3256,7 +3304,8 @@ function takeInOrder(
 // Choose which of the identical candidates stay when there are more of them than targets. The changed ones always
 // stay, and the others are chosen so that, taking the targets in order, they cross the fewest other matches, where
 // crossing a changed element outweighs crossing all the others, and two changed elements crossing outweighs both, since
-// the user's changes keep their order. On a tie, the candidates already staying stay. A changed candidate never takes a target discarding the user's changes.
+// the user's changes keep their order. On a tie, the candidates already staying stay. A changed candidate never takes a
+// target discarding the user's changes.
 function chooseStaying(
 	candidates: Array<number>,
 	targets: Array<number>,
@@ -3837,6 +3886,16 @@ function rangeAt(document: Document, node: Node, offset: number): Range {
 	const range = Document.prototype.createRange.call(document)
 	range.setStart(node, offset)
 	return range
+}
+
+// A live range follows its end through a removal, but a move without `moveBefore` removes the node too, which takes the
+// end out of the focused element though the node is still inside it. Then the end goes back to the node, as near its
+// old offset as still fits.
+/* v8 ignore next 5 -- only used where Chromium's moveBefore keeps focus */
+function followedEnd(element: Element, live: Range, node: Node, offset: number): [Node, number] {
+	if (contains(element, live.startContainer) || !contains(element, node)) return [live.startContainer, live.startOffset]
+	const length = nodeTypeOf(node) === ELEMENT_NODE_TYPE ? childNodesOf(node).length : (node as CharacterData).length
+	return [node, Math.min(offset, length)]
 }
 
 function contains(node: Node, other: Node | null): boolean {
