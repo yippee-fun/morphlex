@@ -1271,12 +1271,17 @@ class Morph {
 			this.#unrestoredFocus = null
 			removeEventListener(focus.document, "focusin", this.#dropUnrestoredFocus)
 			const range = this.#unrestoredRange
-			/* v8 ignore next 5 -- as in #restoreFocus */
+			/* v8 ignore start -- as in #restoreFocus */
 			if (range) {
 				this.#unrestoredRange = null
 				const [anchor, focusEnd] = range
-				focus.range = [anchor.startContainer, anchor.startOffset, focusEnd.startContainer, focusEnd.startOffset]
+				const [anchorNode, anchorOffset, focusNode, focusOffset] = focus.range!
+				focus.range = [
+					...followedEnd(focus.element, anchor, anchorNode, anchorOffset),
+					...followedEnd(focus.element, focusEnd, focusNode, focusOffset),
+				]
 			}
+			/* v8 ignore stop */
 			restoreFocus(focus)
 		}
 	}
@@ -3834,6 +3839,16 @@ function rangeAt(document: Document, node: Node, offset: number): Range {
 	const range = Document.prototype.createRange.call(document)
 	range.setStart(node, offset)
 	return range
+}
+
+// A live range follows its end through a removal, but a move without `moveBefore` removes the node too, which takes the
+// end out of the focused element though the node is still inside it. Then the end goes back to the node, as near its
+// old offset as still fits.
+/* v8 ignore next 5 -- only used where Chromium's moveBefore keeps focus */
+function followedEnd(element: Element, live: Range, node: Node, offset: number): [Node, number] {
+	if (contains(element, live.startContainer) || !contains(element, node)) return [live.startContainer, live.startOffset]
+	const length = nodeTypeOf(node) === ELEMENT_NODE_TYPE ? childNodesOf(node).length : (node as CharacterData).length
+	return [node, Math.min(offset, length)]
 }
 
 function contains(node: Node, other: Node | null): boolean {
