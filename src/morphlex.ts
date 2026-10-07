@@ -1735,20 +1735,22 @@ class Morph {
 			if (bucket) bucket.push(candidateIndex)
 			else candidatesByOutline.set(outline, [candidateIndex])
 		}
-		const targets: Array<[number, Array<number>]> = []
+		// A target discarding user changes only takes an untouched candidate, so it keeps its place among the rest.
+		const targets: Array<[number, Array<number>, boolean]> = []
 		const targetCounts: Map<Array<number>, number> = new Map()
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
 			if (!unmatchedActive[target]) continue
 			const element = to[target] as Element
-			if (!names.has(localNameOf(element)) || this.#holdsClobbered(element)) continue
+			if (!names.has(localNameOf(element))) continue
 			const candidates = candidatesByOutline.get(outlineOf(element))
 			if (!candidates) continue
-			targets.push([target, candidates])
-			targetCounts.set(candidates, (targetCounts.get(candidates) ?? 0) + 1)
+			const takesChanged = !this.#holdsClobbered(element)
+			targets.push([target, candidates, takesChanged])
+			if (takesChanged) targetCounts.set(candidates, (targetCounts.get(candidates) ?? 0) + 1)
 		}
-		// When there are fewer targets than candidates, the untouched candidates go rather than the user's changes. The
-		// identical candidates are put back in order later.
+		// When there are fewer targets keeping changes than candidates, the untouched candidates go rather than the
+		// user's changes. The identical candidates are put back in order later.
 		for (const [candidates, count] of targetCounts) {
 			if (count >= candidates.length) continue
 			candidates.sort(
@@ -1757,7 +1759,7 @@ class Morph {
 		}
 
 		const firstActive: Map<Array<number>, number> = new Map()
-		for (const [target, candidates] of targets) {
+		for (const [target, candidates, takesChanged] of targets) {
 			const element = to[target] as Element
 			// Each candidate is taken once, so the bucket skips its taken prefix.
 			let first = firstActive.get(candidates) ?? 0
@@ -1769,6 +1771,7 @@ class Morph {
 				// The outline holds the element's name, so the two are of the same kind.
 				if (!candidateActive[candidateIndex]) continue
 				const candidate = from[candidateIndex] as Element
+				if (!takesChanged && dirtyElements.has(candidate)) continue
 				if (
 					((softMatches && canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) ||
 						sharesMatchKey(element, candidate)) &&
@@ -3252,8 +3255,8 @@ function takeInOrder(
 
 // Choose which of the identical candidates stay when there are more of them than targets. The changed ones always
 // stay, and the others are chosen so that, taking the targets in order, they cross the fewest other matches, where
-// crossing a changed element outweighs crossing all the others, since the user's changes keep their order. On a tie,
-// the candidates already staying stay. A changed candidate never takes a target discarding the user's changes.
+// crossing a changed element outweighs crossing all the others, and two changed elements crossing outweighs both, since
+// the user's changes keep their order. On a tie, the candidates already staying stay. A changed candidate never takes a target discarding the user's changes.
 function chooseStaying(
 	candidates: Array<number>,
 	targets: Array<number>,
@@ -3306,7 +3309,7 @@ function chooseStaying(
 			const target = targets[j - 1]
 			if (target !== undefined && k < i && canTake(candidate, target)) {
 				const crossings = before - 2 * belowBefore(target) + below[target]!
-				best = Math.min(best, cost[(i - 1) * width + k]! + crossings * (n + 1))
+				best = Math.min(best, cost[(i - 1) * width + k]! + crossings * weightOf(candidate) * (n + 1))
 			}
 			cost[i * width + k] = best
 		}
