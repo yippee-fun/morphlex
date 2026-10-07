@@ -48,7 +48,7 @@ test("seeded fuzz of morphs rooted at or inside a select shows what its markup s
 			const preserveChanges = kind.includes("select") && extra() < 0.3
 			const root = host.querySelector("#root") ?? select
 			// A morph inside the select leaves the selection alone unless it changes what the markup selects.
-			const untouched = kind.includes("select") ? null : untouchedSelection(select)
+			const untouched = kind.includes("select") ? null : untouchedSelection(select, root)
 			let picked: string | null = null
 			let to: string
 			if (kind === "select" || kind === "inner-select") {
@@ -150,10 +150,13 @@ function markupSelections(select: HTMLSelectElement): Array<string> {
 
 // WebKit's parser can show an option the markup doesn't select (it skips an option in an optgroup), and a morph inside
 // the select that changes neither whether the options it shows are selected or disabled in the markup, nor what a form
-// reset selects, keeps that. So the selection from before the morph is accepted when the shown options are still
-// there and keep their `selected` and `disabled` attributes, and a form reset selects the same options as before.
-function untouchedSelection(select: HTMLSelectElement): (live: HTMLSelectElement) => string | undefined {
-	const shown = new Map([...select.options].filter((option) => option.selected).map((option) => [option, selectionState(option)]))
+// reset selects, keeps that. So the selection from before the morph is accepted when the shown options are outside the
+// morph's root (the morph resets the options it visits), are still there and keep their `selected` and `disabled`
+// attributes, and a form reset selects the same options as before.
+function untouchedSelection(select: HTMLSelectElement, root: Element): (live: HTMLSelectElement) => string | undefined {
+	const options = [...select.options].filter((option) => option.selected)
+	const shown = new Map(options.map((option) => [option, selectionState(option)]))
+	if (options.some((option) => root.contains(option))) return () => undefined
 	const reset = resetSelection(select)
 	return (live) => {
 		const survivors = [...live.options]
