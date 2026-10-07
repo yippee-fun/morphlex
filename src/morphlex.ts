@@ -2711,7 +2711,7 @@ class Morph {
 		this.#placeMovableDescendants(node, parent)
 		if (this.#targetOpensDetails && isElement(node)) this.#noteAddedDetails(node)
 		const radios = this.#uncheckRadiosNamingFormsIn(node, getRootNode(parent))
-		insertBefore(parent, node, insertionPoint)
+		moveInto(parent, node, insertionPoint)
 		if (focus) this.#restoreFocus(focus)
 		this.#checkRadios(radios)
 		this.#checkRadios(sourceRadios, true)
