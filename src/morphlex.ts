@@ -452,6 +452,10 @@ function selectsDisabledOption(document: Document): boolean {
 	return disabledOptionSelected
 }
 
+function isDropDown(select: HTMLSelectElement): boolean {
+	return !select.multiple && displaySizeOf(select) <= 1
+}
+
 // HTML integer parsing skips only ASCII whitespace, where `parseInt` skips any whitespace.
 function displaySizeOf(select: HTMLSelectElement): number {
 	const match = /^[\t\n\f\r ]*\+?(\d+)/.exec(select.getAttribute("size") ?? "")
@@ -1109,7 +1113,7 @@ class Morph {
 
 	// Selects synced to their markup, synced again when the morph settles, after options have moved or gone.
 	#syncedSelects: Set<HTMLSelectElement> | null = null
-	// Selects that had no selection when visited, so a drop-down they become shows an option the browser picked.
+	// Multiple selects and list boxes that had no selection when visited, so a drop-down they become shows an option the browser picked.
 	#unselectedSelects: Set<HTMLSelectElement> | null = null
 	// The select around a morph rooted inside it, and what its markup selected before the morph.
 	#enclosingSelect: [HTMLSelectElement, Array<HTMLOptionElement | null>] | null = null
@@ -1375,7 +1379,7 @@ class Morph {
 			this.#preserveChanges = false
 			this.#clobberedScope = from
 		}
-		if (this.#preserveChanges && isSelectElement(from) && from.selectedIndex < 0)
+		if (this.#preserveChanges && isSelectElement(from) && !isDropDown(from) && from.selectedIndex < 0)
 			(this.#unselectedSelects ??= new Set()).add(from)
 
 		if (hasAttributes(from) || hasAttributes(to)) {
@@ -2471,7 +2475,7 @@ class Morph {
 	// without a selection becomes a drop-down, the browser picks the first option, wherever the morph has got to with
 	// the options, so the drop-down shows what the markup selects.
 	#syncDefaultSelection(select: HTMLSelectElement): void {
-		if (this.#preserveChanges && !(this.#unselectedSelects?.has(select) && !select.multiple && displaySizeOf(select) <= 1)) return
+		if (this.#preserveChanges && !(this.#unselectedSelects?.has(select) && isDropDown(select))) return
 
 		const options = select.options
 		const defaultOption = select.multiple ? null : defaultOptionOf(select)

@@ -59,3 +59,16 @@ test("a multiple select the user deselected stays without a selection when it st
 	expect(select.selectedOptions.length).toBe(0)
 	host.remove()
 })
+
+test("a drop-down the user emptied stays empty when it stays a drop-down", () => {
+	const host = mount(`<form><select name="t"><option>a</option><option>b</option></select></form>`)
+	const select = host.querySelector("select")!
+	select.selectedIndex = -1
+
+	morph(host.firstElementChild!, parse(`<form class="x"><select name="t"><option>a</option><option>b</option></select></form>`), {
+		preserveChanges: true,
+	})
+
+	expect(select.selectedIndex).toBe(-1)
+	host.remove()
+})
