@@ -81,12 +81,14 @@ test("seeded fuzz: form state after a morph is what parsing the markup gives, or
 
 			if (scenario.preserveChanges) {
 				const dirty = recordDirtyControls(root, parse(targetHtml))
+				const untouched = recordUntouchedControls(root)
 				const targets = countFreeTargets(parse(targetHtml), root)
 
 				morph(root, parse(targetHtml), { preserveChanges: true })
 
 				expect(root.isEqualNode(parse(targetHtml)), message()).toBe(true)
 				assertUserChangesKept(dirty, targets, host, message)
+				assertUntouchedFollowMarkup(untouched, root, message)
 			} else {
 				const outside = recordOutsideState(host, root)
 				const expected = parseExpectedDocument(scenario, targetHtml)
@@ -193,6 +195,14 @@ function assertUserChangesKept(
 	}
 }
 
+// An input or textarea the user didn't change follows its markup after the morph. Selects are left out, since under
+// `preserveChanges` the browser decides their selection.
+function assertUntouchedFollowMarkup(untouched: Array<FormControl>, root: Element, message: () => string): void {
+	for (const control of untouched) {
+		if (root.contains(control)) expect(isDirty(control), `${message()}\nuntouched ${control.outerHTML}`).toBe(false)
+	}
+}
+
 type FormControl = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
 
 // The option the user picked or toggled in a select, and whether they left it selected.
@@ -207,13 +217,13 @@ interface DirtyControl {
 	state: boolean | string | Pick
 }
 
-// The controls the user changed that still differ from their markup: a radio the user picked and then left for
-// another one in its group looks untouched again. A control whose id the target dropped is left out, since it's
-// no longer paired by anything.
+// The controls that differ from their markup: the ones the user changed, and a radio another pick in its group
+// unchecked. A radio the user picked and then left for another one looks untouched again. A control whose id the
+// target dropped is left out, since it's no longer paired by anything.
 function recordDirtyControls(root: Element, target: Element): Array<DirtyControl> {
 	const targetIds = idsIn(target)
 	return [...root.querySelectorAll<FormControl>("input, textarea, select")]
-		.filter((control) => (control as Element & { fuzzDirty?: boolean }).fuzzDirty && isDirty(control))
+		.filter(isDirty)
 		.filter((control) => !control.id || targetIds.has(control.id))
 		.map((control) => ({
 			control,
@@ -246,6 +256,14 @@ function countFreeTargets(target: Element, root: Element): Map<string, number> {
 		if (index >= 0) candidates.splice(index, 1)
 	}
 	return new Map([...free].map(([key, candidates]) => [key, candidates.length]))
+}
+
+// The inputs and textareas the user didn't touch, which still hold what their markup says. A radio the user picked
+// keeps the browser's dirty flag even once it's back to its default, so it doesn't count.
+function recordUntouchedControls(root: Element): Array<FormControl> {
+	return [...root.querySelectorAll<FormControl>("input, textarea")].filter(
+		(control) => !(control as Element & { fuzzDirty?: boolean }).fuzzDirty && !isDirty(control),
+	)
 }
 
 // Whether the morph sees the control as changed. A drop-down with no `selected` option shows its first option, so
