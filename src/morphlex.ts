@@ -1372,10 +1372,10 @@ class Morph {
 			this.#visitAttributes(from, to)
 		}
 
-		if (isTextAreaElement(from) && isTextAreaElement(to)) {
-			this.#visitTextArea(from, to)
-		} else if (hasChildNodes(from) || hasChildNodes(to) || isTemplateElement(from)) {
+		if (hasChildNodes(from) || hasChildNodes(to) || isTemplateElement(from)) {
 			this.visitChildNodes(from, to)
+		} else if (isTextAreaElement(from)) {
+			this.#resetTextArea(from)
 		}
 		// A root without children to visit settles here, so its afterNodeVisited sees the finished DOM.
 		this.#settleIfRoot(from)
@@ -1572,18 +1572,6 @@ class Morph {
 		}
 	}
 
-	#visitTextArea(from: HTMLTextAreaElement, to: HTMLTextAreaElement): void {
-		const newTextContent = to.textContent || ""
-
-		// Update text content (which updates defaultValue). The browser keeps `.value` in sync
-		// with it until the textarea's value is dirty, so it decides whether the user changed it.
-		if (from.textContent !== newTextContent) {
-			from.textContent = newTextContent
-		}
-
-		this.#resetTextArea(from)
-	}
-
 	#resetTextArea(textarea: HTMLTextAreaElement): void {
 		// Assigning `.value` marks it dirty, so only do it when it has actually diverged.
 		if (!this.#preserveChanges && isDirtyTextArea(textarea)) {
@@ -1615,6 +1603,8 @@ class Morph {
 
 		// Each pass pairs the targets still without a candidate with the candidates still free, from the surest
 		// pairing to the loosest, and the remaining candidates are removed before the targets are placed.
+		// Placing the children moves the target's text into a textarea, so its text is read first.
+		const textAreaText = isTextAreaElement(from) ? textContentOf(to) : null
 		const siblings = new Siblings(from, to)
 		this.#matchEqualElements(siblings)
 		this.#matchDirtyElements(siblings)
@@ -1636,8 +1626,10 @@ class Morph {
 		}
 		this.#placeChildren(from, siblings)
 
-		// A textarea's children are only visited when it's the root of `morphInner`.
-		if (isTextAreaElement(from)) this.#resetTextArea(from)
+		// Changing a textarea's text updates its default value, which the browser copies to `.value` until the user
+		// changes it, so the browser decides whether the user changed it. Text that still differs from the target's
+		// means a callback vetoed the update, so the value is left alone too.
+		if (isTextAreaElement(from) && textContentOf(from) === textAreaText) this.#resetTextArea(from)
 		this.#settleIfRoot(from)
 		if (isSelectElement(from)) this.#syncDefaultSelection(from)
 
