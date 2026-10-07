@@ -1612,8 +1612,9 @@ class Morph {
 		this.#placeChildren(from, siblings)
 
 		// Changing a textarea's text updates its default value, which the browser copies to `.value` until the user
-		// changes it, so the browser decides whether the user changed it.
-		if (isTextAreaElement(from)) this.#resetTextArea(from)
+		// changes it, so the browser decides whether the user changed it. Text that still differs from the target's
+		// means a callback vetoed the update, so the value is left alone too.
+		if (isTextAreaElement(from) && textContentOf(from) === textContentOf(to)) this.#resetTextArea(from)
 		this.#settleIfRoot(from)
 		if (isSelectElement(from)) this.#syncDefaultSelection(from)
 

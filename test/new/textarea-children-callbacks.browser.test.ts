@@ -102,3 +102,23 @@ test("an edited empty textarea keeps the user's text with preserveChanges", () =
 	expect(textarea.value).toBe("typed")
 	div.remove()
 })
+
+test("a vetoed text update keeps the user's value without preserveChanges", () => {
+	const vetoes = [
+		{ from: "a", to: "", options: { beforeNodeRemoved: () => false } },
+		{ from: "", to: "b", options: { beforeNodeAdded: () => false } },
+		{ from: "a", to: "b", options: { beforeNodeVisited: (node: Node) => node.nodeType !== Node.TEXT_NODE } },
+	]
+
+	for (const { from, to, options } of vetoes) {
+		const div = liveDiv(`<textarea name="t">${from}</textarea>`)
+		const textarea = div.querySelector("textarea")!
+		textarea.value = "typed"
+
+		morph(div, `<div><textarea name="t">${to}</textarea></div>`, options)
+
+		expect(textarea.defaultValue).toBe(from)
+		expect(textarea.value).toBe("typed")
+		div.remove()
+	}
+})
