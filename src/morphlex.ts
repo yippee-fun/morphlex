@@ -3736,7 +3736,8 @@ function shapeOf(node: Node, ignoresOpen: boolean): string {
 function outlineOf(node: Node): string {
 	if (!isElement(node)) return JSON.stringify([nodeTypeOf(node), node.nodeName, node.nodeValue])
 	let children = ""
-	for (const child of childNodesOf(node)) children += outlineOf(child)
+	// A textarea's text is only its default value, which the user's typing replaces.
+	if (!isTextAreaElement(node)) for (const child of childNodesOf(node)) children += outlineOf(child)
 	if (isTemplateElement(node)) {
 		children += "<#content"
 		for (const child of node.content.childNodes) children += outlineOf(child)
