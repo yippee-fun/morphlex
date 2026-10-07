@@ -2306,10 +2306,12 @@ class Morph {
 
 				if (!shouldNotMove[matchInd]) {
 					const outsideRadios = this.#uncheckRadiosNamingFormsIn(match, getRootNode(match))
+					const insideRadios = this.#uncheckRadiosInFormsIn(match)
 					const focus = this.#watchFocus(match, parent)
 					moveBefore(parent, match, insertionPoint)
 					if (focus) this.#restoreFocus(focus)
 					this.#checkRadios(outsideRadios)
+					this.#checkRadios(insideRadios, true)
 				}
 				// Read this before the morph, which can replace the match. A match that moved itself
 				// elsewhere when it reconnected leaves the insertion point where it was.
@@ -2559,6 +2561,15 @@ class Morph {
 		return ids && this.#uncheckRadiosNaming(ids, root, inside ? null : node)
 	}
 
+	// Chromium and Firefox briefly reset the form of a radio with a `form` attribute while a form around it
+	// moves or leaves, and a checked one then unchecks the radio in the group it joins for that moment. So
+	// when a node holding a form moves or leaves, these radios go unchecked, and are checked again straight
+	// after, back in the group they were in.
+	#uncheckRadiosInFormsIn(node: Node): Array<HTMLInputElement> | null {
+		if (!isElement(node) || (!isFormElement(node) && getElementsByTagName(node, "form").length === 0)) return null
+		return this.#uncheckRadiosWithForm(node)
+	}
+
 	// A new radio with a `form` attribute is checked in the group it joins, but can leave that group when the
 	// morph adds or changes its form later. So it's inserted unchecked and checked again straight after, which
 	// notes the radios it unchecks, to give them their check back if it leaves.
@@ -2710,8 +2721,10 @@ class Morph {
 
 	#removeChild(node: ChildNode): void {
 		const radios = this.#uncheckRadiosNamingFormsIn(node, getRootNode(node))
+		const insideRadios = this.#uncheckRadiosInFormsIn(node)
 		remove(node)
 		this.#checkRadios(radios)
+		this.#checkRadios(insideRadios, true)
 	}
 
 	// Check each radio the markup checks, in document order, so the last one wins as when parsing.
@@ -2980,11 +2993,13 @@ class Morph {
 		if (!inCycle && this.#liveElementsById.get(idOf(target)) === live && !contains(live, parent)) {
 			this.#liveElementsById.delete(idOf(target))
 			const radios = this.#uncheckRadiosForMove(live, parent)
+			const insideRadios = this.#uncheckRadiosInFormsIn(live)
 			const focus = this.#watchFocus(live, parent)
 			moveInto(parent, live, placeholder)
 			if (focus) this.#restoreFocus(focus)
 			remove(placeholder)
 			this.#checkRadios(radios)
+			this.#checkRadios(insideRadios, true)
 			if (!this.#preserveChanges) this.#noteRadioGroups(live)
 			this.#morphOneToOne(live, target)
 		} else {
