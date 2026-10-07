@@ -1753,13 +1753,18 @@ class Morph {
 		const targets: Array<[number, Array<number>]> = []
 		const targetCounts: Map<Array<number>, number> = new Map()
 		const reserved: Set<number> = new Set()
+		// A target discarding user changes only takes an untouched candidate, so it's left out once none is left.
+		const untouchedLeft: Map<Array<number>, number> = new Map()
+		for (const candidates of candidatesByOutline.values()) {
+			untouchedLeft.set(candidates, candidates.filter((candidate) => !dirtyElements.has(from[candidate] as Element)).length)
+		}
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
 			if (!unmatchedActive[target]) continue
 			const element = to[target] as Element
-			if (!names.has(localNameOf(element)) || this.#holdsClobbered(element)) continue
+			if (!names.has(localNameOf(element))) continue
 			const candidates = candidatesByOutline.get(outlineOf(element))
-			if (!candidates) continue
+			if (!candidates || (!untouchedLeft.get(candidates) && this.#holdsClobbered(element))) continue
 			targets.push([target, candidates])
 			// A target counts when a candidate not yet counted for another target can take it, since a target none can
 			// take leaves a candidate without one. Targets usually go to candidates in order, so the search starts at the
@@ -1770,6 +1775,8 @@ class Morph {
 				if (!reserved.has(candidateIndex) && this.#canTakeByOutline(element, candidateIndex, siblings)) {
 					reserved.add(candidateIndex)
 					targetCounts.set(candidates, count + 1)
+					if (!dirtyElements.has(from[candidateIndex] as Element))
+						untouchedLeft.set(candidates, untouchedLeft.get(candidates)! - 1)
 					break
 				}
 			}
@@ -1801,9 +1808,11 @@ class Morph {
 	}
 
 	// The outline holds the element's name, so the two are of the same kind.
+	// A target discarding user changes only takes an untouched candidate, so it keeps its place among the rest.
 	#canTakeByOutline(element: Element, candidateIndex: number, siblings: Siblings): boolean {
 		const candidate = siblings.from[candidateIndex] as Element
 		return (
+			(!this.#dirtyElements!.has(candidate) || !this.#holdsClobbered(element)) &&
 			((canSoftMatchByTagName(element, this.#idArrayMap.has(element)) &&
 				canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) ||
 				sharesMatchKey(element, candidate)) &&
@@ -3301,8 +3310,9 @@ function takeInOrder(
 
 // Choose which of the identical candidates stay when there are more of them than targets. The changed ones always
 // stay, and the others are chosen so that, taking the targets in order, they cross the fewest other matches, where
-// crossing a changed element outweighs crossing all the others, since the user's changes keep their order. On a tie,
-// the candidates already staying stay. A changed candidate never takes a target discarding the user's changes.
+// crossing a changed element outweighs crossing all the others, and two changed elements crossing outweighs both, since
+// the user's changes keep their order. On a tie, the candidates already staying stay. A changed candidate never takes a
+// target discarding the user's changes.
 function chooseStaying(
 	candidates: Array<number>,
 	targets: Array<number>,
@@ -3322,7 +3332,10 @@ function chooseStaying(
 		if (candidate !== undefined && !own.has(target)) others.push([candidate, target])
 	}
 	others.sort((a, b) => a[0] - b[0])
-	const weightOf = (candidate: number): number => (isChanged(candidate) ? others.length + 1 : 1)
+	// The candidates taking the targets cross at most this many other matches, so a crossing weighing one more outweighs
+	// any number of lighter ones, and one between two changed elements weighs its square.
+	const heavy = targets.length * others.length + 1
+	const weightOf = (candidate: number): number => (isChanged(candidate) ? heavy : 1)
 	// The weight of the other matches with a target below each target, all of them, and in a Fenwick tree the ones
 	// whose candidate comes before the current candidate.
 	const below = new Float64Array(matches.length + 1)
@@ -3355,7 +3368,7 @@ function chooseStaying(
 			const target = targets[j - 1]
 			if (target !== undefined && k < i && canTake(candidate, target)) {
 				const crossings = before - 2 * belowBefore(target) + below[target]!
-				best = Math.min(best, cost[(i - 1) * width + k]! + crossings * (n + 1))
+				best = Math.min(best, cost[(i - 1) * width + k]! + crossings * weightOf(candidate) * (n + 1))
 			}
 			cost[i * width + k] = best
 		}
