@@ -592,7 +592,8 @@ function parseFragment(string: string): DocumentFragment {
 	const template = createElement(document, "template") as HTMLTemplateElement
 	template.innerHTML = string
 	trimFragmentEdgeWhitespace(template.content)
-	flattenNoscripts(template.content)
+	/* v8 ignore next -- only Firefox parses a template's content with scripting enabled */
+	if (!templateKeepsNoscriptText()) flattenNoscripts(template.content)
 
 	return template.content
 }
@@ -605,8 +606,20 @@ function parseDocument(string: string): Document {
 	return parsed
 }
 
-// Strings are parsed with scripting disabled, which turns a noscript's content into elements, but a page parsed
-// with scripting enabled holds it as text. So it's turned back into text, so the morph never adds its elements.
+let noscriptTextKept: boolean | undefined
+
+// Whether a template parses a noscript's content as text, as a page does with scripting enabled.
+function templateKeepsNoscriptText(): boolean {
+	if (noscriptTextKept === undefined) {
+		const template = createElement(document, "template") as HTMLTemplateElement
+		template.innerHTML = "<noscript><p></p></noscript>"
+		noscriptTextKept = nodeTypeOf(template.content.firstChild!.firstChild!) === TEXT_NODE_TYPE
+	}
+	return noscriptTextKept
+}
+
+// Parsing with scripting disabled turns a noscript's content into elements, but a page parsed with scripting
+// enabled holds it as text. So it's turned back into text, so the morph never adds its elements.
 function flattenNoscripts(parent: ParentNode): void {
 	const noscripts = querySelectorAll(parent, "noscript")
 	for (let i = 0; i < noscripts.length; i++) {
