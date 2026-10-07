@@ -2381,18 +2381,21 @@ class Morph {
 		if (this.#preserveChanges) return
 
 		const options = select.options
-		const vetoed = this.#vetoedControls
-		if (vetoed) {
+		const defaultOption = select.multiple ? null : defaultOptionOf(select)
+		const isSelected = (option: HTMLOptionElement) =>
+			select.multiple ? option.hasAttribute("selected") : option === defaultOption
+
+		// Leave the select alone when that would change an option whose update or visit was vetoed.
+		if (this.#vetoedControls || this.#vetoedNodes) {
 			for (let i = 0; i < options.length; i++) {
-				if (vetoed.has(options[i]!)) return
+				const option = options[i]!
+				if (option.selected !== isSelected(option) && this.#isVetoed(option)) return
 			}
 		}
 
-		const defaultOption = select.multiple ? null : defaultOptionOf(select)
-
 		for (let i = 0; i < options.length; i++) {
 			const option = options[i]!
-			const selected = select.multiple ? option.hasAttribute("selected") : option === defaultOption
+			const selected = isSelected(option)
 			if (option.selected !== selected) option.selected = selected
 		}
 
