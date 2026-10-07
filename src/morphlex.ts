@@ -1379,6 +1379,9 @@ class Morph {
 				// Go through `Attr` nodes, because `setAttribute` rejects names the parser accepts, like `@click`.
 				// Look the attribute up after the callback, which may have removed or replaced it.
 				const radios = namespaceURI ? null : this.#uncheckRadiosForAttribute(from, name, value)
+				// Checking a radio unchecks the rest of its group, which gets its check back if the radio then leaves.
+				const group =
+					name === "checked" && namespaceURI === null && isRadio(from) && !from.checked ? checkedRadiosInGroup(from) : null
 				const existing = getAttributeNodeNS(from, namespaceURI, localName)
 				if (existing) {
 					existing.value = value
@@ -1388,6 +1391,7 @@ class Morph {
 					setAttributeNodeNS(from, attribute.cloneNode() as Attr)
 				}
 				this.#checkRadios(radios)
+				if (group) this.#noteDisplacedRadios(group, from as HTMLInputElement)
 				this.#options.afterAttributeUpdated?.(from, name, oldValue)
 			} else {
 				this.#noteVetoedAttribute(from, name, namespaceURI)
@@ -2404,24 +2408,28 @@ class Morph {
 	// Moving an element can change the form of radios inside it, and briefly of radios outside it
 	// whose form is inside it, and a checked radio that changes form unchecks the rest of its new
 	// group. So checked radios outside the element move unchecked and are checked again straight
-	// after. Without `preserveChanges`, checked radios inside it that change form move unchecked too,
-	// and are checked again when the morph settles if the markup or a veto keeps them checked.
-	// Returns the radios outside.
+	// after. Checked radios inside it that change form move unchecked too. With `preserveChanges`
+	// they're checked again straight after, so the radios they uncheck get their check back if the
+	// markup then unchecks them. Without it, they're checked again when the morph settles if the
+	// markup or a veto keeps them checked. Returns the radios to check again straight after.
 	#uncheckRadiosForMove(element: Element, parent: ParentNode): Array<HTMLInputElement> | null {
-		const outside = this.#uncheckRadiosNamingFormsIn(element, getRootNode(element))
+		let radios = this.#uncheckRadiosNamingFormsIn(element, getRootNode(element))
 
-		if (!this.#preserveChanges) {
-			const inputs = isInputElement(element) ? [element] : querySelectorAll(element, "input")
-			for (let i = 0; i < inputs.length; i++) {
-				const input = inputs[i]!
-				if (isCheckedRadio(input) && input.form !== formAfterMove(input, element, parent)) {
+		const inputs = isInputElement(element) ? [element] : querySelectorAll(element, "input")
+		for (let i = 0; i < inputs.length; i++) {
+			const input = inputs[i]!
+			if (isCheckedRadio(input) && input.form !== formAfterMove(input, element, parent)) {
+				if (this.#preserveChanges) {
+					this.#uncheckRadio(input)
+					;(radios ??= []).push(input)
+				} else {
 					input.checked = false
 					;(this.#radiosUncheckedForMove ??= new Set()).add(input)
 				}
 			}
 		}
 
-		return outside
+		return radios
 	}
 
 	// A radio with a `form` attribute changes form when a form with that id is added, moved or removed,
@@ -2456,9 +2464,16 @@ class Morph {
 	}
 
 	// Changing a radio's `form` attribute or a form's id changes the form of radios, like moving a form,
-	// and changing a radio's name changes its group too.
+	// changing a radio's name changes its group too, and a checked input that becomes a radio joins one.
 	#uncheckRadiosForAttribute(element: Element, name: string, value: string | null): Array<HTMLInputElement> | null {
-		if ((name === "form" || name === "name") && isCheckedRadio(element)) {
+		if (
+			((name === "form" || name === "name") && isCheckedRadio(element)) ||
+			(name === "type" &&
+				value?.toLowerCase() === "radio" &&
+				isInputElement(element) &&
+				element.type !== "radio" &&
+				element.checked)
+		) {
 			this.#uncheckRadio(element)
 			return [element]
 		}
@@ -2515,14 +2530,26 @@ class Morph {
 			if (checkedInMorph) {
 				checkedInMorph.checked = true
 				// The radio can still join another group later in the morph, and then gets its check back.
-				;(this.#displacedRadios ??= new Map()).set(radio, checkedInMorph)
+				this.#noteDisplacedRadio(radio, checkedInMorph)
 			}
 
-			for (let j = 0; j < checked.length; j++) {
-				const member = checked[j]!
-				if (!member.checked) (this.#displacedRadios ??= new Map()).set(member, radio)
-			}
+			this.#noteDisplacedRadios(checked, radio)
 		}
+	}
+
+	// Note the radios that were checked before `radio` took their group.
+	#noteDisplacedRadios(checked: Array<HTMLInputElement>, radio: HTMLInputElement): void {
+		for (let i = 0; i < checked.length; i++) {
+			const member = checked[i]!
+			if (!member.checked) this.#noteDisplacedRadio(member, radio)
+		}
+	}
+
+	// Radios are given back newest first, so a radio displaced again moves to the end.
+	#noteDisplacedRadio(member: HTMLInputElement, radio: HTMLInputElement): void {
+		const displaced = (this.#displacedRadios ??= new Map())
+		displaced.delete(member)
+		displaced.set(member, radio)
 	}
 
 	// A radio that passed through a group on its way elsewhere, say when the morph removes a form and
@@ -2531,7 +2558,8 @@ class Morph {
 	// another radio in its group is checked.
 	#restoreDisplacedRadios(displaced: Map<HTMLInputElement, HTMLInputElement>): void {
 		const groups: RadioGroups = new Map()
-		for (const [member, radio] of displaced) {
+		// Newest first, so a radio that took a group and then lost it to another gets it back before the one it took it from.
+		for (const [member, radio] of Array.from(displaced).reverse()) {
 			const group = radioGroupOf(member, groups)
 			if (radio.checked && group.includes(radio)) continue
 			if (group.some((other) => other.checked)) continue
@@ -2813,12 +2841,12 @@ class Morph {
 
 		if (!inCycle && this.#liveElementsById.get(idOf(target)) === live && !contains(live, parent)) {
 			this.#liveElementsById.delete(idOf(target))
-			const outsideRadios = this.#uncheckRadiosForMove(live, parent)
+			const radios = this.#uncheckRadiosForMove(live, parent)
 			const focus = this.#watchFocus(live, parent)
 			moveInto(parent, live, placeholder)
 			if (focus) this.#restoreFocus(focus)
 			remove(placeholder)
-			this.#checkRadios(outsideRadios)
+			this.#checkRadios(radios)
 			if (!this.#preserveChanges) this.#noteRadioGroups(live)
 			this.#morphOneToOne(live, target)
 		} else {
@@ -3492,7 +3520,32 @@ function isFormElement(element: Element): element is HTMLFormElement {
 }
 
 function isCheckedRadio(element: Element): element is HTMLInputElement {
-	return isInputElement(element) && element.type === "radio" && element.checked
+	return isRadio(element) && element.checked
+}
+
+function isRadio(element: Element): element is HTMLInputElement {
+	return isInputElement(element) && element.type === "radio"
+}
+
+// Only the form's controls with the radio's name, or the checked inputs in a tree, are read, which keeps
+// this short in forms with many radios.
+function checkedRadiosInGroup(radio: HTMLInputElement): Array<HTMLInputElement> {
+	if (radio.name === "") return []
+	const form = radio.form
+	let inputs: ArrayLike<Node> = []
+	if (form) {
+		// A list of the controls with that name, or just the radio itself when it's alone.
+		const named = elementsOf(form).namedItem(radio.name)
+		if (named && "length" in named) inputs = named
+	} else {
+		inputs = querySelectorAll(radio.getRootNode() as ParentNode, "input:checked")
+	}
+	const checked: Array<HTMLInputElement> = []
+	for (let i = 0; i < inputs.length; i++) {
+		const input = inputs[i] as Element
+		if (isRadio(input) && input.checked && input.name === radio.name && input.form === form) checked.push(input)
+	}
+	return checked
 }
 
 function isInputElement(element: Element): element is HTMLInputElement {
