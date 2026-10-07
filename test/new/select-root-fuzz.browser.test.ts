@@ -150,13 +150,14 @@ function markupSelections(select: HTMLSelectElement): Array<string> {
 
 // WebKit's parser can show an option the markup doesn't select (it skips an option in an optgroup), and a morph inside
 // the select that changes neither whether the options it shows are selected or disabled in the markup, nor what a form
-// reset selects, keeps that. So the selection from before the morph is accepted when the shown options are outside the
-// morph's root (the morph resets the options it visits), are still there and keep their `selected` and `disabled`
-// attributes, and a form reset selects the same options as before.
+// reset selects, keeps that. So the selection from before the morph is accepted when the morph's root holds no option
+// that is selected or has a `selected` attribute (the morph resets the options it visits), the shown options are still
+// there and keep their `selected` and `disabled` attributes, and a form reset selects the same options as before.
 function untouchedSelection(select: HTMLSelectElement, root: Element): (live: HTMLSelectElement) => string | undefined {
 	const options = [...select.options].filter((option) => option.selected)
 	const shown = new Map(options.map((option) => [option, selectionState(option)]))
-	if (options.some((option) => root.contains(option))) return () => undefined
+	const visited = [...select.options].filter((option) => root.contains(option))
+	if (visited.some((option) => option.selected || option.hasAttribute("selected"))) return () => undefined
 	const reset = resetSelection(select)
 	return (live) => {
 		const survivors = [...live.options]
