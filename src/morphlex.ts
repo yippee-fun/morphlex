@@ -6,6 +6,8 @@ const TEXT_NODE_TYPE = 3
 const DOCUMENT_NODE_TYPE = 9
 const DOCUMENT_FRAGMENT_NODE_TYPE = 11
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg"
+const MATHML_NAMESPACE = "http://www.w3.org/1998/Math/MathML"
 const CLOBBER_ATTRIBUTE = "morphlex-clobber"
 const DIRTY_ATTRIBUTE = "morphlex-dirty"
 // The most cells `chooseStaying` fills for one set of siblings, about 8 MB in all, so a morph removing many of many
@@ -163,7 +165,9 @@ export function morphDocument(from: Document, to: Document | string, options?: O
 }
 
 /**
- * Morph one `ChildNode` to another. If the `to` node is a string, it will be parsed with a `<template>` element.
+ * Morph one `ChildNode` to another. If the `to` node is a string, it will be parsed where `from` is: with a
+ * `DOMParser` for an `html`, `head` or `body` root, in an element of the parent's namespace inside SVG or MathML,
+ * and otherwise with a `<template>` element.
  *
  * @param from The source node to morph from.
  * @param to The target node, node list or string to morph to.
@@ -179,14 +183,14 @@ export function morphDocument(from: Document, to: Document | string, options?: O
  * the nodes are adopted. Do not pass untrusted HTML; sanitize it first.
  */
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
-	if (typeof to === "string") to = parseFragment(to).childNodes
+	if (typeof to === "string") to = parseTarget(from, to)
 
 	run(from, to, takeClobbered(to), options, (morpher) => morpher.morph(from, to))
 }
 
 /**
  * Morph the inner content of one ChildNode to the inner content of another.
- * If the `to` node is a string, it will be parsed with a `<template>` element.
+ * If the `to` node is a string, it will be parsed where `from` is, as with `morph`.
  *
  * @param from The source node to morph from.
  * @param to The target node, node list or string to morph to.
@@ -203,10 +207,12 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
  */
 export function morphInner(from: ChildNode, to: ChildNode | string, options: Options = {}): void {
 	if (typeof to === "string") {
-		const fragment = parseFragment(to)
+		const parsed = parseTarget(from, to)
 
-		if (fragment.firstChild && fragment.childNodes.length === 1 && nodeTypeOf(fragment.firstChild) === ELEMENT_NODE_TYPE) {
-			to = fragment.firstChild
+		if (!isNodeList(parsed)) {
+			to = parsed
+		} else if (parsed.length === 1 && nodeTypeOf(parsed[0]!) === ELEMENT_NODE_TYPE) {
+			to = parsed[0]!
 		} else {
 			throw new Error("[Morphlex] The string was not a valid HTML element.")
 		}
@@ -588,11 +594,46 @@ function clearDirtyFlags(elements: Array<Element>): void {
 	}
 }
 
+// A string is parsed where `from` is, as `innerHTML` on its parent would parse it. An `html`, `head` or `body`
+// can't be parsed in a template, so it's taken from a parsed document. Inside SVG or MathML, the string is parsed
+// in an element like the parent (or for a root without one, an `svg` or `math`), so a `circle` isn't an HTML
+// element. Anything else is parsed in a template, which keeps table rows and the like where they are.
+function parseTarget(from: ChildNode, string: string): ChildNode | NodeListOf<ChildNode> {
+	if (isElement(from) && namespaceURIOf(from) === HTML_NAMESPACE) {
+		const name = localNameOf(from)
+		if (name === "html" || name === "head" || name === "body") {
+			const parsed = parseDocument(string)
+			return name === "html" ? documentElementOf(parsed)! : name === "head" ? headOf(parsed) : bodyOf(parsed)
+		}
+	}
+
+	return parseFragment(string, foreignContextOf(from)).childNodes
+}
+
+// The parent of `from` when it's an SVG or MathML element, or for an SVG or MathML root without one, an `svg` or
+// `math`. The parent's attributes count too, since an `annotation-xml` with an HTML `encoding` holds HTML.
+function foreignContextOf(from: ChildNode): Element | null {
+	const parent = parentNodeOf(from)
+	if (parent && isElement(parent)) return namespaceURIOf(parent) === HTML_NAMESPACE ? null : parent
+
+	const namespace = isElement(from) ? namespaceURIOf(from) : null
+	if (namespace === SVG_NAMESPACE) return createElementNS(document, namespace, "svg")
+	if (namespace === MATHML_NAMESPACE) return createElementNS(document, namespace, "math")
+	return null
+}
+
 // `setHTMLUnsafe` and `Document.parseHTMLUnsafe` attach declarative shadow roots, as a page does, so a
 // `<template shadowrootmode>` never lands in a host's light DOM. Older browsers fall back to parsers that don't.
-function parseFragment(string: string): DocumentFragment {
+// A foreign context is parsed in a shallow copy of it in the template's inert document, so nothing loads.
+function parseFragment(string: string, context: Element | null = null): DocumentFragment {
 	const template = createElement(document, "template") as HTMLTemplateElement
-	setTemplateHTML(template, string)
+	if (context) {
+		const element = importNode(template.content.ownerDocument, context)
+		setHTML(element, string)
+		while (element.firstChild) template.content.appendChild(element.firstChild)
+	} else {
+		setHTML(template, string)
+	}
 	trimFragmentEdgeWhitespace(template.content)
 	/* v8 ignore next -- only Firefox parses a template's content with scripting enabled */
 	if (!templateKeepsNoscriptText()) flattenNoscripts(template.content)
@@ -600,10 +641,10 @@ function parseFragment(string: string): DocumentFragment {
 	return template.content
 }
 
-function setTemplateHTML(template: HTMLTemplateElement, string: string): void {
+function setHTML(element: Element, string: string): void {
 	/* v8 ignore next -- every browser the tests run in has setHTMLUnsafe */
-	if (template.setHTMLUnsafe) template.setHTMLUnsafe(string)
-	else template.innerHTML = string
+	if (element.setHTMLUnsafe) element.setHTMLUnsafe(string)
+	else element.innerHTML = string
 }
 
 function parseDocument(string: string): Document {
@@ -623,7 +664,7 @@ let noscriptTextKept: boolean | undefined
 function templateKeepsNoscriptText(): boolean {
 	if (noscriptTextKept === undefined) {
 		const template = createElement(document, "template") as HTMLTemplateElement
-		setTemplateHTML(template, "<noscript><p></p></noscript>")
+		setHTML(template, "<noscript><p></p></noscript>")
 		noscriptTextKept = nodeTypeOf(template.content.firstChild!.firstChild!) === TEXT_NODE_TYPE
 	}
 	return noscriptTextKept
@@ -3874,6 +3915,7 @@ const childrenOf = getter(() => Element.prototype, "children")
 const firstElementChildOf = getter(() => Element.prototype, "firstElementChild")
 const nextElementSiblingOf = getter(() => Element.prototype, "nextElementSibling")
 const documentElementOf = getter(() => Document.prototype, "documentElement")
+const headOf = getter(() => Document.prototype, "head")
 const bodyOf = getter(() => Document.prototype, "body")
 const activeElementOf = getter(() => Document.prototype, "activeElement")
 const implementationOf = getter(() => Document.prototype, "implementation")
@@ -4005,6 +4047,15 @@ function querySelectorAll(parent: ParentNode, selectors: string): NodeListOf<Ele
 
 function createElement(document: Document, localName: string): HTMLElement {
 	return Document.prototype.createElement.call(document, localName)
+}
+
+function createElementNS(document: Document, namespace: string, localName: string): Element {
+	return Document.prototype.createElementNS.call(document, namespace, localName)
+}
+
+// A shallow copy of the node in the document.
+function importNode<T extends Node>(document: Document, node: T): T {
+	return Document.prototype.importNode.call(document, node, false) as T
 }
 
 function createComment(document: Document, data: string): Comment {
