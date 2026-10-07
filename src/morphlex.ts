@@ -458,6 +458,10 @@ function selectsDisabledOption(document: Document): boolean {
 	return disabledOptionSelected
 }
 
+function isDropDown(select: HTMLSelectElement): boolean {
+	return !select.multiple && displaySizeOf(select) <= 1
+}
+
 // HTML integer parsing skips only ASCII whitespace, where `parseInt` skips any whitespace.
 function displaySizeOf(select: HTMLSelectElement): number {
 	const match = /^[\t\n\f\r ]*\+?(\d+)/.exec(select.getAttribute("size") ?? "")
@@ -1150,6 +1154,8 @@ class Morph {
 
 	// Selects synced to their markup, synced again when the morph settles, after options have moved or gone.
 	#syncedSelects: Set<HTMLSelectElement> | null = null
+	// Multiple selects and list boxes that had no selection when visited, so a drop-down they become shows an option the browser picked.
+	#unselectedSelects: Set<HTMLSelectElement> | null = null
 	// The select around a morph rooted inside it, and what its markup selected before the morph.
 	#enclosingSelect: [HTMLSelectElement, Array<HTMLOptionElement | null>] | null = null
 	#resetEnclosingOption = false
@@ -1416,6 +1422,8 @@ class Morph {
 			this.#preserveChanges = false
 			this.#clobberedScope = from
 		}
+		if (this.#preserveChanges && isSelectElement(from) && !isDropDown(from) && from.selectedIndex < 0)
+			(this.#unselectedSelects ??= new Set()).add(from)
 
 		if (hasAttributes(from) || hasAttributes(to)) {
 			this.#visitAttributes(from, to)
@@ -2522,9 +2530,11 @@ class Morph {
 	// The browser keeps its selection when options are added or moved, or when the select changes
 	// between a drop-down and a list box, so an untouched select can end up showing something
 	// other than its markup. Select what the markup selects. Under `preserveChanges` the browser's
-	// selection stands, because a user who picked the default option again looks untouched.
+	// selection stands, because a user who picked the default option again looks untouched. But when a select
+	// without a selection becomes a drop-down, the browser picks the first option, wherever the morph has got to with
+	// the options, so the drop-down shows what the markup selects.
 	#syncDefaultSelection(select: HTMLSelectElement): void {
-		if (this.#preserveChanges) return
+		if (this.#preserveChanges && !(this.#unselectedSelects?.has(select) && isDropDown(select))) return
 
 		const options = select.options
 		const defaultOption = select.multiple ? null : defaultOptionOf(select)
