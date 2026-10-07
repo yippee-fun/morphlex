@@ -1849,7 +1849,7 @@ class Morph {
 		}
 	}
 
-	// The outline holds the element's name, so the two are of the same kind.
+	// The outline holds the element's name, so the two are of the same kind, but an input of another type would be replaced.
 	// A target discarding user changes only takes an untouched candidate, so it keeps its place among the rest.
 	#canTakeByOutline(element: Element, candidateIndex: number, siblings: Siblings): boolean {
 		const candidate = siblings.from[candidateIndex] as Element
@@ -1857,7 +1857,7 @@ class Morph {
 			(!this.#dirtyElements!.has(candidate) || !this.#holdsClobbered(element)) &&
 			((canSoftMatchByTagName(element, this.#idArrayMap.has(element)) &&
 				canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) ||
-				sharesMatchKey(element, candidate)) &&
+				(sharesMatchKey(element, candidate) && canMorphElementInPlace(candidate, element))) &&
 			!this.#holdsOtherChoice(candidate, element)
 		)
 	}
@@ -2071,9 +2071,18 @@ class Morph {
 		if (siblings.displaced.length) this.#matchEqualElements(siblings)
 	}
 
-	// Match by a shared `name`, `href` or `src`.
+	// Match by a shared `name`, `href` or `src`. A candidate that would be replaced rather than morphed, like an input of
+	// another type, is only taken once every target has had the chance to take one it can be morphed into, so it doesn't
+	// take the target of a same-name input of the target's type. Replacing it still asks both vetoes before changing
+	// anything, which removing it and adding the target as a new node wouldn't.
 	#matchElementsByAttributes(siblings: Siblings): void {
+		if (this.#matchElementsByAttributesIf(siblings, true)) this.#matchElementsByAttributesIf(siblings, false)
+	}
+
+	// Returns whether a candidate was passed over because it would be replaced.
+	#matchElementsByAttributesIf(siblings: Siblings, morphable: boolean): boolean {
 		const { from, to, candidateElements, unmatchedElements, candidateActive, unmatchedActive } = siblings
+		let passedOver = false
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
 			if (!unmatchedActive[target]) continue
@@ -2087,11 +2096,16 @@ class Morph {
 				const candidate = from[candidateIndex] as Element
 
 				if (sharesMatchKey(element, candidate) && !this.#holdsOtherChoice(candidate, element)) {
+					if (morphable && !canMorphElementInPlace(candidate, element)) {
+						passedOver = true
+						continue
+					}
 					siblings.take(target, candidateIndex, Operation.SameElement)
 					break
 				}
 			}
 		}
+		return passedOver
 	}
 
 	// Match elements of the same kind, only for elements without distinguishing attributes.
