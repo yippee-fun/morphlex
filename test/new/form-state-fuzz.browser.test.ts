@@ -187,7 +187,12 @@ function assertUserChangesKept(
 			if (isSelect(control)) {
 				const picked = state as Pick
 				const option = [...control.options].find((option) => option.value === picked.value)
-				if (option) expect(option.selected, `${message()}\npick ${picked.value} of ${key}`).toBe(picked.selected)
+				// A drop-down can't hold a deselection, so when the morph turns a multiple select the user deselected an
+				// option in into one, it shows what parsing its markup shows.
+				if (!picked.selected && !control.multiple) {
+					const parsed = new DOMParser().parseFromString(control.outerHTML, "text/html").querySelector("select")!
+					expect(control.selectedIndex, `${message()}\npick ${picked.value} of ${key}`).toBe(parsed.selectedIndex)
+				} else if (option) expect(option.selected, `${message()}\npick ${picked.value} of ${key}`).toBe(picked.selected)
 				// In a multiple select the user only toggled one option, so the others still follow their markup.
 				if (control.multiple) {
 					for (const other of control.options) {
