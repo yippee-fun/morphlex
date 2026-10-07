@@ -620,3 +620,22 @@ test("resetting an option of a datalist nested in the morph leaves the user's pi
 	expect(root.querySelectorAll("option")[1]!.selected).toBe(false)
 	expect(outer.value).toBe("b")
 })
+
+test("a selection made in a root select's afterChildrenVisited stands", () => {
+	const host = mount(`<select><option value="a">A</option><option value="b">B</option></select>`)
+	const select = host.querySelector("select")!
+	let afterNode = ""
+
+	morph(select, parse(`<select><option value="a">A</option><option value="b">B!</option></select>`), {
+		afterChildrenVisited: (parent) => {
+			if (parent === select) select.value = "b"
+		},
+		afterNodeVisited: (from) => {
+			if (from === select) afterNode = select.value
+		},
+	})
+
+	expect(afterNode).toBe("b")
+	expect(select.value).toBe("b")
+	host.remove()
+})
