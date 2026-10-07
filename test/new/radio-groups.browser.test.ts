@@ -1085,3 +1085,20 @@ test("a checked radio whose type changes only in case keeps its checked attribut
 	observer.disconnect()
 	host.remove()
 })
+
+test("with preserveChanges, a radio that took the group from a radio outside the morph gets it back from the radio that took it next", () => {
+	const host = mount(
+		`<input id="outside" type="radio" name="g" checked><div><input id="b" type="radio" name="g"><input id="c" type="radio" name="g"></div>`,
+	)
+
+	morph(
+		host.querySelector("div")!,
+		parse(`<div><input id="b" type="radio" name="g" checked><input id="c" type="radio" checked></div>`),
+		{
+			preserveChanges: true,
+		},
+	)
+
+	expect(checkedIds(host)).toBe("b c")
+	host.remove()
+})

@@ -2551,7 +2551,8 @@ class Morph {
 	// another radio in its group is checked.
 	#restoreDisplacedRadios(displaced: Map<HTMLInputElement, HTMLInputElement>): void {
 		const groups: RadioGroups = new Map()
-		for (const [member, radio] of displaced) {
+		// Newest first, so a radio that took a group and then lost it to another gets it back before the one it took it from.
+		for (const [member, radio] of Array.from(displaced).reverse()) {
 			const group = radioGroupOf(member, groups)
 			if (radio.checked && group.includes(radio)) continue
 			if (group.some((other) => other.checked)) continue
@@ -3519,8 +3520,25 @@ function isRadio(element: Element): element is HTMLInputElement {
 	return isInputElement(element) && element.type === "radio"
 }
 
+// Only the form's controls with the radio's name, or the checked inputs in a tree, are read, which keeps
+// this short in forms with many radios.
 function checkedRadiosInGroup(radio: HTMLInputElement): Array<HTMLInputElement> {
-	return radioGroupOf(radio, new Map()).filter((member) => member.checked)
+	if (radio.name === "") return []
+	const form = radio.form
+	let inputs: ArrayLike<Node> = []
+	if (form) {
+		// A list of the controls with that name, or just the radio itself when it's alone.
+		const named = elementsOf(form).namedItem(radio.name)
+		if (named && "length" in named) inputs = named
+	} else {
+		inputs = querySelectorAll(radio.getRootNode() as ParentNode, "input:checked")
+	}
+	const checked: Array<HTMLInputElement> = []
+	for (let i = 0; i < inputs.length; i++) {
+		const input = inputs[i] as Element
+		if (isRadio(input) && input.checked && input.name === radio.name && input.form === form) checked.push(input)
+	}
+	return checked
 }
 
 function isInputElement(element: Element): element is HTMLInputElement {
