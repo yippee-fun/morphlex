@@ -10,9 +10,14 @@ const SEED_START = readPositiveIntEnv("MORPHLEX_FUZZ_SELECT_SEED_START", 0x5100)
 type Kind = "select" | "inner-select" | "optgroup" | "inner-optgroup" | "option" | "option-list"
 const KINDS: ReadonlyArray<Kind> = ["select", "inner-select", "optgroup", "inner-optgroup", "option", "option-list"]
 
+// Browsers with customizable selects fill a drop-down's `selectedcontent` with a copy of the selected option.
+const fillsSelectedContent =
+	typeof (globalThis as { HTMLSelectedContentElement?: unknown }).HTMLSelectedContentElement === "function"
+const BUTTON = `<button><selectedcontent></selectedcontent></button>`
+
 vi.setConfig({ testTimeout: Math.max(30_000, SEED_COUNT * 50) })
 
-test("seeded fuzz of morphs rooted at or inside a select shows what its markup selects", () => {
+test("seeded fuzz of morphs rooted at or inside a select shows what its markup selects, and the selected option", () => {
 	for (let seed = SEED_START; seed < SEED_START + SEED_COUNT; seed++) {
 		const random = createRandom(seed)
 		const kind = pick(random, KINDS)
@@ -21,7 +26,7 @@ test("seeded fuzz of morphs rooted at or inside a select shows what its markup s
 			: kind.includes("option")
 				? `<option id="root">r</option>`
 				: null
-		const from = `<select${selectAttributes(random)}>${children(random, rooted)}</select>`
+		const from = `<select${selectAttributes(random)}>${button(random)}${children(random, rooted)}</select>`
 		const host = document.createElement("div")
 		host.innerHTML = from
 		document.body.append(host)
@@ -37,14 +42,16 @@ test("seeded fuzz of morphs rooted at or inside a select shows what its markup s
 				}
 			}
 
+			// With preserveChanges the user's picks stay, so only what the select shows is checked.
+			const preserveChanges = kind.includes("select") && random() < 0.3
 			const root = host.querySelector("#root") ?? select
 			let to: string
 			if (kind === "select" || kind === "inner-select") {
 				const attributes = random() < 0.6 ? from.match(/^<select([^>]*)>/)![1]! : selectAttributes(random)
-				to = `<select${attributes}>${children(random, null)}</select>`
+				to = `<select${attributes}>${button(random)}${children(random, null)}</select>`
 				const target = parse(to).firstElementChild!
-				if (kind === "select") morph(root, target)
-				else morphInner(root, target)
+				if (kind === "select") morph(root, target, { preserveChanges })
+				else morphInner(root, target, { preserveChanges })
 			} else if (kind === "optgroup" || kind === "inner-optgroup") {
 				to = `<select>${group(random, random() < 0.7 ? ` id="root"` : "")}</select>`
 				const target = parse(to).firstElementChild!.firstElementChild!
@@ -60,12 +67,22 @@ test("seeded fuzz of morphs rooted at or inside a select shows what its markup s
 
 			const live = host.querySelector("select")!
 			const message = `seed ${seed} ${kind}\n${from}\n${to}\n${live.outerHTML}`
-			expect(markupSelections(live), message).toContain(selection(live))
+			if (!preserveChanges) expect(markupSelections(live), message).toContain(selection(live))
+			if (fillsSelectedContent && !live.multiple) {
+				const shown = live.options[live.selectedIndex]?.innerHTML ?? ""
+				for (const selectedContent of live.querySelectorAll("selectedcontent")) {
+					expect(selectedContent.innerHTML, message).toBe(shown)
+				}
+			}
 		} finally {
 			host.remove()
 		}
 	}
 })
+
+function button(random: Random): string {
+	return random() < 0.5 ? BUTTON : ""
+}
 
 function option(random: Random): string {
 	const value = random() < 0.7 ? ` value="${pick(random, ["1", "2", "3"])}"` : ""

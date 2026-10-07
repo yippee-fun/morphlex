@@ -557,6 +557,32 @@ function selectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null>
 	return [...markup, null, ...select.selectedOptions]
 }
 
+// The browser copies the selected option's content into each `selectedcontent` of a drop-down, but only when the
+// selection changes or the `selectedcontent` is inserted, so changing the option's content leaves the old copy.
+// The morph also copies the target's `selectedcontent`, which shows what the target's markup selects rather than
+// what the user picked. So when the morph settles, each one that doesn't match the selected option is inserted
+// again, for the browser to copy the option afresh. Browsers without customizable selects leave it as it is.
+function refreshSelectedContent(select: HTMLSelectElement): void {
+	if (select.multiple) return
+
+	const elements = getElementsByTagName(select, "selectedcontent")
+	const option = select.options[select.selectedIndex] ?? null
+	for (let i = 0; i < elements.length; i++) {
+		const element = elements[i]!
+		if (!hasEqualChildren(element, option)) insertBefore(parentNodeOf(element)!, element, nextSiblingOf(element))
+	}
+}
+
+function hasEqualChildren(node: Node, other: Node | null): boolean {
+	let child = firstChildOf(node)
+	let otherChild = other && firstChildOf(other)
+	for (; child && otherChild; child = nextSiblingOf(child), otherChild = nextSiblingOf(otherChild)) {
+		if (!isEqualNode(child, otherChild)) return false
+	}
+
+	return child === otherChild
+}
+
 function clearDirtyFlags(elements: Array<Element>): void {
 	for (let i = 0; i < elements.length; i++) {
 		removeAttribute(elements[i]!, DIRTY_ATTRIBUTE)
@@ -1194,7 +1220,10 @@ class Morph {
 			this.#reopenDetails(openDetails)
 		}
 
+		const enclosingSelect = this.#enclosingSelect?.[0]
 		this.#syncEnclosingSelect()
+		if (enclosingSelect) refreshSelectedContent(enclosingSelect)
+		for (const select of this.#liveSelects.values()) refreshSelectedContent(select)
 
 		const focus = this.#unrestoredFocus
 		if (focus) {
