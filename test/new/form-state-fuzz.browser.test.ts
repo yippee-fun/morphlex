@@ -9,12 +9,6 @@ const SEED_START = readPositiveIntEnv("MORPHLEX_FUZZ_FORM_SEED_START", 0xf0a1)
 // MORPHLEX_FUZZ_FORM_MODE=default or preserve runs every seed in one mode; otherwise each seed picks one.
 const MODE = globalThis.process?.env?.["MORPHLEX_FUZZ_FORM_MODE"] ?? import.meta.env["VITE_MORPHLEX_FUZZ_FORM_MODE"]
 
-// Seeds in the default range that hit an open issue, with the mode they run in, since a seed's scenario differs
-// between mixed and forced modes. Remove each once its issue is fixed.
-const KNOWN_FAILURES = new Map<string, string>([
-	["61766 mixed", "#154 a radio checked before its form attribute moves it out of its group"],
-])
-
 vi.setConfig({ testTimeout: Math.max(30_000, SEED_COUNT * 100) })
 
 type Kind = "radio" | "checkbox" | "text" | "textarea" | "select"
@@ -72,7 +66,6 @@ function namesFor(kind: Kind): Array<string> {
 test("seeded fuzz: form state after a morph is what parsing the markup gives, or what the user chose", () => {
 	const failures: Array<string> = []
 	for (let seed = SEED_START; seed < SEED_START + SEED_COUNT; seed++) {
-		if (KNOWN_FAILURES.has(`${seed} ${MODE ?? "mixed"}`)) continue
 		const random = createRandom(seed)
 		const scenario = createScenario(random)
 		const host = parse(render(scenario.host, random)) as HTMLElement
