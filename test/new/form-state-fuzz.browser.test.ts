@@ -280,9 +280,10 @@ function idsIn(root: Element): Set<string> {
 }
 
 // A control whose id is on both sides is matched by it. Otherwise the key is the nearest ancestor with an id, the
-// tags between it and the control, the control's kind and name, and for a checkbox or radio its value and `form`
-// attribute, which make up its choice. A `form` attribute naming the form the control is in counts as none, and a
-// target's control outside any form in the target is in the form around the morph, since that's where it ends up.
+// tags between it and the control, its tag and type, its name, its value for a checkbox or radio, and its `form`
+// attribute for a checkbox, radio or select, which make up its choice. A `form` attribute naming the form the control
+// is in counts as none, and a target's control outside any form in the target is in the form around the morph, since
+// that's where it ends up.
 function keyOf(control: FormControl, otherSideIds: Set<string>, formAroundMorph: string | null = null): string {
 	if (control.id && otherSideIds.has(control.id)) return JSON.stringify(["id", control.id])
 	const path: Array<string> = []
@@ -291,10 +292,11 @@ function keyOf(control: FormControl, otherSideIds: Set<string>, formAroundMorph:
 		path.push(ancestor.localName)
 		ancestor = ancestor.parentElement!
 	}
-	const kind = isInput(control) ? (isCheckable(control) ? control.type : "text") : control.localName
+	const kind = isInput(control) ? control.type : control.localName
 	const enclosingForm = control.closest("form")?.id ?? formAroundMorph
-	const form = control.getAttribute("form")
-	const choice = isInput(control) && isCheckable(control) ? [control.value, form === enclosingForm ? null : form] : []
+	const attribute = control.getAttribute("form")
+	const form = attribute === enclosingForm ? null : attribute
+	const choice = isInput(control) ? (isCheckable(control) ? [control.value, form] : []) : isSelect(control) ? [form] : []
 	return JSON.stringify([ancestor.id, path, kind, control.name, ...choice, isSelect(control) && control.multiple])
 }
 
