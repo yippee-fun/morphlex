@@ -68,7 +68,7 @@ Whitespace text nodes are only ever matched with whitespace. The live whitespace
 
 ### Parsing string targets
 
-`morph` and `morphInner` parse a string where `from` is, as `innerHTML` on its parent would. An `html`, `head` or `body` root takes the matching element of a parsed document, since a template drops those tags. Inside SVG or MathML, the string is parsed in an element with the parent's namespace and name (an `svg` or `math` for a root without a parent), created in the template's inert document so nothing loads, so a `circle` stays SVG and a `foreignObject`'s content stays HTML. Anything else is parsed in a template, which keeps table rows and the like.
+`morph` and `morphInner` parse a string where `from` is, as `innerHTML` on its parent would. An `html`, `head` or `body` root takes the matching element of a parsed document, since a template drops those tags. Inside SVG or MathML, the string is parsed in a shallow copy of the parent (an `svg` or `math` for a root without a parent) in the template's inert document, so nothing loads. So a `circle` stays SVG, and a `foreignObject`'s content, or an `annotation-xml`'s with an HTML `encoding`, stays HTML. Anything else is parsed in a template, which keeps table rows and the like.
 
 ### Reading members of forms and documents
 

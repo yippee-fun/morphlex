@@ -214,3 +214,15 @@ test("morphing a text node in a root without a parent to a string", () => {
 
 	expect(text.textContent).toBe("b")
 })
+
+test("morphing an element in an HTML annotation-xml to a string parses it as HTML", () => {
+	const div = document.createElement("div")
+	div.innerHTML = `<math><annotation-xml encoding="text/html"><section>a</section></annotation-xml></math>`
+	const section = div.querySelector("section")!
+
+	morph(section, `<section>b</section>`)
+
+	expect(div.querySelector("annotation-xml")!.firstElementChild).toBe(section)
+	expect(section.namespaceURI).toBe(HTML_NAMESPACE)
+	expect(section.textContent).toBe("b")
+})

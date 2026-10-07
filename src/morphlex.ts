@@ -610,30 +610,25 @@ function parseTarget(from: ChildNode, string: string): ChildNode | NodeListOf<Ch
 	return parseFragment(string, foreignContextOf(from)).childNodes
 }
 
-type ParseContext = [namespace: string, localName: string]
-
-// The namespace and name of the parent of `from` when it's an SVG or MathML element, or for an SVG or MathML root
-// without one, of an `svg` or `math`.
-function foreignContextOf(from: ChildNode): ParseContext | null {
+// The parent of `from` when it's an SVG or MathML element, or for an SVG or MathML root without one, an `svg` or
+// `math`. The parent's attributes count too, since an `annotation-xml` with an HTML `encoding` holds HTML.
+function foreignContextOf(from: ChildNode): Element | null {
 	const parent = parentNodeOf(from)
-	if (parent && isElement(parent)) {
-		const namespace = namespaceURIOf(parent)
-		return namespace && namespace !== HTML_NAMESPACE ? [namespace, localNameOf(parent)] : null
-	}
+	if (parent && isElement(parent)) return namespaceURIOf(parent) === HTML_NAMESPACE ? null : parent
 
 	const namespace = isElement(from) ? namespaceURIOf(from) : null
-	if (namespace === SVG_NAMESPACE) return [namespace, "svg"]
-	if (namespace === MATHML_NAMESPACE) return [namespace, "math"]
+	if (namespace === SVG_NAMESPACE) return createElementNS(document, namespace, "svg")
+	if (namespace === MATHML_NAMESPACE) return createElementNS(document, namespace, "math")
 	return null
 }
 
 // `setHTMLUnsafe` and `Document.parseHTMLUnsafe` attach declarative shadow roots, as a page does, so a
 // `<template shadowrootmode>` never lands in a host's light DOM. Older browsers fall back to parsers that don't.
-// A foreign context is parsed in an element like it in the template's inert document, so nothing loads.
-function parseFragment(string: string, context: ParseContext | null = null): DocumentFragment {
+// A foreign context is parsed in a shallow copy of it in the template's inert document, so nothing loads.
+function parseFragment(string: string, context: Element | null = null): DocumentFragment {
 	const template = createElement(document, "template") as HTMLTemplateElement
 	if (context) {
-		const element = createElementNS(template.content.ownerDocument, context[0], context[1])
+		const element = importNode(template.content.ownerDocument, context)
 		setHTML(element, string)
 		while (element.firstChild) template.content.appendChild(element.firstChild)
 	} else {
@@ -4055,6 +4050,11 @@ function createElement(document: Document, localName: string): HTMLElement {
 
 function createElementNS(document: Document, namespace: string, localName: string): Element {
 	return Document.prototype.createElementNS.call(document, namespace, localName)
+}
+
+// A shallow copy of the node in the document.
+function importNode<T extends Node>(document: Document, node: T): T {
+	return Document.prototype.importNode.call(document, node, false) as T
 }
 
 function createComment(document: Document, data: string): Comment {
