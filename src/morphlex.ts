@@ -1016,8 +1016,11 @@ class Morph {
 	#scope: Node | null = null
 	#scopeStart: Node | null = null
 	#scopeEnd: Node | null = null
-	// The target's root nodes, which bound the search for an option's select.
+	// The target's root nodes, which bound the search for an option's select or a control's form. An inner morph's
+	// roots are the target's children, since the target's own element stands for the live root.
 	readonly #targetRoots: Set<Node> = new Set()
+	// The live form a target's control past the target's roots ends up in.
+	#keyForm: Element | null = null
 	// Nodes whose visit or children's visit was vetoed, and controls with a vetoed attribute update.
 	#vetoedNodes: Array<Node> | null = null
 	#vetoedControls: Set<Element> | null = null
@@ -1122,6 +1125,8 @@ class Morph {
 		this.#scope = parentNodeOf(from) ?? from
 		this.#scopeStart = previousSiblingOf(from)
 		this.#scopeEnd = nextSiblingOf(from)
+		const parent = parentElementOf(from)
+		this.#keyForm = parent && closest(parent, "form")
 		if (isParentNode(from)) {
 			this.#mapIdSets(from)
 		}
@@ -1147,7 +1152,8 @@ class Morph {
 		this.#root = from
 		this.#focusHolders = focusHoldersIn(from)
 		this.#scope = from
-		this.#targetRoots.add(to)
+		this.#keyForm = closest(from, "form")
+		for (const node of childNodesOf(to)) this.#targetRoots.add(node)
 		this.#mapIdSets(from)
 		this.#mapIdArrays(to, false)
 		if (this.#targetOpensDetails) closeLaterOpenDetails(childrenOf(to))
@@ -2736,7 +2742,7 @@ class Morph {
 	// An option is keyed by the nearest select around it up to the morph's root, or else the select around the
 	// morph, unless it's in a datalist the select doesn't own. A target can still be in another select past its root.
 	#choiceOf(element: Element): string | null {
-		if (!isOptionElement(element)) return choiceOf(element, null)
+		if (!isOptionElement(element)) return choiceOf(element, null, this.#formOf(element))
 		let select: HTMLSelectElement | null = null
 		for (
 			let node: Element = element, parent = parentElementOf(node);
@@ -2750,7 +2756,17 @@ class Morph {
 			}
 		}
 		select ??= this.#keySelect
-		return choiceOf(element, (select && this.#liveSelects.get(select)) ?? select)
+		select = (select && this.#liveSelects.get(select)) ?? select
+		return choiceOf(element, select, select && this.#formOf(select))
+	}
+
+	// The form around the control. A target's control past the target's roots ends up in the form around the morph.
+	#formOf(control: Element): Element | null {
+		for (let node: Element | null = control; node; node = parentElementOf(node)) {
+			if (isFormElement(node)) return node
+			if (this.#targetRoots.has(node)) return this.#keyForm
+		}
+		return null
 	}
 
 	// The choices of the checkboxes, radios and options the user changed in this element, or null when there are none.
@@ -3371,28 +3387,28 @@ function trimFragmentEdgeWhitespace(fragment: DocumentFragment): void {
 }
 
 // What choosing this element means: an option's value in its select, or a checkbox or radio's type, name,
-// value and form, along with its `is`, since a control with another `is` is recreated. An option's select is passed in, since a target's option is keyed by the live select.
-function choiceOf(element: Element, select: HTMLSelectElement | null): string | null {
+// value and form, along with its `is`, since a control with another `is` is recreated. An option's select is passed in, since a target's option is keyed by the live select,
+// and so is the form around the select or the control, since a target's control is keyed by the form it ends up in.
+function choiceOf(element: Element, select: HTMLSelectElement | null, form: Element | null): string | null {
 	if (isOptionElement(element)) {
 		return JSON.stringify([
 			select?.getAttribute("name") ?? "",
-			select && formOf(select),
+			select && formOf(select, form),
 			select && (select.hasAttribute("multiple") ? 2 : displaySizeOf(select) > 1 ? 1 : 0),
 			element.value,
 			getAttribute(element, "is"),
 		])
 	}
 	if (isInputElement(element) && (element.type === "checkbox" || element.type === "radio")) {
-		return JSON.stringify([element.type, element.name, element.value, formOf(element), getAttribute(element, "is")])
+		return JSON.stringify([element.type, element.name, element.value, formOf(element, form), getAttribute(element, "is")])
 	}
 	return null
 }
 
-// The control's `form` attribute, or null when it names the form the control is already in.
-function formOf(control: Element): string | null {
-	const form = getAttribute(control, "form")
-	const closestForm = closest(control, "form")
-	return form && closestForm && form === idOf(closestForm) ? null : form
+// The control's `form` attribute, or null when it names the form the control is in.
+function formOf(control: Element, form: Element | null): string | null {
+	const name = getAttribute(control, "form")
+	return name && form && name === idOf(form) ? null : name
 }
 
 // The namespaces, names and `is` of the elements between the wrapper and the control. The wrapper's morph only keeps a
