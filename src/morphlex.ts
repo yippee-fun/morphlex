@@ -1748,6 +1748,7 @@ class Morph {
 		}
 		const targets: Array<[number, Array<number>]> = []
 		const targetCounts: Map<Array<number>, number> = new Map()
+		const reserved: Set<number> = new Set()
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
 			if (!unmatchedActive[target]) continue
@@ -1756,7 +1757,18 @@ class Morph {
 			const candidates = candidatesByOutline.get(outlineOf(element))
 			if (!candidates) continue
 			targets.push([target, candidates])
-			targetCounts.set(candidates, (targetCounts.get(candidates) ?? 0) + 1)
+			// A target counts when a candidate not yet counted for another target can take it, since a target none can
+			// take leaves a candidate without one. Targets usually go to candidates in order, so the search starts at the
+			// candidate in this target's place.
+			const count = targetCounts.get(candidates) ?? 0
+			for (let c = 0; c < candidates.length; c++) {
+				const candidateIndex = candidates[(count + c) % candidates.length]!
+				if (!reserved.has(candidateIndex) && this.#canTakeByOutline(element, candidateIndex, siblings)) {
+					reserved.add(candidateIndex)
+					targetCounts.set(candidates, count + 1)
+					break
+				}
+			}
 		}
 		// When there are fewer targets than candidates, the untouched candidates go rather than the user's changes. The
 		// identical candidates are put back in order later.
@@ -1774,22 +1786,25 @@ class Morph {
 			let first = firstActive.get(candidates) ?? 0
 			while (first < candidates.length && !candidateActive[candidates[first]!]) first++
 			firstActive.set(candidates, first)
-			const softMatches = canSoftMatchByTagName(element, this.#idArrayMap.has(element))
 			for (let c = first; c < candidates.length; c++) {
 				const candidateIndex = candidates[c]!
-				// The outline holds the element's name, so the two are of the same kind.
-				if (!candidateActive[candidateIndex]) continue
-				const candidate = from[candidateIndex] as Element
-				if (
-					((softMatches && canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) ||
-						sharesMatchKey(element, candidate)) &&
-					!this.#holdsOtherChoice(candidate, element)
-				) {
+				if (candidateActive[candidateIndex] && this.#canTakeByOutline(element, candidateIndex, siblings)) {
 					siblings.take(target, candidateIndex, Operation.SameElement)
 					break
 				}
 			}
 		}
+	}
+
+	// The outline holds the element's name, so the two are of the same kind.
+	#canTakeByOutline(element: Element, candidateIndex: number, siblings: Siblings): boolean {
+		const candidate = siblings.from[candidateIndex] as Element
+		return (
+			((canSoftMatchByTagName(element, this.#idArrayMap.has(element)) &&
+				canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) ||
+				sharesMatchKey(element, candidate)) &&
+			!this.#holdsOtherChoice(candidate, element)
+		)
 	}
 
 	// Match by exact id.
