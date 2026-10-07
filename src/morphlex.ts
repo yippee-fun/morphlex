@@ -1016,11 +1016,12 @@ class Morph {
 	#scope: Node | null = null
 	#scopeStart: Node | null = null
 	#scopeEnd: Node | null = null
-	// The target's root nodes, which bound the search for an option's select or a control's form. An inner morph's
-	// roots are the target's children, since the target's own element stands for the live root.
+	// The target's root nodes, which bound the search for an option's select or a control's form.
 	readonly #targetRoots: Set<Node> = new Set()
-	// The live form a target's control past the target's roots ends up in.
-	#keyForm: Element | null = null
+	// The live form a target's control past the target's roots ends up in, and an inner morph's target, which
+	// stands for the live root rather than a form of its own.
+	#keyForm: HTMLFormElement | null = null
+	#innerTarget: Element | null = null
 	// Nodes whose visit or children's visit was vetoed, and controls with a vetoed attribute update.
 	#vetoedNodes: Array<Node> | null = null
 	#vetoedControls: Set<Element> | null = null
@@ -1125,8 +1126,7 @@ class Morph {
 		this.#scope = parentNodeOf(from) ?? from
 		this.#scopeStart = previousSiblingOf(from)
 		this.#scopeEnd = nextSiblingOf(from)
-		const parent = parentElementOf(from)
-		this.#keyForm = parent && closest(parent, "form")
+		this.#keyForm = enclosingForm(parentElementOf(from))
 		if (isParentNode(from)) {
 			this.#mapIdSets(from)
 		}
@@ -1152,8 +1152,9 @@ class Morph {
 		this.#root = from
 		this.#focusHolders = focusHoldersIn(from)
 		this.#scope = from
-		this.#keyForm = closest(from, "form")
-		for (const node of childNodesOf(to)) this.#targetRoots.add(node)
+		this.#keyForm = enclosingForm(from)
+		this.#innerTarget = to
+		this.#targetRoots.add(to)
 		this.#mapIdSets(from)
 		this.#mapIdArrays(to, false)
 		if (this.#targetOpensDetails) closeLaterOpenDetails(childrenOf(to))
@@ -2761,9 +2762,9 @@ class Morph {
 	}
 
 	// The form around the control. A target's control past the target's roots ends up in the form around the morph.
-	#formOf(control: Element): Element | null {
+	#formOf(control: Element): HTMLFormElement | null {
 		for (let node: Element | null = control; node; node = parentElementOf(node)) {
-			if (isFormElement(node)) return node
+			if (isFormElement(node) && node !== this.#innerTarget) return node
 			if (this.#targetRoots.has(node)) return this.#keyForm
 		}
 		return null
@@ -3405,6 +3406,12 @@ function choiceOf(element: Element, select: HTMLSelectElement | null, form: Elem
 	return null
 }
 
+// The form the element is, or is in.
+function enclosingForm(element: Element | null): HTMLFormElement | null {
+	for (let node = element; node; node = parentElementOf(node)) if (isFormElement(node)) return node
+	return null
+}
+
 // The control's `form` attribute, or null when it names the form the control is in.
 function formOf(control: Element, form: Element | null): string | null {
 	const name = getAttribute(control, "form")
@@ -3860,10 +3867,6 @@ function removeAttributeNS(element: Element, namespace: string | null, localName
 
 function matchesSelector(element: Element, selectors: string): boolean {
 	return Element.prototype.matches.call(element, selectors)
-}
-
-function closest(element: Element, selectors: string): Element | null {
-	return Element.prototype.closest.call(element, selectors)
 }
 
 function getElementsByTagName(element: Element, name: string): HTMLCollectionOf<Element> {

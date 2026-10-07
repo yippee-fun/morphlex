@@ -121,3 +121,44 @@ test("a picked option keeps its pick when its select is inner-morphed into one w
 	expect(option.selected).toBe(true)
 	host.remove()
 })
+
+test("a picked option in a datalist keeps its pick when the datalist is inner-morphed", () => {
+	const host = mount(`<datalist><option value="1"></option><option value="2"></option></datalist>`)
+	const datalist = host.querySelector("datalist")!
+	const option = datalist.querySelector("option")!
+	option.selected = true
+
+	morphInner(datalist, `<datalist><option value="1" class="x"></option><option value="2"></option></datalist>`, {
+		preserveChanges: true,
+	})
+
+	expect(datalist.querySelector("option")).toBe(option)
+	expect(option.selected).toBe(true)
+	host.remove()
+})
+
+test("a ticked checkbox in a foreign form element isn't keyed by it when the element is inner-morphed", () => {
+	const host = mount(`<form id="f"></form>`)
+	const foreign = document.createElementNS("http://www.w3.org/2000/svg", "form")
+	foreign.id = "f"
+	const box = document.createElement("input")
+	box.type = "checkbox"
+	box.name = "c"
+	box.setAttribute("form", "f")
+	foreign.append(box)
+	host.append(foreign)
+	box.checked = true
+
+	const target = document.createElementNS("http://www.w3.org/2000/svg", "form")
+	const targetBox = document.createElement("input")
+	targetBox.type = "checkbox"
+	targetBox.name = "c"
+	targetBox.setAttribute("form", "f")
+	targetBox.className = "x"
+	target.append(targetBox)
+	morphInner(foreign, target, { preserveChanges: true })
+
+	expect(foreign.firstChild).toBe(box)
+	expect(box.checked).toBe(true)
+	host.remove()
+})
