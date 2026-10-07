@@ -897,3 +897,25 @@ test("a focused element in a document without a body keeps focus when it moves",
 		frame.remove()
 	}
 })
+
+test("focus that a custom element drops when a live target holding it is inserted is put back", () => {
+	class BlurOnMove extends HTMLElement {
+		connectedMoveCallback() {
+			;(document.activeElement as HTMLElement | null)?.blur()
+		}
+	}
+	if (!customElements.get("x-blur-on-move")) customElements.define("x-blur-on-move", BlurOnMove)
+	const host = mount(`<div></div><div><x-blur-on-move><input value="hello"></x-blur-on-move></div>`)
+	const [from, to] = host.children
+	const input = host.querySelector("input")!
+	input.focus()
+	input.setSelectionRange(1, 3)
+
+	morph(from!, to!)
+
+	expect(from!.querySelector("input")).toBe(input)
+	expect(document.activeElement).toBe(input)
+	expect([input.selectionStart, input.selectionEnd]).toEqual([1, 3])
+
+	host.remove()
+})
