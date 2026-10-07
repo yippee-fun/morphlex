@@ -91,3 +91,15 @@ test("removing a form holding a radio the user checked that names the form keeps
 
 	expect(checked(host, "#c1")).toBe(true)
 })
+
+test("moving a form holding a radio the user checked that names a missing form keeps the form's radio checked", () => {
+	const form = `<form><input id="c2" name="a" type="radio" checked value="2"><input id="c4" name="a" type="radio" form="missing" value="3"></form>`
+	const checkbox = `<input id="c3" type="checkbox" checked>`
+	const host = mount(`${checkbox}${form}`)
+	host.querySelector<HTMLInputElement>("#c4")!.checked = true
+
+	morph(host, `<section>${form}${checkbox}</section>`)
+
+	expect(checked(host, "#c2")).toBe(true)
+	expect(checked(host, "#c4")).toBe(false)
+})
