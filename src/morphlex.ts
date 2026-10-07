@@ -1258,6 +1258,8 @@ class Morph {
 				// Checking it would uncheck the rest of its new group, where a checked radio that's vetoed stays checked.
 				if (radioGroupOf(radio, groups).some((member) => member.checked && this.#isVetoed(member))) continue
 				radio.checked = true
+				// The new group can have a later radio the markup checks, which wins as when parsing.
+				;(this.#radiosToSync ??= new Set()).add(radio)
 			}
 		}
 
