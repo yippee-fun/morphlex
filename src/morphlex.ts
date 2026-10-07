@@ -3332,7 +3332,10 @@ function chooseStaying(
 		if (candidate !== undefined && !own.has(target)) others.push([candidate, target])
 	}
 	others.sort((a, b) => a[0] - b[0])
-	const weightOf = (candidate: number): number => (isChanged(candidate) ? others.length + 1 : 1)
+	// The candidates taking the targets cross at most this many other matches, so a crossing weighing one more outweighs
+	// any number of lighter ones, and one between two changed elements weighs its square.
+	const heavy = targets.length * others.length + 1
+	const weightOf = (candidate: number): number => (isChanged(candidate) ? heavy : 1)
 	// The weight of the other matches with a target below each target, all of them, and in a Fenwick tree the ones
 	// whose candidate comes before the current candidate.
 	const below = new Float64Array(matches.length + 1)
