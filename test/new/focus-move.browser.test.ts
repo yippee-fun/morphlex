@@ -630,6 +630,31 @@ test("a focused textarea that moves into an item the morph opens later is focuse
 	host.remove()
 })
 
+// Move fuzzer seed 37599778253, in WebKit: inserting the open item closes the one still inside the editor, which
+// closes the new one instead, so the editor can't take focus back until the morph settles and reopens it.
+test("the caret in a focused contenteditable that moves into an item the morph opens later stays inside it when its text goes", () => {
+	const host = mount(
+		`<div><details id="e" contenteditable="true"><details name="h" open></details><b id="m">bold</b></details></div>`,
+	)
+	const editor = host.querySelector<HTMLElement>("#e")!
+	const text = host.querySelector("#m")!.firstChild!
+	editor.focus()
+	getSelection()!.setBaseAndExtent(text, 2, text, 2)
+
+	morphInner(
+		host.firstElementChild!,
+		`<div><details name="h" open><details id="e" contenteditable="true"></details></details></div>`,
+	)
+
+	const selection = getSelection()!
+	expect(host.querySelector("#e")).toBe(editor)
+	expect(document.activeElement).toBe(editor)
+	expect(editor.contains(selection.anchorNode)).toBe(true)
+	expect(editor.contains(selection.focusNode)).toBe(true)
+
+	host.remove()
+})
+
 test("focus that a callback sends to a focusable body stays there, even when the moved element couldn't take it back yet", () => {
 	const host = mount(intoAccordion.from)
 	const textarea = host.querySelector("textarea")!

@@ -1088,6 +1088,8 @@ class Morph {
 	// Focus a move took to where it couldn't be put back straight away, such as into a closed `details` that the
 	// morph opens later. It's tried again when the morph settles.
 	#unrestoredFocus: Focus | null = null
+	// Where the ends of its selection are, followed through later moves and removals.
+	#unrestoredRange: [Range, Range] | null = null
 	#watchedFocus: Focus | null = null
 	#watchedDocuments: Array<Document> = []
 
@@ -1228,6 +1230,13 @@ class Morph {
 		if (focus) {
 			this.#unrestoredFocus = null
 			removeEventListener(focus.document, "focusin", this.#dropUnrestoredFocus)
+			const range = this.#unrestoredRange
+			/* v8 ignore next 5 -- as in #restoreFocus */
+			if (range) {
+				this.#unrestoredRange = null
+				const [anchor, focusEnd] = range
+				focus.range = [anchor.startContainer, anchor.startOffset, focusEnd.startContainer, focusEnd.startOffset]
+			}
 			restoreFocus(focus)
 		}
 	}
@@ -2280,6 +2289,11 @@ class Morph {
 		/* v8 ignore next -- tests haven't found a way to take focus between a failed restore and the retry */
 		if (unrestored) removeEventListener(unrestored.document, "focusin", this.#dropUnrestoredFocus)
 		focus.document = ownerDocumentOf(focus.element)!
+		// The nodes holding the selection can still move or go before then, so follow its ends with live ranges, which
+		// a removal leaves where the node was.
+		const range = focus.range
+		/* v8 ignore next -- Chromium's moveBefore keeps focus in an element holding the document's selection */
+		this.#unrestoredRange = range && [rangeAt(focus.document, range[0], range[1]), rangeAt(focus.document, range[2], range[3])]
 		this.#unrestoredFocus = focus
 		EventTarget.prototype.addEventListener.call(focus.document, "focusin", this.#dropUnrestoredFocus, {
 			capture: true,
@@ -3688,6 +3702,13 @@ function replaceChild(parent: ParentNode, node: Node, child: Node): void {
 function remove(node: ChildNode): void {
 	const parent = parentNodeOf(node)
 	if (parent) Node.prototype.removeChild.call(parent, node)
+}
+
+/* v8 ignore next 5 -- only used where Chromium's moveBefore keeps focus */
+function rangeAt(document: Document, node: Node, offset: number): Range {
+	const range = Document.prototype.createRange.call(document)
+	range.setStart(node, offset)
+	return range
 }
 
 function contains(node: Node, other: Node | null): boolean {
