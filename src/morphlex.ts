@@ -1570,7 +1570,7 @@ class Morph {
 			if (from.selected !== selected && hasAttribute(from, "selected") === selected) {
 				from.selected = selected
 				// WebKit can keep showing a drop-down's option the morph deselects, so a select around the root syncs.
-				this.#resetEnclosingOption = true
+				if (this.#enclosingSelect && selectOf(from) === this.#enclosingSelect[0]) this.#resetEnclosingOption = true
 			}
 		}
 	}

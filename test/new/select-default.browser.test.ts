@@ -582,3 +582,22 @@ test("morphing the option WebKit's parser shows into a disabled one shows the dr
 	expect(select.selectedIndex).toBe(1)
 	host.remove()
 })
+
+test("resetting an option of a select nested in the morph leaves the user's pick in the select around it", () => {
+	const outer = document.createElement("select")
+	outer.innerHTML = `<option>a</option><option>b</option>`
+	const root = document.createElement("div")
+	root.innerHTML = `<select><option>x</option><option>y</option></select>`
+	outer.append(root)
+	document.body.append(outer)
+	outer.value = "b"
+	root.querySelector("select")!.value = "y"
+
+	const to = document.createElement("div")
+	to.innerHTML = `<select><option>x</option><option>y</option></select>`
+	morph(root, to)
+	outer.remove()
+
+	expect(root.querySelector("select")!.value).toBe("x")
+	expect(outer.value).toBe("b")
+})
