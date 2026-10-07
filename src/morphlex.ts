@@ -488,10 +488,10 @@ function isDisabledOption(option: HTMLOptionElement): boolean {
 function clearImplicitSelection(node: ChildNode, parent: ParentNode): void {
 	if (nodeTypeOf(node) !== ELEMENT_NODE_TYPE || nodeTypeOf(parent) !== ELEMENT_NODE_TYPE) return
 	if (isConnected(node) && ownerDocumentOf(node) === ownerDocumentOf(parent)) return
-	if (!isSelectElement(parent as Element) && !selectOf(parent)) return
-
 	const element = node as Element
-	if (isSelectElement(element)) return
+	// Only an option, or an element holding one, can hold an option, which saves looking for a select.
+	if (isSelectElement(element) || (!isOptionElement(element) && !firstElementChildOf(element))) return
+	if (!isSelectElement(parent as Element) && !selectOf(parent)) return
 
 	let selected: Array<HTMLOptionElement> | null = null
 	if (isOptionElement(element)) {
@@ -1668,26 +1668,34 @@ class Morph {
 		// pairing to the loosest, and the remaining candidates are removed before the targets are placed.
 		// Placing the children moves the target's text into a textarea, so its text is read first.
 		const textAreaText = isTextAreaElement(from) ? textContentOf(to) : null
-		const siblings = new Siblings(from, to)
-		this.#matchEqualElements(siblings)
-		this.#matchDirtyElements(siblings)
-		this.#matchElementsById(siblings)
-		this.#leaveClaimedTargets(siblings, from)
-		this.#matchElementsByIdSets(siblings)
-		if (this.#preserveChanges && this.#dirtyElements) this.#matchElementsByChoices(siblings)
-		if (this.#dirtyElements) {
-			this.#takeEqualTargets(siblings)
-			this.#matchElementsByDirtyOutline(siblings)
+		const text = onlyTextChildOf(from)
+		const targetText = text && onlyTextChildOf(to)
+		if (text && targetText && isWhitespaceTextNode(text) === isWhitespaceTextNode(targetText)) {
+			// Text that's the only child on both sides would be matched with the other text and stay where it is, so
+			// it's morphed straight away.
+			this.#morphOneToOne(text, targetText)
+		} else {
+			const siblings = new Siblings(from, to)
+			this.#matchEqualElements(siblings)
+			this.#matchDirtyElements(siblings)
+			this.#matchElementsById(siblings)
+			this.#leaveClaimedTargets(siblings, from)
+			this.#matchElementsByIdSets(siblings)
+			if (this.#preserveChanges && this.#dirtyElements) this.#matchElementsByChoices(siblings)
+			if (this.#dirtyElements) {
+				this.#takeEqualTargets(siblings)
+				this.#matchElementsByDirtyOutline(siblings)
+			}
+			this.#matchElementsByAttributes(siblings)
+			this.#matchElementsByKind(siblings)
+			this.#matchEqualNodes(siblings)
+			this.#matchNodesByType(siblings)
+			this.#orderIdenticalCandidates(siblings)
+			for (let i = 0; i < siblings.from.length; i++) {
+				if (siblings.candidateActive[i]) this.#removeNode(siblings.from[i]!)
+			}
+			this.#placeChildren(from, siblings)
 		}
-		this.#matchElementsByAttributes(siblings)
-		this.#matchElementsByKind(siblings)
-		this.#matchEqualNodes(siblings)
-		this.#matchNodesByType(siblings)
-		this.#orderIdenticalCandidates(siblings)
-		for (let i = 0; i < siblings.from.length; i++) {
-			if (siblings.candidateActive[i]) this.#removeNode(siblings.from[i]!)
-		}
-		this.#placeChildren(from, siblings)
 
 		// Changing a textarea's text updates its default value, which the browser copies to `.value` until the user
 		// changes it, so the browser decides whether the user changed it. Text that still differs from the target's
@@ -2619,7 +2627,8 @@ class Morph {
 	// which unchecks the rest of their new group as the change itself would. Returns the radios it unchecked,
 	// which are only those outside the node unless `inside` is set.
 	#uncheckRadiosNamingFormsIn(node: Node, root: Node, inside = false): Array<HTMLInputElement> | null {
-		if (!isElement(node)) return null
+		// An element without children holds no form, which saves looking for one.
+		if (!isElement(node) || (!isFormElement(node) && !firstElementChildOf(node))) return null
 		let ids: Set<string> | null = null
 		const forms = isFormElement(node) ? [node] : getElementsByTagName(node, "form")
 		for (let i = 0; i < forms.length; i++) {
@@ -2634,7 +2643,11 @@ class Morph {
 	// when a node holding a form moves or leaves, these radios go unchecked, and are checked again straight
 	// after, back in the group they were in.
 	#uncheckRadiosInFormsIn(node: Node): Array<HTMLInputElement> | null {
-		if (!isElement(node) || (!isFormElement(node) && getElementsByTagName(node, "form").length === 0)) return null
+		if (
+			!isElement(node) ||
+			(!isFormElement(node) && (!firstElementChildOf(node) || getElementsByTagName(node, "form").length === 0))
+		)
+			return null
 		return this.#uncheckRadiosWithForm(node)
 	}
 
@@ -3163,17 +3176,13 @@ class Morph {
 
 	// Whether the live element with the target's id can be morphed into the target where the target goes.
 	// `select` is the live select the target ends up in, since a new node's targets are still in their
-	// parsed select. It's found from `parent` when not given.
-	#canClaim(target: Element, parent: ParentNode, select: HTMLSelectElement | null = selectAt(parent)): boolean {
+	// parsed select. It's found from `parent` when not given, and only once there's a live element to claim.
+	#canClaim(target: Element, parent: ParentNode, select?: HTMLSelectElement | null): boolean {
 		const live = this.#movableElement(idOf(target))
+		if (live === null || !canMorphElementInPlace(live, target) || contains(live, parent)) return false
+		if (select === undefined) select = selectAt(parent)
 		// Claiming takes the target out of its parent, so an element holding options is only claimed where it can move.
-		return (
-			live !== null &&
-			canMorphElementInPlace(live, target) &&
-			!contains(live, parent) &&
-			!this.#wrapsMovableAncestor(live, target, select) &&
-			!movesOptionsBetweenSelects(live, select)
-		)
+		return !this.#wrapsMovableAncestor(live, target, select) && !movesOptionsBetweenSelects(live, select)
 	}
 
 	// Whether the target puts a movable ancestor of the live element inside the element, where that
@@ -3193,14 +3202,10 @@ class Morph {
 
 	// Claim the live element with the target's id, if it can be. Returns a placeholder for the target's
 	// place, where the move completes when the morph settles.
-	#claimMovableElement(
-		target: Element,
-		parent: ParentNode,
-		select: HTMLSelectElement | null = selectAt(parent),
-		approved = false,
-	): Comment | null {
+	#claimMovableElement(target: Element, parent: ParentNode, select?: HTMLSelectElement | null, approved = false): Comment | null {
 		if (!this.#canClaim(target, parent, select)) return null
 		const live = this.#liveElementsById.get(idOf(target))!
+		if (select === undefined) select = selectAt(parent)
 
 		const placeholder = createComment(ownerDocumentOf(live)!, "")
 		const preserveChanges = this.#preserveChanges && !this.#clobbered?.has(target)
@@ -3518,6 +3523,12 @@ function bucketByTextContent(nodes: Array<ChildNode>, indices: Array<number>): M
 		else buckets.set(text, [index])
 	}
 	return buckets
+}
+
+// The element's child when it's a single text node.
+function onlyTextChildOf(element: Element): ChildNode | null {
+	const child = firstChildOf(element)
+	return child && nodeTypeOf(child) === TEXT_NODE_TYPE && !nextSiblingOf(child) ? child : null
 }
 
 function nodeListToArray(nodeList: NodeListOf<ChildNode>): Array<ChildNode>
