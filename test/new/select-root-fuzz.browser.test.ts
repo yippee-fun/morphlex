@@ -160,10 +160,10 @@ function untouchedSelection(select: HTMLSelectElement): (live: HTMLSelectElement
 		const survivors = [...live.options]
 		if (survivors.some((option) => !options.includes(option))) return undefined
 		for (const [option, html] of shown) if (option.outerHTML !== html) return undefined
-		const resetBefore = survivors.map((option) => (reset.has(option) ? 1 : 0)).join("")
-		const resetAfter = [...resetSelection(live)].map((option) => survivors.indexOf(option))
-		if (resetBefore !== survivors.map((_, i) => (resetAfter.includes(i) ? 1 : 0)).join("")) return undefined
-		return survivors.map((option) => (shown.has(option) ? 1 : 0)).join("")
+		const pattern = (selected: { has(option: HTMLOptionElement): boolean }) =>
+			survivors.map((option) => (selected.has(option) ? 1 : 0)).join("")
+		if (pattern(reset) !== pattern(resetSelection(live))) return undefined
+		return pattern(shown)
 	}
 }
 
