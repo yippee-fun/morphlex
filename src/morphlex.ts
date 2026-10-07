@@ -1528,11 +1528,13 @@ class Morph {
 			from.textContent = newTextContent
 		}
 
-		if (this.#preserveChanges) return
+		this.#resetTextArea(from)
+	}
 
+	#resetTextArea(textarea: HTMLTextAreaElement): void {
 		// Assigning `.value` marks it dirty, so only do it when it has actually diverged.
-		if (isDirtyTextArea(from)) {
-			from.value = from.defaultValue
+		if (!this.#preserveChanges && isDirtyTextArea(textarea)) {
+			textarea.value = textarea.defaultValue
 		}
 	}
 
@@ -1581,6 +1583,8 @@ class Morph {
 		}
 		this.#placeChildren(from, siblings)
 
+		// A textarea's children are only visited when it's the root of `morphInner`.
+		if (isTextAreaElement(from)) this.#resetTextArea(from)
 		this.#settleIfRoot(from)
 		if (isSelectElement(from)) this.#syncDefaultSelection(from)
 
