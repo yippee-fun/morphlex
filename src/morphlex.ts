@@ -1299,6 +1299,8 @@ class Morph {
 				// Checking it would uncheck the rest of its new group, where a checked radio that's vetoed stays checked.
 				if (radioGroupOf(radio, groups).some((member) => member.checked && this.#isVetoed(member))) continue
 				radio.checked = true
+				// The new group can have a later radio the markup checks, which wins as when parsing.
+				;(this.#radiosToSync ??= new Set()).add(radio)
 			}
 		}
 
@@ -2362,10 +2364,12 @@ class Morph {
 
 				if (!shouldNotMove[matchInd]) {
 					const outsideRadios = this.#uncheckRadiosNamingFormsIn(match, getRootNode(match))
+					const insideRadios = this.#uncheckRadiosInFormsIn(match)
 					const focus = this.#watchFocus(match, parent)
 					moveBefore(parent, match, insertionPoint)
 					if (focus) this.#restoreFocus(focus)
 					this.#checkRadios(outsideRadios)
+					this.#checkRadios(insideRadios, true)
 				}
 				// Read this before the morph, which can replace the match. A match that moved itself
 				// elsewhere when it reconnected leaves the insertion point where it was.
@@ -2615,6 +2619,15 @@ class Morph {
 		return ids && this.#uncheckRadiosNaming(ids, root, inside ? null : node)
 	}
 
+	// Chromium and Firefox briefly reset the form of a radio with a `form` attribute while a form around it
+	// moves or leaves, and a checked one then unchecks the radio in the group it joins for that moment. So
+	// when a node holding a form moves or leaves, these radios go unchecked, and are checked again straight
+	// after, back in the group they were in.
+	#uncheckRadiosInFormsIn(node: Node): Array<HTMLInputElement> | null {
+		if (!isElement(node) || (!isFormElement(node) && getElementsByTagName(node, "form").length === 0)) return null
+		return this.#uncheckRadiosWithForm(node)
+	}
+
 	// A new radio with a `form` attribute is checked in the group it joins, but can leave that group when the
 	// morph adds or changes its form later. So it's inserted unchecked and checked again straight after, which
 	// notes the radios it unchecks, to give them their check back if it leaves.
@@ -2624,7 +2637,7 @@ class Morph {
 		for (let i = 0; i < inputs.length; i++) {
 			const input = inputs[i]!
 			if (isCheckedRadio(input) && input.hasAttribute("form")) {
-				this.#uncheckRadio(input)
+				this.#uncheckRadio(input, true)
 				;(unchecked ??= []).push(input)
 			}
 		}
@@ -2668,8 +2681,8 @@ class Morph {
 
 	// Setting `.checked` stops a radio from following its `checked` attribute. So a radio that's checked
 	// again straight after, and still follows the attribute, is unchecked by removing the attribute.
-	#uncheckRadio(radio: HTMLInputElement): void {
-		const value = this.#defersRadio(radio) ? null : radio.getAttribute("checked")
+	#uncheckRadio(radio: HTMLInputElement, immediate = false): void {
+		const value = !immediate && this.#defersRadio(radio) ? null : radio.getAttribute("checked")
 		if (value !== null) {
 			radio.removeAttribute("checked")
 			if (!radio.checked) {
@@ -2766,8 +2779,10 @@ class Morph {
 
 	#removeChild(node: ChildNode): void {
 		const radios = this.#uncheckRadiosNamingFormsIn(node, getRootNode(node))
+		const insideRadios = this.#uncheckRadiosInFormsIn(node)
 		remove(node)
 		this.#checkRadios(radios)
+		this.#checkRadios(insideRadios, true)
 	}
 
 	// Check each radio the markup checks, in document order, so the last one wins as when parsing.
@@ -2980,14 +2995,20 @@ class Morph {
 		// A live target takes its forms away from the radios where it is, in its own document or shadow root
 		// and inside it, including forms that live elements claim out of it next. Those inside it are
 		// checked again straight away, since they're the target's own state, not markup the morph resets.
-		const sourceRadios = isConnected(node) ? this.#uncheckRadiosNamingFormsIn(node, getRootNode(node), true) : null
+		const live = isConnected(node)
+		const sourceRadios = live ? this.#uncheckRadiosNamingFormsIn(node, getRootNode(node), true) : null
 		// A live target can hold the focused element, which its claimed descendants take out of it next.
 		const focus = this.#watchFocus(node, parent)
 		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, parent)
 		if (this.#targetOpensDetails && isElement(node)) this.#noteAddedDetails(node)
 		const radios = this.#uncheckRadiosNamingFormsIn(node, getRootNode(parent))
-		const addedRadios = this.#targetChecksInputs && isElement(node) ? this.#uncheckRadiosWithForm(node) : null
+		const addedRadios =
+			this.#targetChecksInputs && isElement(node)
+				? this.#uncheckRadiosWithForm(node)
+				: live
+					? this.#uncheckRadiosInFormsIn(node)
+					: null
 		moveInto(parent, node, insertionPoint)
 		if (focus) this.#restoreFocus(focus)
 		this.#checkRadios(radios)
@@ -3036,11 +3057,13 @@ class Morph {
 		if (!inCycle && this.#liveElementsById.get(idOf(target)) === live && !contains(live, parent)) {
 			this.#liveElementsById.delete(idOf(target))
 			const radios = this.#uncheckRadiosForMove(live, parent)
+			const insideRadios = this.#uncheckRadiosInFormsIn(live)
 			const focus = this.#watchFocus(live, parent)
 			moveInto(parent, live, placeholder)
 			if (focus) this.#restoreFocus(focus)
 			remove(placeholder)
 			this.#checkRadios(radios)
+			this.#checkRadios(insideRadios, true)
 			if (!this.#preserveChanges) this.#noteRadioGroups(live)
 			this.#morphOneToOne(live, target)
 		} else {
