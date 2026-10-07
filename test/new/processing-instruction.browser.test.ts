@@ -39,3 +39,19 @@ test("a processing instruction morphed directly into one with another target is 
 
 	expect((parent.firstChild as ProcessingInstruction).target).toBe("end")
 })
+
+test("a processing instruction is replaced by an element with the same name, even a form that shadows nodeValue", () => {
+	const parent = document.createElement("div")
+	const from = document.createProcessingInstruction("FORM", "data")
+	parent.append(from)
+
+	const to = document.createElement("form")
+	const input = document.createElement("input")
+	input.name = "nodeValue"
+	to.append(input)
+
+	morph(from, to)
+
+	expect(parent.firstChild).toBe(to)
+	expect(from.data).toBe("data")
+})

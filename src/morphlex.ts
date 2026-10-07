@@ -1343,7 +1343,12 @@ class Morph {
 		}
 
 		// Nodes of the same type here aren't elements, so neither is a form. A processing instruction's target is its name.
-		if (from.nodeName === to.nodeName && from.nodeValue !== null && to.nodeValue !== null) {
+		if (
+			nodeTypeOf(from) === nodeTypeOf(to) &&
+			from.nodeName === to.nodeName &&
+			from.nodeValue !== null &&
+			to.nodeValue !== null
+		) {
 			from.nodeValue = to.nodeValue
 		} else {
 			this.#replaceNode(from, to)
