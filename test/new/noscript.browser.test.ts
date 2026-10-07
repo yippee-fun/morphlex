@@ -68,6 +68,18 @@ test("a changed noscript from a string updates its text", () => {
 	div.remove()
 })
 
+test("a noscript inside a template from a string keeps its content as text", () => {
+	const div = document.createElement("div")
+	document.body.append(div)
+
+	morph(div, `<div><template><noscript><img src="data:,x"></noscript></template></div>`)
+
+	const noscript = div.querySelector("template")!.content.querySelector("noscript")!
+	expect(noscript.childNodes.length).toBe(1)
+	expect(noscript.firstChild!.nodeType).toBe(Node.TEXT_NODE)
+	div.remove()
+})
+
 test("a noscript in SVG from a string keeps its elements", () => {
 	const div = document.createElement("div")
 	document.body.append(div)

@@ -626,6 +626,12 @@ function flattenNoscripts(parent: ParentNode): void {
 		const noscript = noscripts[i] as HTMLElement
 		if (namespaceURIOf(noscript) === HTML_NAMESPACE) noscript.textContent = noscript.innerHTML
 	}
+
+	const templates = querySelectorAll(parent, "template")
+	for (let i = 0; i < templates.length; i++) {
+		const template = templates[i]!
+		if (isTemplateElement(template)) flattenNoscripts(template.content)
+	}
 }
 
 /* v8 ignore start -- reorder fast paths are environment-sensitive */
