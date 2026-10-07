@@ -630,6 +630,31 @@ test("a focused textarea that moves into an item the morph opens later is focuse
 	host.remove()
 })
 
+// Move fuzzer seed 37599778253, in WebKit: inserting the open item closes the one still inside the editor, which
+// closes the new one instead, so the editor can't take focus back until the morph settles and reopens it.
+test("the caret in a focused contenteditable that moves into an item the morph opens later stays inside it when its text goes", () => {
+	const host = mount(
+		`<div><details id="e" contenteditable="true"><details name="h" open></details><b id="m">bold</b></details></div>`,
+	)
+	const editor = host.querySelector<HTMLElement>("#e")!
+	const text = host.querySelector("#m")!.firstChild!
+	editor.focus()
+	getSelection()!.setBaseAndExtent(text, 2, text, 2)
+
+	morphInner(
+		host.firstElementChild!,
+		`<div><details name="h" open><details id="e" contenteditable="true"></details></details></div>`,
+	)
+
+	const selection = getSelection()!
+	expect(host.querySelector("#e")).toBe(editor)
+	expect(document.activeElement).toBe(editor)
+	expect(editor.contains(selection.anchorNode)).toBe(true)
+	expect(editor.contains(selection.focusNode)).toBe(true)
+
+	host.remove()
+})
+
 test("focus that a callback sends to a focusable body stays there, even when the moved element couldn't take it back yet", () => {
 	const host = mount(intoAccordion.from)
 	const textarea = host.querySelector("textarea")!
@@ -663,6 +688,37 @@ test("the caret in an editable body stays in a child that moves", () => {
 	expect([selection.anchorNode, selection.anchorOffset, selection.focusNode, selection.focusOffset]).toEqual([text, 1, text, 3])
 
 	document.body.removeAttribute("contenteditable")
+	host.remove()
+})
+
+test("a focused contenteditable whose text a custom element's callback shortens as it moves into an item the morph opens later doesn't stop the morph", () => {
+	class Shorten extends HTMLElement {
+		connectedCallback() {
+			if (this.hasAttribute("armed")) (this.firstChild as Text).data = "b"
+		}
+		connectedMoveCallback() {
+			this.connectedCallback()
+		}
+	}
+	if (!customElements.get("x-shorten")) customElements.define("x-shorten", Shorten)
+	const host = mount(
+		`<div><details id="e" contenteditable="true"><details name="h" open></details><x-shorten id="s">bold</x-shorten></details></div>`,
+	)
+	const editor = host.querySelector<HTMLElement>("#e")!
+	const shorten = host.querySelector("#s")!
+	editor.focus()
+	getSelection()!.setBaseAndExtent(shorten.firstChild!, 3, shorten.firstChild!, 3)
+	shorten.setAttribute("armed", "")
+
+	morphInner(
+		host.firstElementChild!,
+		`<div><details name="h" open><details id="e" contenteditable="true"><x-shorten id="s" armed>b</x-shorten></details></details></div>`,
+	)
+
+	expect(host.querySelector("#e")).toBe(editor)
+	expect(shorten.textContent).toBe("b")
+	expect(document.activeElement).toBe(editor)
+
 	host.remove()
 })
 
