@@ -81,6 +81,18 @@ test("adding a textarea's text asks beforeNodeAdded", () => {
 	div.remove()
 })
 
+test("an edited textarea is reset when the target adds its text", () => {
+	const div = liveDiv(`<textarea name="t"></textarea>`)
+	const textarea = div.querySelector("textarea")!
+	textarea.value = "typed"
+
+	morph(div, `<div><textarea name="t">b</textarea></div>`)
+
+	expect(textarea.defaultValue).toBe("b")
+	expect(textarea.value).toBe("b")
+	div.remove()
+})
+
 test("an edited empty textarea is still reset to its empty target", () => {
 	const div = liveDiv(`<textarea name="t"></textarea>`)
 	const textarea = div.querySelector("textarea")!
