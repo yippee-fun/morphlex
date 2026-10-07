@@ -133,3 +133,33 @@ test.skipIf(fillsSelectedContent)("where the browser doesn't fill selectedconten
 	expect(host.querySelector("selectedcontent")!.innerHTML).toBe("new")
 	host.remove()
 })
+
+test.runIf(fillsSelectedContent)("a selectedcontent the morph is told to leave alone isn't refreshed", () => {
+	for (const callback of ["beforeNodeVisited", "beforeChildrenVisited"] as const) {
+		const host = mount(select(fruits))
+		const selectedContent = host.querySelector("selectedcontent")!
+
+		morph(host, `<form>${select(`<option value="a">Apricot</option><option value="b">Banana</option>`)}</form>`, {
+			[callback]: (node: Node) => node !== selectedContent,
+		})
+
+		expect(host.querySelector("option")!.textContent).toBe("Apricot")
+		expect(selectedContent.innerHTML).toBe("Apple")
+		host.remove()
+	}
+})
+
+test("an SVG element named selectedcontent in a select is morphed like other markup", () => {
+	const host = mount(select(fruits))
+	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+	svg.append(document.createElementNS("http://www.w3.org/2000/svg", "selectedcontent"))
+	svg.firstChild!.textContent = "old"
+	host.querySelector("button")!.append(svg)
+	const target = host.cloneNode(true) as HTMLElement
+	target.querySelector("svg")!.firstChild!.textContent = "new"
+
+	morph(host, target)
+
+	expect(host.querySelector("svg")!.firstChild!.textContent).toBe("new")
+	host.remove()
+})
