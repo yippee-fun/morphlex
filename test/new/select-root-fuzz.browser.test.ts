@@ -47,6 +47,8 @@ test("seeded fuzz of morphs rooted at or inside a select shows what its markup s
 			// With preserveChanges the user's picks stay, so only what the select shows is checked.
 			const preserveChanges = kind.includes("select") && extra() < 0.3
 			const root = host.querySelector("#root") ?? select
+			// A morph inside the select leaves the selection alone unless it changes what the markup selects.
+			const untouched = kind.includes("select") ? null : untouchedSelection(select)
 			let picked: string | null = null
 			let to: string
 			if (kind === "select" || kind === "inner-select") {
@@ -81,7 +83,12 @@ test("seeded fuzz of morphs rooted at or inside a select shows what its markup s
 			const live = host.querySelector("select")!
 			const message = `seed ${seed} ${kind}\n${from}\n${to}\n${live.outerHTML}`
 			if (picked !== null) expect(selection(live), message).toBe(picked)
-			else if (!preserveChanges) expect(markupSelections(live), message).toContain(selection(live))
+			else if (!preserveChanges) {
+				const accepted = markupSelections(live)
+				const kept = untouched?.(live)
+				if (kept) accepted.push(kept)
+				expect(accepted, message).toContain(selection(live))
+			}
 			if (fillsSelectedContent && !live.multiple) {
 				const shown = live.options[live.selectedIndex]?.innerHTML ?? ""
 				for (const selectedContent of live.querySelectorAll("selectedcontent")) {
@@ -139,6 +146,34 @@ function markupSelections(select: HTMLSelectElement): Array<string> {
 	form.append(select.cloneNode(true))
 	form.reset()
 	return [selection(parsed), selection(form.querySelector("select")!)]
+}
+
+// WebKit's parser can show an option the markup doesn't select (it skips an option in an optgroup), and a morph inside
+// the select that changes neither the options it shows nor what a form reset selects keeps that. So the selection from
+// before the morph is accepted when no option was added, the shown options are unchanged, and a form reset selects the
+// same options as before.
+function untouchedSelection(select: HTMLSelectElement): (live: HTMLSelectElement) => string | undefined {
+	const options = [...select.options]
+	const shown = new Map(options.filter((option) => option.selected).map((option) => [option, option.outerHTML]))
+	const reset = resetSelection(select)
+	return (live) => {
+		const survivors = [...live.options]
+		if (survivors.some((option) => !options.includes(option))) return undefined
+		for (const [option, html] of shown) if (option.outerHTML !== html) return undefined
+		const resetBefore = survivors.map((option) => (reset.has(option) ? 1 : 0)).join("")
+		const resetAfter = [...resetSelection(live)].map((option) => survivors.indexOf(option))
+		if (resetBefore !== survivors.map((_, i) => (resetAfter.includes(i) ? 1 : 0)).join("")) return undefined
+		return survivors.map((option) => (shown.has(option) ? 1 : 0)).join("")
+	}
+}
+
+// The live options a form reset of a copy of the select selects.
+function resetSelection(select: HTMLSelectElement): Set<HTMLOptionElement> {
+	const form = document.createElement("form")
+	form.append(select.cloneNode(true))
+	form.reset()
+	const copy = form.querySelector("select")!
+	return new Set([...select.options].filter((_, i) => copy.options[i]!.selected))
 }
 
 function parse(html: string): DocumentFragment {
