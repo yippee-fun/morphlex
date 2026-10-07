@@ -6,6 +6,8 @@ const TEXT_NODE_TYPE = 3
 const DOCUMENT_NODE_TYPE = 9
 const DOCUMENT_FRAGMENT_NODE_TYPE = 11
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg"
+const MATHML_NAMESPACE = "http://www.w3.org/1998/Math/MathML"
 const CLOBBER_ATTRIBUTE = "morphlex-clobber"
 const DIRTY_ATTRIBUTE = "morphlex-dirty"
 // The most cells `chooseStaying` fills for one set of siblings, about 8 MB in all, so a morph removing many of many
@@ -163,7 +165,9 @@ export function morphDocument(from: Document, to: Document | string, options?: O
 }
 
 /**
- * Morph one `ChildNode` to another. If the `to` node is a string, it will be parsed with a `<template>` element.
+ * Morph one `ChildNode` to another. If the `to` node is a string, it will be parsed where `from` is: with a
+ * `DOMParser` for an `html`, `head` or `body` root, in an element of the parent's namespace inside SVG or MathML,
+ * and otherwise with a `<template>` element.
  *
  * @param from The source node to morph from.
  * @param to The target node, node list or string to morph to.
@@ -179,14 +183,14 @@ export function morphDocument(from: Document, to: Document | string, options?: O
  * the nodes are adopted. Do not pass untrusted HTML; sanitize it first.
  */
 export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | string, options: Options = {}): void {
-	if (typeof to === "string") to = parseFragment(to).childNodes
+	if (typeof to === "string") to = parseTarget(from, to)
 
 	run(from, to, takeClobbered(to), options, (morpher) => morpher.morph(from, to))
 }
 
 /**
  * Morph the inner content of one ChildNode to the inner content of another.
- * If the `to` node is a string, it will be parsed with a `<template>` element.
+ * If the `to` node is a string, it will be parsed where `from` is, as with `morph`.
  *
  * @param from The source node to morph from.
  * @param to The target node, node list or string to morph to.
@@ -203,10 +207,12 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
  */
 export function morphInner(from: ChildNode, to: ChildNode | string, options: Options = {}): void {
 	if (typeof to === "string") {
-		const fragment = parseFragment(to)
+		const parsed = parseTarget(from, to)
 
-		if (fragment.firstChild && fragment.childNodes.length === 1 && nodeTypeOf(fragment.firstChild) === ELEMENT_NODE_TYPE) {
-			to = fragment.firstChild
+		if (!isNodeList(parsed)) {
+			to = parsed
+		} else if (parsed.length === 1 && nodeTypeOf(parsed[0]!) === ELEMENT_NODE_TYPE) {
+			to = parsed[0]!
 		} else {
 			throw new Error("[Morphlex] The string was not a valid HTML element.")
 		}
@@ -588,11 +594,46 @@ function clearDirtyFlags(elements: Array<Element>): void {
 	}
 }
 
+// A string is parsed where `from` is, as `innerHTML` on its parent would parse it. An `html`, `head` or `body`
+// can't be parsed in a template, so it's taken from a parsed document. Inside SVG or MathML, the string is parsed
+// in an element like the parent (or for a root without one, an `svg` or `math`), so a `circle` isn't an HTML
+// element. Anything else is parsed in a template, which keeps table rows and the like where they are.
+function parseTarget(from: ChildNode, string: string): ChildNode | NodeListOf<ChildNode> {
+	if (isElement(from) && namespaceURIOf(from) === HTML_NAMESPACE) {
+		const name = localNameOf(from)
+		if (name === "html" || name === "head" || name === "body") {
+			const parsed = parseDocument(string)
+			return name === "html" ? documentElementOf(parsed)! : name === "head" ? headOf(parsed) : bodyOf(parsed)
+		}
+	}
+
+	return parseFragment(string, foreignContextOf(from)).childNodes
+}
+
+// The parent of `from` when it's an SVG or MathML element, or for an SVG or MathML root without one, an `svg` or
+// `math`. The parent's attributes count too, since an `annotation-xml` with an HTML `encoding` holds HTML.
+function foreignContextOf(from: ChildNode): Element | null {
+	const parent = parentNodeOf(from)
+	if (parent && isElement(parent)) return namespaceURIOf(parent) === HTML_NAMESPACE ? null : parent
+
+	const namespace = isElement(from) ? namespaceURIOf(from) : null
+	if (namespace === SVG_NAMESPACE) return createElementNS(document, namespace, "svg")
+	if (namespace === MATHML_NAMESPACE) return createElementNS(document, namespace, "math")
+	return null
+}
+
 // `setHTMLUnsafe` and `Document.parseHTMLUnsafe` attach declarative shadow roots, as a page does, so a
 // `<template shadowrootmode>` never lands in a host's light DOM. Older browsers fall back to parsers that don't.
-function parseFragment(string: string): DocumentFragment {
+// A foreign context is parsed in a shallow copy of it in the template's inert document, so nothing loads.
+function parseFragment(string: string, context: Element | null = null): DocumentFragment {
 	const template = createElement(document, "template") as HTMLTemplateElement
-	setTemplateHTML(template, string)
+	if (context) {
+		const element = importNode(template.content.ownerDocument, context)
+		setHTML(element, string)
+		while (element.firstChild) template.content.appendChild(element.firstChild)
+	} else {
+		setHTML(template, string)
+	}
 	trimFragmentEdgeWhitespace(template.content)
 	/* v8 ignore next -- only Firefox parses a template's content with scripting enabled */
 	if (!templateKeepsNoscriptText()) flattenNoscripts(template.content)
@@ -600,10 +641,10 @@ function parseFragment(string: string): DocumentFragment {
 	return template.content
 }
 
-function setTemplateHTML(template: HTMLTemplateElement, string: string): void {
+function setHTML(element: Element, string: string): void {
 	/* v8 ignore next -- every browser the tests run in has setHTMLUnsafe */
-	if (template.setHTMLUnsafe) template.setHTMLUnsafe(string)
-	else template.innerHTML = string
+	if (element.setHTMLUnsafe) element.setHTMLUnsafe(string)
+	else element.innerHTML = string
 }
 
 function parseDocument(string: string): Document {
@@ -623,7 +664,7 @@ let noscriptTextKept: boolean | undefined
 function templateKeepsNoscriptText(): boolean {
 	if (noscriptTextKept === undefined) {
 		const template = createElement(document, "template") as HTMLTemplateElement
-		setTemplateHTML(template, "<noscript><p></p></noscript>")
+		setHTML(template, "<noscript><p></p></noscript>")
 		noscriptTextKept = nodeTypeOf(template.content.firstChild!.firstChild!) === TEXT_NODE_TYPE
 	}
 	return noscriptTextKept
@@ -1258,6 +1299,8 @@ class Morph {
 				// Checking it would uncheck the rest of its new group, where a checked radio that's vetoed stays checked.
 				if (radioGroupOf(radio, groups).some((member) => member.checked && this.#isVetoed(member))) continue
 				radio.checked = true
+				// The new group can have a later radio the markup checks, which wins as when parsing.
+				;(this.#radiosToSync ??= new Set()).add(radio)
 			}
 		}
 
@@ -1642,8 +1685,9 @@ class Morph {
 		// changes it, so the browser decides whether the user changed it. Text that still differs from the target's
 		// means a callback vetoed the update, so the value is left alone too.
 		if (isTextAreaElement(from) && textContentOf(from) === textAreaText) this.#resetTextArea(from)
-		this.#settleIfRoot(from)
+		// Sync the select before a root settles, which syncs it again, so nothing changes it after its callbacks.
 		if (isSelectElement(from)) this.#syncDefaultSelection(from)
+		this.#settleIfRoot(from)
 
 		this.#options.afterChildrenVisited?.(from)
 	}
@@ -1807,7 +1851,7 @@ class Morph {
 		}
 	}
 
-	// The outline holds the element's name, so the two are of the same kind.
+	// The outline holds the element's name, so the two are of the same kind, but an input of another type would be replaced.
 	// A target discarding user changes only takes an untouched candidate, so it keeps its place among the rest.
 	#canTakeByOutline(element: Element, candidateIndex: number, siblings: Siblings): boolean {
 		const candidate = siblings.from[candidateIndex] as Element
@@ -1815,7 +1859,7 @@ class Morph {
 			(!this.#dirtyElements!.has(candidate) || !this.#holdsClobbered(element)) &&
 			((canSoftMatchByTagName(element, this.#idArrayMap.has(element)) &&
 				canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) ||
-				sharesMatchKey(element, candidate)) &&
+				(sharesMatchKey(element, candidate) && canMorphElementInPlace(candidate, element))) &&
 			!this.#holdsOtherChoice(candidate, element)
 		)
 	}
@@ -2029,9 +2073,18 @@ class Morph {
 		if (siblings.displaced.length) this.#matchEqualElements(siblings)
 	}
 
-	// Match by a shared `name`, `href` or `src`.
+	// Match by a shared `name`, `href` or `src`. A candidate that would be replaced rather than morphed, like an input of
+	// another type, is only taken once every target has had the chance to take one it can be morphed into, so it doesn't
+	// take the target of a same-name input of the target's type. Replacing it still asks both vetoes before changing
+	// anything, which removing it and adding the target as a new node wouldn't.
 	#matchElementsByAttributes(siblings: Siblings): void {
+		if (this.#matchElementsByAttributesIf(siblings, true)) this.#matchElementsByAttributesIf(siblings, false)
+	}
+
+	// Returns whether a candidate was passed over because it would be replaced.
+	#matchElementsByAttributesIf(siblings: Siblings, morphable: boolean): boolean {
 		const { from, to, candidateElements, unmatchedElements, candidateActive, unmatchedActive } = siblings
+		let passedOver = false
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
 			if (!unmatchedActive[target]) continue
@@ -2045,11 +2098,16 @@ class Morph {
 				const candidate = from[candidateIndex] as Element
 
 				if (sharesMatchKey(element, candidate) && !this.#holdsOtherChoice(candidate, element)) {
+					if (morphable && !canMorphElementInPlace(candidate, element)) {
+						passedOver = true
+						continue
+					}
 					siblings.take(target, candidateIndex, Operation.SameElement)
 					break
 				}
 			}
 		}
+		return passedOver
 	}
 
 	// Match elements of the same kind, only for elements without distinguishing attributes.
@@ -2306,10 +2364,12 @@ class Morph {
 
 				if (!shouldNotMove[matchInd]) {
 					const outsideRadios = this.#uncheckRadiosNamingFormsIn(match, getRootNode(match))
+					const insideRadios = this.#uncheckRadiosInFormsIn(match)
 					const focus = this.#watchFocus(match, parent)
 					moveBefore(parent, match, insertionPoint)
 					if (focus) this.#restoreFocus(focus)
 					this.#checkRadios(outsideRadios)
+					this.#checkRadios(insideRadios, true)
 				}
 				// Read this before the morph, which can replace the match. A match that moved itself
 				// elsewhere when it reconnected leaves the insertion point where it was.
@@ -2559,6 +2619,15 @@ class Morph {
 		return ids && this.#uncheckRadiosNaming(ids, root, inside ? null : node)
 	}
 
+	// Chromium and Firefox briefly reset the form of a radio with a `form` attribute while a form around it
+	// moves or leaves, and a checked one then unchecks the radio in the group it joins for that moment. So
+	// when a node holding a form moves or leaves, these radios go unchecked, and are checked again straight
+	// after, back in the group they were in.
+	#uncheckRadiosInFormsIn(node: Node): Array<HTMLInputElement> | null {
+		if (!isElement(node) || (!isFormElement(node) && getElementsByTagName(node, "form").length === 0)) return null
+		return this.#uncheckRadiosWithForm(node)
+	}
+
 	// A new radio with a `form` attribute is checked in the group it joins, but can leave that group when the
 	// morph adds or changes its form later. So it's inserted unchecked and checked again straight after, which
 	// notes the radios it unchecks, to give them their check back if it leaves.
@@ -2568,7 +2637,7 @@ class Morph {
 		for (let i = 0; i < inputs.length; i++) {
 			const input = inputs[i]!
 			if (isCheckedRadio(input) && input.hasAttribute("form")) {
-				this.#uncheckRadio(input)
+				this.#uncheckRadio(input, true)
 				;(unchecked ??= []).push(input)
 			}
 		}
@@ -2612,8 +2681,8 @@ class Morph {
 
 	// Setting `.checked` stops a radio from following its `checked` attribute. So a radio that's checked
 	// again straight after, and still follows the attribute, is unchecked by removing the attribute.
-	#uncheckRadio(radio: HTMLInputElement): void {
-		const value = this.#defersRadio(radio) ? null : radio.getAttribute("checked")
+	#uncheckRadio(radio: HTMLInputElement, immediate = false): void {
+		const value = !immediate && this.#defersRadio(radio) ? null : radio.getAttribute("checked")
 		if (value !== null) {
 			radio.removeAttribute("checked")
 			if (!radio.checked) {
@@ -2710,8 +2779,10 @@ class Morph {
 
 	#removeChild(node: ChildNode): void {
 		const radios = this.#uncheckRadiosNamingFormsIn(node, getRootNode(node))
+		const insideRadios = this.#uncheckRadiosInFormsIn(node)
 		remove(node)
 		this.#checkRadios(radios)
+		this.#checkRadios(insideRadios, true)
 	}
 
 	// Check each radio the markup checks, in document order, so the last one wins as when parsing.
@@ -2924,14 +2995,20 @@ class Morph {
 		// A live target takes its forms away from the radios where it is, in its own document or shadow root
 		// and inside it, including forms that live elements claim out of it next. Those inside it are
 		// checked again straight away, since they're the target's own state, not markup the morph resets.
-		const sourceRadios = isConnected(node) ? this.#uncheckRadiosNamingFormsIn(node, getRootNode(node), true) : null
+		const live = isConnected(node)
+		const sourceRadios = live ? this.#uncheckRadiosNamingFormsIn(node, getRootNode(node), true) : null
 		// A live target can hold the focused element, which its claimed descendants take out of it next.
 		const focus = this.#watchFocus(node, parent)
 		clearImplicitSelection(node, parent)
 		this.#placeMovableDescendants(node, parent)
 		if (this.#targetOpensDetails && isElement(node)) this.#noteAddedDetails(node)
 		const radios = this.#uncheckRadiosNamingFormsIn(node, getRootNode(parent))
-		const addedRadios = this.#targetChecksInputs && isElement(node) ? this.#uncheckRadiosWithForm(node) : null
+		const addedRadios =
+			this.#targetChecksInputs && isElement(node)
+				? this.#uncheckRadiosWithForm(node)
+				: live
+					? this.#uncheckRadiosInFormsIn(node)
+					: null
 		moveInto(parent, node, insertionPoint)
 		if (focus) this.#restoreFocus(focus)
 		this.#checkRadios(radios)
@@ -2980,11 +3057,13 @@ class Morph {
 		if (!inCycle && this.#liveElementsById.get(idOf(target)) === live && !contains(live, parent)) {
 			this.#liveElementsById.delete(idOf(target))
 			const radios = this.#uncheckRadiosForMove(live, parent)
+			const insideRadios = this.#uncheckRadiosInFormsIn(live)
 			const focus = this.#watchFocus(live, parent)
 			moveInto(parent, live, placeholder)
 			if (focus) this.#restoreFocus(focus)
 			remove(placeholder)
 			this.#checkRadios(radios)
+			this.#checkRadios(insideRadios, true)
 			if (!this.#preserveChanges) this.#noteRadioGroups(live)
 			this.#morphOneToOne(live, target)
 		} else {
@@ -3873,6 +3952,7 @@ const childrenOf = getter(() => Element.prototype, "children")
 const firstElementChildOf = getter(() => Element.prototype, "firstElementChild")
 const nextElementSiblingOf = getter(() => Element.prototype, "nextElementSibling")
 const documentElementOf = getter(() => Document.prototype, "documentElement")
+const headOf = getter(() => Document.prototype, "head")
 const bodyOf = getter(() => Document.prototype, "body")
 const activeElementOf = getter(() => Document.prototype, "activeElement")
 const implementationOf = getter(() => Document.prototype, "implementation")
@@ -4004,6 +4084,15 @@ function querySelectorAll(parent: ParentNode, selectors: string): NodeListOf<Ele
 
 function createElement(document: Document, localName: string): HTMLElement {
 	return Document.prototype.createElement.call(document, localName)
+}
+
+function createElementNS(document: Document, namespace: string, localName: string): Element {
+	return Document.prototype.createElementNS.call(document, namespace, localName)
+}
+
+// A shallow copy of the node in the document.
+function importNode<T extends Node>(document: Document, node: T): T {
+	return Document.prototype.importNode.call(document, node, false) as T
 }
 
 function createComment(document: Document, data: string): Comment {
