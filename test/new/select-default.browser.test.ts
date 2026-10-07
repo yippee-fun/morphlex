@@ -601,3 +601,22 @@ test("resetting an option of a select nested in the morph leaves the user's pick
 	expect(root.querySelector("select")!.value).toBe("x")
 	expect(outer.value).toBe("b")
 })
+
+test("resetting an option of a datalist nested in the morph leaves the user's pick in the select around it", () => {
+	const outer = document.createElement("select")
+	outer.innerHTML = `<option>a</option><option>b</option>`
+	const root = document.createElement("div")
+	root.innerHTML = `<datalist><option>x</option><option>y</option></datalist>`
+	outer.append(root)
+	document.body.append(outer)
+	outer.value = "b"
+	root.querySelectorAll("option")[1]!.selected = true
+
+	const to = document.createElement("div")
+	to.innerHTML = `<datalist><option>x</option><option>y</option></datalist>`
+	morph(root, to)
+	outer.remove()
+
+	expect(root.querySelectorAll("option")[1]!.selected).toBe(false)
+	expect(outer.value).toBe("b")
+})
