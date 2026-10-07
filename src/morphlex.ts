@@ -1361,10 +1361,10 @@ class Morph {
 			this.#visitAttributes(from, to)
 		}
 
-		if (isTextAreaElement(from) && isTextAreaElement(to)) {
-			this.#visitTextArea(from, to)
-		} else if (hasChildNodes(from) || hasChildNodes(to) || isTemplateElement(from)) {
+		if (hasChildNodes(from) || hasChildNodes(to) || isTemplateElement(from)) {
 			this.visitChildNodes(from, to)
+		} else if (isTextAreaElement(from)) {
+			this.#resetTextArea(from)
 		}
 		// A root without children to visit settles here, so its afterNodeVisited sees the finished DOM.
 		this.#settleIfRoot(from)
@@ -1559,18 +1559,6 @@ class Morph {
 		}
 	}
 
-	#visitTextArea(from: HTMLTextAreaElement, to: HTMLTextAreaElement): void {
-		const newTextContent = to.textContent || ""
-
-		// Update text content (which updates defaultValue). The browser keeps `.value` in sync
-		// with it until the textarea's value is dirty, so it decides whether the user changed it.
-		if (from.textContent !== newTextContent) {
-			from.textContent = newTextContent
-		}
-
-		this.#resetTextArea(from)
-	}
-
 	#resetTextArea(textarea: HTMLTextAreaElement): void {
 		// Assigning `.value` marks it dirty, so only do it when it has actually diverged.
 		if (!this.#preserveChanges && isDirtyTextArea(textarea)) {
@@ -1623,7 +1611,8 @@ class Morph {
 		}
 		this.#placeChildren(from, siblings)
 
-		// A textarea's children are only visited when it's the root of `morphInner`.
+		// Changing a textarea's text updates its default value, which the browser copies to `.value` until the user
+		// changes it, so the browser decides whether the user changed it.
 		if (isTextAreaElement(from)) this.#resetTextArea(from)
 		this.#settleIfRoot(from)
 		if (isSelectElement(from)) this.#syncDefaultSelection(from)
