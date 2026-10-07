@@ -2530,7 +2530,7 @@ class Morph {
 			if (checkedInMorph) {
 				checkedInMorph.checked = true
 				// The radio can still join another group later in the morph, and then gets its check back.
-				;(this.#displacedRadios ??= new Map()).set(radio, checkedInMorph)
+				this.#noteDisplacedRadio(radio, checkedInMorph)
 			}
 
 			this.#noteDisplacedRadios(checked, radio)
@@ -2541,8 +2541,15 @@ class Morph {
 	#noteDisplacedRadios(checked: Array<HTMLInputElement>, radio: HTMLInputElement): void {
 		for (let i = 0; i < checked.length; i++) {
 			const member = checked[i]!
-			if (!member.checked) (this.#displacedRadios ??= new Map()).set(member, radio)
+			if (!member.checked) this.#noteDisplacedRadio(member, radio)
 		}
+	}
+
+	// Radios are given back newest first, so a radio displaced again moves to the end.
+	#noteDisplacedRadio(member: HTMLInputElement, radio: HTMLInputElement): void {
+		const displaced = (this.#displacedRadios ??= new Map())
+		displaced.delete(member)
+		displaced.set(member, radio)
 	}
 
 	// A radio that passed through a group on its way elsewhere, say when the morph removes a form and
