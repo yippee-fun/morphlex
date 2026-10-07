@@ -1700,27 +1700,30 @@ class Morph {
 		this.#options.afterChildrenVisited?.(from)
 	}
 
-	// Match elements by isEqualNode. Equal nodes have equal text content, so with many siblings,
-	// bucket the candidates by it rather than comparing every pair. An element holding the user's changes can't
-	// equal its target, so it's left for the pass after this one.
+	// Match elements by isEqualNode. With many siblings, bucket the candidates rather than comparing every pair. An
+	// element holding the user's changes can't equal its target, so it's left for the pass after this one.
 	#matchEqualElements(siblings: Siblings): void {
 		const { from, to, candidateElements, unmatchedElements, candidateActive, unmatchedActive } = siblings
 		const dirtyElements = this.#dirtyElements
-		const candidatesByText =
-			candidateElements.length * unmatchedElements.length > 1024 ? bucketByTextContent(from, candidateElements) : null
+		const buckets =
+			candidateElements.length * unmatchedElements.length > 1024
+				? new EqualBuckets(siblings, candidateElements, this.#preserveChanges)
+				: null
 
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
 			if (!unmatchedActive[target]) continue
 			const element = to[target] as Element
 			let candidates = candidateElements
-			if (candidatesByText) {
-				const bucket = candidatesByText.get(textContentOf(element)!)
+			let c = 0
+			if (buckets) {
+				const bucket = buckets.get(element)
 				if (bucket === undefined) continue
 				candidates = bucket
+				c = buckets.firstActive(bucket, candidateActive)
 			}
 
-			for (let c = 0; c < candidates.length; c++) {
+			for (; c < candidates.length; c++) {
 				const candidateIndex = candidates[c]!
 				if (!candidateActive[candidateIndex] || !siblings.sameKind(target, candidateIndex)) continue
 				const candidate = from[candidateIndex] as Element
@@ -1730,6 +1733,7 @@ class Morph {
 					siblings.take(target, candidateIndex, Operation.EqualNode)
 					break
 				}
+				buckets?.fail(candidates)
 			}
 		}
 	}
@@ -2273,12 +2277,15 @@ class Morph {
 			if (op[target] !== Operation.EqualNode) changed.push(candidate)
 		}
 		if (changed.length) {
-			// Equal nodes have equal text content, so with many siblings, compare within its bucket.
-			const candidatesByText = changed.length * candidates.length > 1024 ? bucketByTextContent(from, candidates) : null
-			const identicalTo = (candidate: number): Array<number> =>
-				(candidatesByText ? candidatesByText.get(textContentOf(from[candidate]!)!)! : candidates).filter(
-					(other) => other === candidate || isEqualNode(from[other]!, from[candidate]!),
-				)
+			// With many siblings, compare within the candidate's bucket.
+			const buckets =
+				changed.length * candidates.length > 1024 ? new EqualBuckets(siblings, candidates, this.#preserveChanges) : null
+			const identicalTo = (candidate: number): Array<number> => {
+				const bucket = buckets ? buckets.get(from[candidate]!)! : candidates
+				const identical = bucket.filter((other) => other === candidate || isEqualNode(from[other]!, from[candidate]!))
+				buckets?.fail(bucket, bucket.length - identical.length)
+				return identical
+			}
 			// Ordering a set can cross other matches, so keep the order the passes chose unless ordering leaves more
 			// nodes in place. On a tie, it's other nodes that move, and whitespace is reused around the nodes that stay.
 			const ordered = matches.slice()
@@ -3506,6 +3513,61 @@ function orderSets(
 		}
 	}
 	return reordered
+}
+
+// Nodes bucketed so equal nodes share a bucket, by text content. Comparisons keep failing in a bucket of nodes with
+// the same text that differ in their markup, like empty elements, so once they've cost more than the bucket has
+// nodes, it's split by shape and its nodes aren't compared pair by pair. Each bucket of many also skips its taken
+// prefix, so many identical siblings aren't scanned again for each target.
+class EqualBuckets {
+	readonly #siblings: Siblings
+	readonly #ignoresOpen: boolean
+	readonly #byText: Map<string, Array<number>>
+	readonly #state: Map<Array<number>, { taken: number; failures: number; byShape?: Map<string, Array<number>> }> = new Map()
+
+	constructor(siblings: Siblings, indices: Array<number>, ignoresOpen: boolean) {
+		this.#siblings = siblings
+		this.#ignoresOpen = ignoresOpen
+		this.#byText = bucketByTextContent(siblings.from, indices)
+	}
+
+	get(node: Node): Array<number> | undefined {
+		const bucket = this.#byText.get(textContentOf(node)!)
+		const state = bucket && bucket.length > 1 && this.#state.get(bucket)
+		if (!state || state.failures <= bucket.length) return bucket
+		state.byShape ??= bucketByShape(this.#siblings, bucket, this.#ignoresOpen)
+		return state.byShape.get(this.#siblings.shapeOf(node, this.#ignoresOpen))
+	}
+
+	// The first position in the bucket from which candidates may still be active.
+	firstActive(bucket: Array<number>, active: Uint8Array): number {
+		if (bucket.length === 1) return 0
+		const state = this.#stateOf(bucket)
+		while (state.taken < bucket.length && !active[bucket[state.taken]!]) state.taken++
+		return state.taken
+	}
+
+	// Notes comparisons in a bucket that found no equal node.
+	fail(bucket: Array<number>, count = 1): void {
+		if (bucket.length > 1) this.#stateOf(bucket).failures += count
+	}
+
+	#stateOf(bucket: Array<number>): { taken: number; failures: number; byShape?: Map<string, Array<number>> } {
+		let state = this.#state.get(bucket)
+		if (!state) this.#state.set(bucket, (state = { taken: 0, failures: 0 }))
+		return state
+	}
+}
+
+function bucketByShape(siblings: Siblings, indices: Array<number>, ignoresOpen: boolean): Map<string, Array<number>> {
+	const buckets: Map<string, Array<number>> = new Map()
+	for (const index of indices) {
+		const shape = siblings.shapeOf(siblings.from[index]!, ignoresOpen)
+		const bucket = buckets.get(shape)
+		if (bucket) bucket.push(index)
+		else buckets.set(shape, [index])
+	}
+	return buckets
 }
 
 function bucketByTextContent(nodes: Array<ChildNode>, indices: Array<number>): Map<string, Array<number>> {
