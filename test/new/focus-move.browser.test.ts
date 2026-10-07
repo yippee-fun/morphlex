@@ -691,6 +691,30 @@ test("the caret in an editable body stays in a child that moves", () => {
 	host.remove()
 })
 
+// Move fuzzer seed 37609181584, in WebKit: the editor can't take focus back until the morph settles, and moving the
+// section around it afterwards, without `moveBefore`, takes the live ranges following the caret out of the editor.
+test("the caret in a focused contenteditable that can't take focus back until the morph settles stays in its text when an element around it moves", () => {
+	const host = mount(
+		`<details id="a" name="h" open><section id="s"><b id="b"></b></section><section id="t"><details id="e" name="h" contenteditable="true">x y123</details></section></details>`,
+	)
+	const editor = host.querySelector<HTMLElement>("#e")!
+	const text = editor.firstChild!
+	editor.focus()
+	getSelection()!.setBaseAndExtent(text, 5, text, 5)
+
+	const template = document.createElement("template")
+	template.innerHTML = `<b id="b"></b><details id="a" name="h" open><section id="s"></section><section id="t"><label><details id="e" name="h" contenteditable="true">x y</details></label></section></details>`
+	morph(host.firstElementChild!, template.content.childNodes)
+
+	const selection = getSelection()!
+	expect(host.querySelector("#e")).toBe(editor)
+	expect(document.activeElement).toBe(editor)
+	expect(selection.anchorNode).toBe(text)
+	expect(selection.isCollapsed).toBe(true)
+
+	host.remove()
+})
+
 test("a focused contenteditable whose text a custom element's callback shortens as it moves into an item the morph opens later doesn't stop the morph", () => {
 	class Shorten extends HTMLElement {
 		connectedCallback() {
