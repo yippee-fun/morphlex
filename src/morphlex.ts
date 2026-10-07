@@ -889,6 +889,8 @@ class Siblings {
 	readonly displaced: Array<number> = []
 	// A shape spans the whole subtree, so it's worked out once for each node.
 	readonly #shapes: Map<Node, string> = new Map()
+	// Each element's choice, worked out once while its siblings are matched.
+	choices: Map<Element, string | null> | null = null
 	readonly #fromLocalNames: Array<string> = []
 	readonly #fromNamespaces: Array<string | null> = []
 	readonly #toLocalNames: Array<string> = []
@@ -948,6 +950,16 @@ class Siblings {
 			this.#toLocalNames[target] === this.#fromLocalNames[candidate] &&
 			this.#toNamespaces[target] === this.#fromNamespaces[candidate]
 		)
+	}
+
+	// The active candidate elements, when there are enough of them and of the targets left that a pass is worth indexing.
+	manyPairs(): Array<number> | null {
+		const { candidateElements, unmatchedElements, candidateActive, unmatchedActive } = this
+		if (candidateElements.length * unmatchedElements.length <= 1024) return null
+		const candidates = candidateElements.filter((candidate) => candidateActive[candidate])
+		let targets = 0
+		for (const target of unmatchedElements) targets += unmatchedActive[target]!
+		return candidates.length * targets > 1024 ? candidates : null
 	}
 
 	take(target: number, candidate: number, op: Operation): void {
@@ -1864,11 +1876,11 @@ class Morph {
 	#canTakeByOutline(element: Element, candidateIndex: number, siblings: Siblings): boolean {
 		const candidate = siblings.from[candidateIndex] as Element
 		return (
+			!this.#holdsOtherChoice(candidate, element, siblings) &&
 			(!this.#dirtyElements!.has(candidate) || !this.#holdsClobbered(element)) &&
 			((canSoftMatchByTagName(element, this.#idArrayMap.has(element)) &&
 				canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) ||
-				(sharesMatchKey(element, candidate) && canMorphElementInPlace(candidate, element))) &&
-			!this.#holdsOtherChoice(candidate, element)
+				(sharesMatchKey(element, candidate) && canMorphElementInPlace(candidate, element)))
 		)
 	}
 
@@ -2086,12 +2098,28 @@ class Morph {
 	// take the target of a same-name input of the target's type. Replacing it still asks both vetoes before changing
 	// anything, which removing it and adding the target as a new node wouldn't.
 	#matchElementsByAttributes(siblings: Siblings): void {
-		if (this.#matchElementsByAttributesIf(siblings, true)) this.#matchElementsByAttributesIf(siblings, false)
+		// With many siblings, the candidates are indexed by each `name`, `href` and `src` once a target has one, so a
+		// target only looks at those sharing one, in the same order.
+		let sharing: Map<string, Array<number>> | null | undefined
+		const candidatesFor = (element: Element): Array<number> => {
+			if (sharing === undefined) {
+				const candidates = siblings.manyPairs()
+				sharing = candidates && indexByMatchKeys(siblings.from, candidates)
+			}
+			return sharing ? candidatesSharing(sharing, element) : siblings.candidateElements
+		}
+		if (this.#matchElementsByAttributesIf(siblings, true, candidatesFor)) {
+			this.#matchElementsByAttributesIf(siblings, false, candidatesFor)
+		}
 	}
 
 	// Returns whether a candidate was passed over because it would be replaced.
-	#matchElementsByAttributesIf(siblings: Siblings, morphable: boolean): boolean {
-		const { from, to, candidateElements, unmatchedElements, candidateActive, unmatchedActive } = siblings
+	#matchElementsByAttributesIf(
+		siblings: Siblings,
+		morphable: boolean,
+		candidatesFor: (element: Element) => Array<number>,
+	): boolean {
+		const { from, to, unmatchedElements, candidateActive, unmatchedActive } = siblings
 		let passedOver = false
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
@@ -2100,12 +2128,13 @@ class Morph {
 			const element = to[target] as Element
 			if (!hasMatchKeyAttribute(element)) continue
 
-			for (let c = 0; c < candidateElements.length; c++) {
-				const candidateIndex = candidateElements[c]!
+			const candidates = candidatesFor(element)
+			for (let c = 0; c < candidates.length; c++) {
+				const candidateIndex = candidates[c]!
 				if (!candidateActive[candidateIndex] || !siblings.sameKind(target, candidateIndex)) continue
 				const candidate = from[candidateIndex] as Element
 
-				if (sharesMatchKey(element, candidate) && !this.#holdsOtherChoice(candidate, element)) {
+				if (!this.#holdsOtherChoice(candidate, element, siblings) && sharesMatchKey(element, candidate)) {
 					if (morphable && !canMorphElementInPlace(candidate, element)) {
 						passedOver = true
 						continue
@@ -2140,7 +2169,7 @@ class Morph {
 				const candidate = from[candidateIndex] as Element
 				if (!canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) continue
 
-				if (siblings.sameKind(target, candidateIndex) && !this.#holdsOtherChoice(candidate, element)) {
+				if (siblings.sameKind(target, candidateIndex) && !this.#holdsOtherChoice(candidate, element, siblings)) {
 					siblings.take(target, candidateIndex, Operation.SameElement)
 					break
 				}
@@ -2849,13 +2878,21 @@ class Morph {
 	// A checkbox, radio or option the user changed holds their choice of its value, so under
 	// preserveChanges it must not be matched to a target with another value, unless the target
 	// discards user changes with `morphlex-clobber`.
-	#holdsOtherChoice(candidate: Element, element: Element): boolean {
+	#holdsOtherChoice(candidate: Element, element: Element, siblings: Siblings): boolean {
 		return (
 			this.#preserveChanges &&
 			this.#flagged.has(candidate) &&
 			!this.#clobbered?.has(element) &&
-			this.#choiceOf(candidate) !== this.#choiceOf(element)
+			this.#choiceIn(siblings, candidate) !== this.#choiceIn(siblings, element)
 		)
+	}
+
+	// The element's choice, worked out once while its siblings are matched.
+	#choiceIn(siblings: Siblings, element: Element): string | null {
+		const choices = (siblings.choices ??= new Map())
+		let choice = choices.get(element)
+		if (choice === undefined) choices.set(element, (choice = this.#choiceOf(element)))
+		return choice
 	}
 
 	// Whether the target holds all of the choices, or with `all` false, any of them.
@@ -3833,6 +3870,35 @@ function sharesMatchKey(element: Element, other: Element): boolean {
 		if (value && value === getAttribute(other, name)) return true
 	}
 	return false
+}
+
+// The `name`, `href` and `src` an element can be matched by, keyed by the attribute.
+function matchKeysOf(element: Element): Array<string> {
+	const keys: Array<string> = []
+	for (const name of ["name", "href", "src"]) {
+		const value = getAttribute(element, name)
+		if (value) keys.push(`${name} ${value}`)
+	}
+	return keys
+}
+
+// The candidates by each `name`, `href` and `src` they have.
+function indexByMatchKeys(nodes: Array<ChildNode>, candidates: Array<number>): Map<string, Array<number>> {
+	const sharing: Map<string, Array<number>> = new Map()
+	for (const candidateIndex of candidates) {
+		for (const key of matchKeysOf(nodes[candidateIndex] as Element)) {
+			const bucket = sharing.get(key)
+			if (bucket) bucket.push(candidateIndex)
+			else sharing.set(key, [candidateIndex])
+		}
+	}
+	return sharing
+}
+
+// The indexed candidates sharing a `name`, `href` or `src` with the element, in order.
+function candidatesSharing(sharing: Map<string, Array<number>>, element: Element): Array<number> {
+	const lists = matchKeysOf(element).map((key) => sharing.get(key) ?? [])
+	return lists.length === 1 ? lists[0]! : [...new Set(lists.flat())].sort((a, b) => a - b)
 }
 
 function hasMatchKeyAttribute(element: Element): boolean {
