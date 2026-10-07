@@ -50,7 +50,7 @@ morphInner(currentNode, `<ul><li>One</li><li>Two</li></ul>`)
 morphDocument(document, await response.text())
 ```
 
-- **`morph(from, to, options?)`** morphs `from` into `to`. The target can be a node, a `NodeList` or a string. If it has several nodes, the first is morphed into `from` and the rest are inserted after it. If it has none, `from` is removed.
+- **`morph(from, to, options?)`** morphs `from` into `to`. The target can be a node, a `NodeList` or a string. If it has several nodes, the first is morphed into `from` and the rest are inserted after it. If it has none, `from` is removed. A string is parsed where `from` is, as `innerHTML` on its parent would parse it: a string for an `<html>`, `<head>` or `<body>` is parsed as a document, and one for an element inside SVG or MathML is parsed in that namespace.
 - **`morphInner(from, to, options?)`** morphs the children of `from` into the children of `to`, leaving the attributes of `from` alone. Both must be elements with the same tag name and namespace. A string target must contain exactly one element.
 - **`morphDocument(from, to, options?)`** morphs the `<html>` element of one document into another. A string target is parsed with `DOMParser`.
 
