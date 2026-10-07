@@ -1,4 +1,6 @@
 const SUPPORTS_MOVE_BEFORE = typeof Element !== "undefined" && "moveBefore" in Element.prototype
+// Browsers with customizable selects fill a drop-down's `selectedcontent` with a copy of its selected option.
+const FILLS_SELECTED_CONTENT = "HTMLSelectedContentElement" in globalThis
 const ELEMENT_NODE_TYPE = 1
 const TEXT_NODE_TYPE = 3
 const DOCUMENT_NODE_TYPE = 9
@@ -555,6 +557,29 @@ function selectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null>
 	if (!select.multiple) return [defaultOptionOf(select), select.options[select.selectedIndex] ?? null]
 	const markup = Array.from(select.options).filter((option) => option.hasAttribute("selected"))
 	return [...markup, null, ...select.selectedOptions]
+}
+
+// The browser copies the selected option's content into each `selectedcontent` of a drop-down, so the morph leaves
+// its children alone. The target's copy shows what the target's markup selects rather than what the user picked,
+// and WebKit leaves it empty when parsing a template.
+function isFilledSelectedContent(element: Element): boolean {
+	if (!FILLS_SELECTED_CONTENT || !isSelectedContent(element)) return false
+	const select = selectOf(element)
+	return select !== null && !select.multiple
+}
+
+function isSelectedContent(element: Element): boolean {
+	return localNameOf(element) === "selectedcontent" && namespaceURIOf(element) === HTML_NAMESPACE
+}
+
+function hasEqualChildren(node: Node, other: Node | null): boolean {
+	let child = firstChildOf(node)
+	let otherChild = other && firstChildOf(other)
+	for (; child && otherChild; child = nextSiblingOf(child), otherChild = nextSiblingOf(otherChild)) {
+		if (!isEqualNode(child, otherChild)) return false
+	}
+
+	return child === otherChild
 }
 
 function clearDirtyFlags(elements: Array<Element>): void {
@@ -1194,7 +1219,10 @@ class Morph {
 			this.#reopenDetails(openDetails)
 		}
 
+		const enclosingSelect = this.#enclosingSelect?.[0]
 		this.#syncEnclosingSelect()
+		if (enclosingSelect) this.#refreshSelectedContent(enclosingSelect)
+		for (const select of this.#liveSelects.values()) this.#refreshSelectedContent(select)
 
 		const focus = this.#unrestoredFocus
 		if (focus) {
@@ -1494,6 +1522,12 @@ class Morph {
 		if (!(this.#options.beforeChildrenVisited?.(from) ?? true)) {
 			this.#pinSubtree(from)
 			this.#settleIfRoot(from)
+			return
+		}
+
+		if (isFilledSelectedContent(from)) {
+			this.#settleIfRoot(from)
+			this.#options.afterChildrenVisited?.(from)
 			return
 		}
 
@@ -2278,6 +2312,22 @@ class Morph {
 	// leaves it alone.
 	setEnclosingSelect(select: HTMLSelectElement, selection: Array<HTMLOptionElement | null>): void {
 		this.#enclosingSelect = [select, selection]
+	}
+
+	// The browser copies the option only when the selection changes or the `selectedcontent` is inserted, so changing
+	// the selected option's content leaves the old copy. So when the morph settles, each one that doesn't match the
+	// selected option is inserted again, for the browser to copy the option afresh, unless a callback vetoed it.
+	#refreshSelectedContent(select: HTMLSelectElement): void {
+		if (!FILLS_SELECTED_CONTENT || select.multiple) return
+
+		const elements = getElementsByTagName(select, "selectedcontent")
+		const option = select.options[select.selectedIndex] ?? null
+		for (let i = 0; i < elements.length; i++) {
+			const element = elements[i]!
+			if (isSelectedContent(element) && !hasEqualChildren(element, option) && !this.#isVetoed(element)) {
+				insertBefore(parentNodeOf(element)!, element, nextSiblingOf(element))
+			}
+		}
 	}
 
 	#syncEnclosingSelect(): void {
