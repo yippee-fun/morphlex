@@ -236,9 +236,12 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 	}
 }
 
+// The flags of the morphs running, which a morph from a callback of one of them can clear.
+const runningFlags: Array<Array<Element>> = []
+
 // Flag the controls the user changed, note the select around the root and what its markup selects, and
 // run the morph. A root select's options are keyed by the live select, even if the target renames it and the
-// rename is vetoed.
+// rename is vetoed. A morph run from a callback puts back the flags of the morphs around it that it cleared.
 function run(
 	from: ChildNode,
 	to: ChildNode | NodeListOf<ChildNode>,
@@ -247,14 +250,21 @@ function run(
 	morph: (morpher: Morph) => void,
 ): void {
 	const select = selectOf(from)
-	const flagged = isElement(from) ? flagDirtyInputs(from, options.preserveChanges ? to : null) : null
-	const keySelect = isElement(from) && isSelectElement(from) ? from : select
+	const outerFlags = runningFlags.flat().filter((element) => hasAttribute(element, DIRTY_ATTRIBUTE))
+	const flagged: Array<Element> = []
+	runningFlags.push(flagged)
 	try {
+		if (isElement(from)) flagDirtyInputs(from, options.preserveChanges ? to : null, flagged)
+		const keySelect = isElement(from) && isSelectElement(from) ? from : select
 		const morpher = new Morph(options, clobbered, flagged, keySelect)
 		if (select) morpher.setEnclosingSelect(select, selectionOf(select))
 		morph(morpher)
 	} finally {
-		if (flagged) clearDirtyFlags(flagged)
+		runningFlags.pop()
+		clearDirtyFlags(flagged)
+		for (const element of outerFlags) {
+			if (!hasAttribute(element, DIRTY_ATTRIBUTE)) setAttribute(element, DIRTY_ATTRIBUTE, "")
+		}
 	}
 }
 
@@ -292,8 +302,7 @@ function stripMarkerAttributes(element: Element): boolean {
 // With `preserveChanges`, the target is given, and the `details` and `dialog` elements are flagged too when some are open
 // and others closed, here or in the target, since an element's open state is the user's, and there's no default to
 // tell whether they changed it. When they're all open or all closed, matching one to any other keeps what it shows.
-function flagDirtyInputs(node: Element, to: ChildNode | NodeListOf<ChildNode> | null): Array<Element> {
-	const flagged: Array<Element> = []
+function flagDirtyInputs(node: Element, to: ChildNode | NodeListOf<ChildNode> | null, flagged: Array<Element>): void {
 	let defaultOptions: DefaultOptionMap | null = null
 	const openStateElements: Array<Element> = []
 
@@ -334,14 +343,13 @@ function flagDirtyInputs(node: Element, to: ChildNode | NodeListOf<ChildNode> | 
 			if (mixed.includes(localNameOf(element))) flagDirty(element, flagged)
 		}
 	}
-
-	return flagged
 }
 
+// The element is noted first, so a morph from its attribute callback puts its flag back.
 function flagDirty(element: Element, flagged: Array<Element>): void {
+	flagged.push(element)
 	// Stryker disable next-line StringLiteral: only the marker's presence matters, never its value.
 	setAttribute(element, DIRTY_ATTRIBUTE, "")
-	flagged.push(element)
 }
 
 // Checkboxes and radios report a `.value` of "on" when they have no `value` attribute,
