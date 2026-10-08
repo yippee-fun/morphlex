@@ -112,6 +112,7 @@ test("morphInner calls the root's callbacks for a shadow root", () => {
 test("morphInner refuses an element as the target of a shadow root", () => {
 	const root = shadowRoot(`<p>old</p>`)
 
+	// @ts-expect-error -- an element isn't a target for a shadow root
 	expect(() => morphInner(root, document.createElement("div"))).toThrow(
 		"[Morphlex] You can only do an inner morph of a shadow root with a fragment or a string.",
 	)
@@ -150,6 +151,17 @@ test("morphInner keeps the whitespace around a shadow root's string content, as 
 	const expected = shadowRoot(` <span>x</span> `)
 
 	morphInner(root, ` <span>x</span> `)
+
+	expect(root.innerHTML).toBe(expected.innerHTML)
+	root.host.remove()
+	expected.host.remove()
+})
+
+test("morphInner parses a shadow root's string content with its host as the context, as innerHTML does", () => {
+	const root = shadowRoot(`<p>old</p>`)
+	const expected = shadowRoot(`<tr><td>x</td></tr>`)
+
+	morphInner(root, `<tr><td>x</td></tr>`)
 
 	expect(root.innerHTML).toBe(expected.innerHTML)
 	root.host.remove()

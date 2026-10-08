@@ -208,10 +208,12 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
  * `onclick`) and resource-loading attributes (e.g. `src`, `href`) take effect once
  * the nodes are adopted. Do not pass untrusted HTML; sanitize it first.
  */
+export function morphInner(from: ChildNode, to: ChildNode | string, options?: Options): void
+export function morphInner(from: ShadowRoot, to: DocumentFragment | string, options?: Options): void
 export function morphInner(from: ChildNode | ShadowRoot, to: ChildNode | DocumentFragment | string, options: Options = {}): void {
 	if (nodeTypeOf(from) === DOCUMENT_FRAGMENT_NODE_TYPE) {
 		const root = from as ShadowRoot
-		if (typeof to === "string") to = parseFragment(to)
+		if (typeof to === "string") to = parseFragment(to, root.host)
 		if (nodeTypeOf(to) !== DOCUMENT_FRAGMENT_NODE_TYPE) {
 			throw new Error("[Morphlex] You can only do an inner morph of a shadow root with a fragment or a string.")
 		}
@@ -669,7 +671,8 @@ function foreignContextOf(from: ChildNode): Element | null {
 
 // `setHTMLUnsafe` and `Document.parseHTMLUnsafe` attach declarative shadow roots, as a page does, so a
 // `<template shadowrootmode>` never lands in a host's light DOM. Older browsers fall back to parsers that don't.
-// A foreign context is parsed in a shallow copy of it in the template's inert document, so nothing loads.
+// A context (a foreign parent, or a shadow root's host) is parsed in a shallow copy of it in the template's inert
+// document, so nothing loads.
 function parseFragment(string: string, context: Element | null = null): DocumentFragment {
 	const template = createElement(document, "template") as HTMLTemplateElement
 	if (context) {
