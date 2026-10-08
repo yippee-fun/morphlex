@@ -1390,9 +1390,15 @@ class Morph {
 	#morphOneToOne(from: ChildNode, to: ChildNode): void {
 		// Fast path: if nodes are exactly the same object, skip morphing
 		if (from === to) return
-		if (isEqualNode(from, to)) return
+		if (this.#isEqual(from, to)) return
 
 		this.#visitNode(from, to, isElement(from) && isElement(to) && canMorphElementInPlace(from, to))
+	}
+
+	// A nested morph from a callback can clear the `morphlex-dirty` flags, so an element holding the user's changes is
+	// never equal to its target, even when its flags are gone.
+	#isEqual(from: ChildNode, to: ChildNode): boolean {
+		return !this.#dirtyElements?.has(from as Element) && isEqualNode(from, to)
 	}
 
 	// Morph an element in place when it can be, update another node's text, or replace the node.
@@ -2367,7 +2373,7 @@ class Morph {
 				if (operation === Operation.EqualNode) {
 				} else if (operation === Operation.SameElement) {
 					// Elements matched by id skip the isEqualNode pass, so check here before visiting them.
-					if (isEqualNode(match, node)) {
+					if (this.#isEqual(match, node)) {
 					} else {
 						this.#visitNode(match, node, hasSameIs(match as Element, node as Element))
 					}
