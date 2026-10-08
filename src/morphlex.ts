@@ -779,16 +779,16 @@ function unnameRadiosNamingFormsIn(node: Node): Array<[HTMLInputElement, string]
 	const inputs = querySelectorAll(getRootNode(node) as ParentNode, `input[form][name]:not([name=""])`)
 	for (let i = 0; i < inputs.length; i++) {
 		const input = inputs[i]!
-		if (isRadio(input) && ids.has(input.getAttribute("form")!)) {
-			;(unnamed ??= []).push([input, input.getAttribute("name")!])
-			input.removeAttribute("name")
+		if (isRadio(input) && ids.has(getAttribute(input, "form")!)) {
+			;(unnamed ??= []).push([input, getAttribute(input, "name")!])
+			removeAttribute(input, "name")
 		}
 	}
 	return unnamed
 }
 
 function restoreNames(unnamed: Array<[HTMLInputElement, string]> | null): void {
-	if (unnamed) for (const [input, name] of unnamed) input.setAttribute("name", name)
+	if (unnamed) for (const [input, name] of unnamed) setAttribute(input, "name", name)
 }
 
 // Radios that a change to a form unchecked by removing their `checked` attribute, with its value, so
@@ -3172,7 +3172,9 @@ class Morph {
 				: live
 					? this.#uncheckRadiosInFormsIn(node)
 					: null
+		const unnamed = live ? unnameRadiosNamingFormsIn(node) : null
 		moveInto(parent, node, insertionPoint)
+		restoreNames(unnamed)
 		if (focus) this.#restoreFocus(focus)
 		this.#checkRadios(radios)
 		this.#checkRadios(sourceRadios, true)

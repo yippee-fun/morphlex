@@ -1,5 +1,5 @@
 import { expect, onTestFinished, test } from "vitest"
-import { morph } from "../../src/morphlex"
+import { morph, morphInner } from "../../src/morphlex"
 
 // Firefox keeps whether the user changed a radio for its whole group, and a radio picks that up when it joins one.
 // Moving a form briefly drops the radios naming it into the group of radios without a form, so a pick there must
@@ -59,4 +59,18 @@ test("a checked radio naming a moved form follows its markup after the user pick
 
 	expect(host.querySelector<HTMLInputElement>("#p")!.checked).toBe(true)
 	expect(host.querySelector<HTMLInputElement>("#q")!.checked).toBe(false)
+})
+
+test("a radio naming a form in a live target follows its markup after the user picks a radio without a form", () => {
+	const host = mount(
+		`<input id="p" type="radio" name="a"><div id="root"></div><div id="source"><form id="f"></form></div><input id="q" type="radio" name="a" form="f">`,
+	)
+	host.querySelector<HTMLInputElement>("#p")!.checked = true
+
+	morphInner(host.querySelector("#root")!, host.querySelector("#source")!, { preserveChanges: true })
+	const radio = host.querySelector<HTMLInputElement>("#q")!
+	radio.setAttribute("checked", "")
+
+	expect(host.querySelector<HTMLInputElement>("#p")!.checked).toBe(true)
+	expect(radio.checked).toBe(true)
 })
