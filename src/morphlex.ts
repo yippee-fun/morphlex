@@ -2505,6 +2505,11 @@ class Morph {
 			}
 		}
 
+		// The whitespace before the vetoed nodes after the last target stays with them too.
+		if (kept && liveWhitespace && insertionPoint && parentNodeOf(insertionPoint) === parent) {
+			skipKeptNodes(insertionPoint, kept, moving!, liveWhitespace)
+		}
+
 		if (liveWhitespace) {
 			for (const whitespace of liveWhitespace) {
 				if (parentNodeOf(whitespace) === parent) this.#removeNode(whitespace)

@@ -61,3 +61,11 @@ test("new nodes go after a movable element whose removal is vetoed when the morp
 
 	expect(from.outerHTML).toBe(`<ul><li id="a">a</li><li>c</li></ul>`)
 })
+
+test("the whitespace in front of a vetoed node after the last target stays", () => {
+	const from = dom(`<div><span></span> <b></b></div>`)
+
+	morph(from, dom(`<div><span></span></div>`), { beforeNodeRemoved: (node) => node.nodeName === "#text" })
+
+	expect(from.outerHTML).toBe(`<div><span></span> <b></b></div>`)
+})
