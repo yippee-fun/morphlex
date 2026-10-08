@@ -42,6 +42,8 @@ A move can also change radio groups outside the morph: a checked radio that join
 
 A radio the markup checks can be left unchecked by a radio the morph checks in its group (a new radio, or an input that becomes one), when the radio itself is unchanged and so never visited. If a form the radio names is then added, moved, removed or given that id, taking it to another group, the change notes it for the radio sync without `preserveChanges`, so the markup decides it in its new group.
 
+Firefox keeps whether the user changed a radio for its whole group, and a radio takes that on when it joins a group. Moving a form briefly drops the radios whose `form` attribute names it into the group of radios without a form, so a radio the user picked there would stop them following their `checked` attribute. So when the morph moves an element holding a form with an id, those radios lose their `name` for the move and get it back straight after, which keeps them out of any group meanwhile.
+
 ### `open` on `details` and `dialog`
 
 For these elements the `open` attribute is the live state the user toggles, and there's no default to compare it against. So with `preserveChanges`, `#visitAttributes` never adds or removes `open` on them. Without it, removing `open` from a dialog calls `close()` instead of `removeAttribute`, because removing the attribute leaves a modal dialog stuck in the top layer.

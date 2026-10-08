@@ -755,6 +755,42 @@ function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNo
 }
 /* v8 ignore stop */
 
+// The ids of the forms in a node, or null when it holds none.
+function formIdsIn(node: Node): Set<string> | null {
+	// An element without children holds no form, which saves looking for one.
+	if (!isElement(node) || (!isFormElement(node) && !firstElementChildOf(node))) return null
+	let ids: Set<string> | null = null
+	const forms = isFormElement(node) ? [node] : getElementsByTagName(node, "form")
+	for (let i = 0; i < forms.length; i++) {
+		const form = forms[i]!
+		if (idOf(form) !== "" && isFormElement(form)) (ids ??= new Set()).add(idOf(form))
+	}
+	return ids
+}
+
+// Firefox keeps whether the user changed a radio for its whole group, and a radio takes that on when it joins one.
+// Moving a form briefly drops the radios whose `form` attribute names it into the group of radios without a form,
+// where a radio the user picked would stop them following their `checked` attribute. So they move without a name,
+// which keeps them out of any group, and get it back straight after with `restoreNames`.
+function unnameRadiosNamingFormsIn(node: Node): Array<[HTMLInputElement, string]> | null {
+	const ids = formIdsIn(node)
+	if (!ids) return null
+	let unnamed: Array<[HTMLInputElement, string]> | null = null
+	const inputs = querySelectorAll(getRootNode(node) as ParentNode, `input[form][name]:not([name=""])`)
+	for (let i = 0; i < inputs.length; i++) {
+		const input = inputs[i]!
+		if (isRadio(input) && ids.has(input.getAttribute("form")!)) {
+			;(unnamed ??= []).push([input, input.getAttribute("name")!])
+			input.removeAttribute("name")
+		}
+	}
+	return unnamed
+}
+
+function restoreNames(unnamed: Array<[HTMLInputElement, string]> | null): void {
+	if (unnamed) for (const [input, name] of unnamed) input.setAttribute("name", name)
+}
+
 // Radios that a change to a form unchecked by removing their `checked` attribute, with its value, so
 // they're checked again the same way and keep following the markup.
 const uncheckedByAttribute = new WeakMap<HTMLInputElement, string>()
@@ -2475,9 +2511,11 @@ class Morph {
 				if (!shouldNotMove[matchInd]) {
 					const outsideRadios = this.#uncheckRadiosNamingFormsIn(match, getRootNode(match))
 					const insideRadios = this.#uncheckRadiosInFormsIn(match)
+					const unnamed = unnameRadiosNamingFormsIn(match)
 					const focus = this.#watchFocus(match, parent)
 					moveBefore(parent, match, insertionPoint)
 					if (focus) this.#restoreFocus(focus)
+					restoreNames(unnamed)
 					this.#checkRadios(outsideRadios)
 					this.#checkRadios(insideRadios, true)
 				}
@@ -2724,14 +2762,7 @@ class Morph {
 	// which unchecks the rest of their new group as the change itself would. Returns the radios it unchecked,
 	// which are only those outside the node unless `inside` is set.
 	#uncheckRadiosNamingFormsIn(node: Node, root: Node, inside = false): Array<HTMLInputElement> | null {
-		// An element without children holds no form, which saves looking for one.
-		if (!isElement(node) || (!isFormElement(node) && !firstElementChildOf(node))) return null
-		let ids: Set<string> | null = null
-		const forms = isFormElement(node) ? [node] : getElementsByTagName(node, "form")
-		for (let i = 0; i < forms.length; i++) {
-			const form = forms[i]!
-			if (idOf(form) !== "" && isFormElement(form)) (ids ??= new Set()).add(idOf(form))
-		}
+		const ids = formIdsIn(node)
 		return ids && this.#uncheckRadiosNaming(ids, root, inside ? null : node)
 	}
 
@@ -3190,9 +3221,11 @@ class Morph {
 			this.#liveElementsById.delete(idOf(target))
 			const radios = this.#uncheckRadiosForMove(live, parent)
 			const insideRadios = this.#uncheckRadiosInFormsIn(live)
+			const unnamed = unnameRadiosNamingFormsIn(live)
 			const focus = this.#watchFocus(live, parent)
 			moveInto(parent, live, placeholder)
 			if (focus) this.#restoreFocus(focus)
+			restoreNames(unnamed)
 			remove(placeholder)
 			this.#checkRadios(radios)
 			this.#checkRadios(insideRadios, true)
