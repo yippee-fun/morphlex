@@ -589,15 +589,15 @@ function selectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null>
 	return [...markup, null, ...select.selectedOptions]
 }
 
-// The browser copies the selected option's content into each `selectedcontent` of a drop-down, so the morph leaves
-// its children alone. The target's copy shows what the target's markup selects rather than what the user picked,
-// and WebKit leaves it empty when parsing a template.
 // Focus inside an editable region goes to its editing host, so the active element is the one the user types in.
 function focusedEditorOf(node: Node): Element | null {
 	const element = activeElementIn(getRootNode(node))
-	return (element as Partial<HTMLElement> | null)?.isContentEditable ? element : null
+	return element && namespaceURIOf(element) === HTML_NAMESPACE && isContentEditableOf(element as HTMLElement) ? element : null
 }
 
+// The browser copies the selected option's content into each `selectedcontent` of a drop-down, so the morph leaves
+// its children alone. The target's copy shows what the target's markup selects rather than what the user picked,
+// and WebKit leaves it empty when parsing a template.
 function isFilledSelectedContent(element: Element): boolean {
 	if (!FILLS_SELECTED_CONTENT || !isSelectedContent(element)) return false
 	const select = selectOf(element)
@@ -1702,8 +1702,9 @@ class Morph {
 		}
 
 		// The focused editing host keeps what the user typed, as a typed-in input keeps its value, and nothing inside it
-		// moves elsewhere. So does an element inside it, when the morph starts there.
-		const keepsEdits = this.#preserveChanges && this.#editor !== null && contains(this.#editor, from)
+		// moves elsewhere. So does an element inside it, when the morph starts there. When the target holds a
+		// `morphlex-clobber` element, its children are visited, so that element discards the user's changes.
+		const keepsEdits = this.#preserveChanges && this.#editor !== null && contains(this.#editor, from) && !this.#holdsClobbered(to)
 		if (keepsEdits) this.#pinSubtree(from)
 		if (keepsEdits || isFilledSelectedContent(from)) {
 			this.#settleIfRoot(from)
@@ -4098,6 +4099,7 @@ const firstChildOf = getter(() => Node.prototype, "firstChild")
 const previousSiblingOf = getter(() => Node.prototype, "previousSibling")
 const nextSiblingOf = getter(() => Node.prototype, "nextSibling")
 const ownerDocumentOf = getter(() => Node.prototype, "ownerDocument")
+const isContentEditableOf = getter(() => HTMLElement.prototype, "isContentEditable")
 const isConnected = getter(() => Node.prototype, "isConnected")
 const textContentOf = getter(() => Node.prototype, "textContent")
 const idOf = getter(() => Element.prototype, "id")

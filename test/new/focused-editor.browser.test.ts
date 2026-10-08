@@ -136,3 +136,33 @@ test("a focused element that the target makes editable follows the markup under 
 
 	host.remove()
 })
+
+test("a focused form whose control is named isContentEditable follows the markup under preserveChanges", () => {
+	const host = mount(`<form tabindex="0"><input name="isContentEditable"></form>`)
+	const form = host.querySelector("form")!
+	form.focus()
+
+	morphInner(host, `<div><form tabindex="0"><input name="isContentEditable"><p>new</p></form></div>`, {
+		preserveChanges: true,
+	})
+
+	expect(form.querySelector("p")).not.toBeNull()
+
+	host.remove()
+})
+
+test("a morphlex-clobber element in a focused contenteditable follows the markup, and the rest keeps what the user typed", () => {
+	const host = mount(`<div contenteditable="true"><p>Hello</p><b>1</b></div>`)
+	const editor = host.querySelector("div")!
+	editor.focus()
+	editor.querySelector("p")!.textContent = "Hello there"
+	editor.querySelector("b")!.textContent = "1 more"
+
+	morphInner(host, `<div><div contenteditable="true"><p morphlex-clobber>Server</p><b>2</b></div></div>`, {
+		preserveChanges: true,
+	})
+
+	expect(editor.innerHTML).toBe("<p>Server</p><b>1 more</b>")
+
+	host.remove()
+})
