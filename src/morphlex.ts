@@ -650,7 +650,9 @@ function parseTarget(from: ChildNode, string: string): ChildNode | NodeListOf<Ch
 		return element.childNodes
 	}
 
-	return parseFragment(string, foreignContextOf(from)).childNodes
+	const fragment = parseFragment(string, foreignContextOf(from))
+	trimFragmentEdgeWhitespace(fragment)
+	return fragment.childNodes
 }
 
 // The parent of `from` when it's an SVG or MathML element, or for an SVG or MathML root without one, an `svg` or
@@ -677,7 +679,6 @@ function parseFragment(string: string, context: Element | null = null): Document
 	} else {
 		setHTML(template, string)
 	}
-	trimFragmentEdgeWhitespace(template.content)
 	/* v8 ignore next -- only Firefox parses a template's content with scripting enabled */
 	if (!templateKeepsNoscriptText()) flattenNoscripts(template.content)
 

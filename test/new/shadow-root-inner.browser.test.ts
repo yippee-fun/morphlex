@@ -144,3 +144,14 @@ test("morphInner opens the first open details of a group inside a shadow root", 
 	)
 	root.host.remove()
 })
+
+test("morphInner keeps the whitespace around a shadow root's string content, as innerHTML does", () => {
+	const root = shadowRoot(`<span>x</span>`)
+	const expected = shadowRoot(` <span>x</span> `)
+
+	morphInner(root, ` <span>x</span> `)
+
+	expect(root.innerHTML).toBe(expected.innerHTML)
+	root.host.remove()
+	expected.host.remove()
+})
