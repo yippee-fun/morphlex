@@ -24,6 +24,10 @@ The parser selects the first option of a drop-down with no `selected` option, so
 
 The browser copies the selected option's content into each `selectedcontent` of a drop-down (a customizable select), so the morph leaves its children alone: the target's copy shows what the target's markup selects rather than what the user picked, and WebKit leaves it empty when parsing a template. The browser only copies the option when the selection changes or the `selectedcontent` is inserted, so changing the selected option's content leaves the old copy. So when the morph settles, `refreshSelectedContent` inserts each `selectedcontent` that doesn't match the selected option again, in the selects the morph visited and the select around the root, for the browser to copy the option afresh. Browsers without customizable selects morph it like other markup.
 
+### Focused contenteditable
+
+With `preserveChanges`, the focused editing host (the `isContentEditable` element that's active in its document or shadow root) keeps its children as the user left them, like a typed-in input keeps its value. Its attributes are still updated, and nothing inside it moves elsewhere, as when `beforeChildrenVisited` vetoes. Whether the user typed in it can't be told, so being focused stands in for that. Without focus, or without `preserveChanges`, it follows the markup.
+
 ### Content attributes vs DOM properties for form elements
 
 `#visitAttributes` only updates content attributes (`setAttribute`/`removeAttribute`). It never assigns `.value`, `.checked` or `.selected` itself, so a `beforeAttributeUpdated` veto leaves both the attribute and the property alone. Attribute updates are safe under `preserveChanges`: once the user has changed a control, `setAttribute("checked", "")` only changes `defaultChecked`, not `.checked`, and the same goes for `selected` and `value`, because the property decouples from the attribute per the HTML spec.

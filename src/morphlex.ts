@@ -592,6 +592,11 @@ function selectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null>
 // The browser copies the selected option's content into each `selectedcontent` of a drop-down, so the morph leaves
 // its children alone. The target's copy shows what the target's markup selects rather than what the user picked,
 // and WebKit leaves it empty when parsing a template.
+// Focus inside an editable region goes to its editing host, so the active element is the one the user types in.
+function isFocusedEditingHost(element: Element): boolean {
+	return (element as Partial<HTMLElement>).isContentEditable === true && activeElementIn(getRootNode(element)) === element
+}
+
 function isFilledSelectedContent(element: Element): boolean {
 	if (!FILLS_SELECTED_CONTENT || !isSelectedContent(element)) return false
 	const select = selectOf(element)
@@ -1691,7 +1696,11 @@ class Morph {
 			return
 		}
 
-		if (isFilledSelectedContent(from)) {
+		// The focused editing host keeps what the user typed, as a typed-in input keeps its value, and nothing inside it
+		// moves elsewhere.
+		const keepsEdits = this.#preserveChanges && isFocusedEditingHost(from)
+		if (keepsEdits) this.#pinSubtree(from)
+		if (keepsEdits || isFilledSelectedContent(from)) {
 			this.#settleIfRoot(from)
 			this.#options.afterChildrenVisited?.(from)
 			return
