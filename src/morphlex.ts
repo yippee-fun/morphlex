@@ -1865,8 +1865,7 @@ class Morph {
 		const candidate = siblings.from[candidateIndex] as Element
 		return (
 			(!this.#dirtyElements!.has(candidate) || !this.#holdsClobbered(element)) &&
-			((canSoftMatchByTagName(element, this.#idArrayMap.has(element)) &&
-				canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) ||
+			((canSoftMatchByTagName(element) && canSoftMatchByTagName(candidate)) ||
 				(sharesMatchKey(element, candidate) && canMorphElementInPlace(candidate, element))) &&
 			!this.#holdsOtherChoice(candidate, element)
 		)
@@ -1948,7 +1947,7 @@ class Morph {
 			if (!candidateActive[candidateIndex]) continue
 			const candidate = from[candidateIndex] as Element
 			const dirtyChoices = this.#dirtyChoicesOf(candidate)
-			if (dirtyChoices && (this.#holdsOwnChoices(candidate) || canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate)))) {
+			if (dirtyChoices && (this.#holdsOwnChoices(candidate) || canSoftMatchByTagName(candidate))) {
 				choiceCandidates.push([candidateIndex, dirtyChoices.choices, dirtyChoices.picked])
 			}
 		}
@@ -1976,10 +1975,7 @@ class Morph {
 				const element = to[target] as Element
 				return (
 					hasSameIs(candidate, element) &&
-					identified ===
-						(this.#holdsOwnChoices(candidate)
-							? this.#idArrayMap.has(element)
-							: !canSoftMatchByTagName(element, this.#idArrayMap.has(element))) &&
+					identified === (this.#holdsOwnChoices(candidate) ? this.#idArrayMap.has(element) : !canSoftMatchByTagName(element)) &&
 					this.#holdsChoices(choicesOf(k), element, allChoices)
 				)
 			}
@@ -2127,7 +2123,7 @@ class Morph {
 			if (!unmatchedActive[target]) continue
 
 			const element = to[target] as Element
-			if (!canSoftMatchByTagName(element, this.#idArrayMap.has(element))) continue
+			if (!canSoftMatchByTagName(element)) continue
 
 			while (firstActiveCandidate < candidateElements.length && !candidateActive[candidateElements[firstActiveCandidate]!]) {
 				firstActiveCandidate++
@@ -2138,7 +2134,7 @@ class Morph {
 				if (!candidateActive[candidateIndex]) continue
 
 				const candidate = from[candidateIndex] as Element
-				if (!canSoftMatchByTagName(candidate, this.#idSetMap.has(candidate))) continue
+				if (!canSoftMatchByTagName(candidate)) continue
 
 				if (siblings.sameKind(target, candidateIndex) && !this.#holdsOtherChoice(candidate, element)) {
 					siblings.take(target, candidateIndex, Operation.SameElement)
@@ -3818,12 +3814,9 @@ function canMorphElementInPlace(from: Element, to: Element): boolean {
 	return true
 }
 
-function canSoftMatchByTagName(element: Element, hasDescendantIdMarker: boolean): boolean {
-	return !hasStableSoftMatchIdentity(element, hasDescendantIdMarker)
-}
-
-function hasStableSoftMatchIdentity(element: Element, hasDescendantIdMarker: boolean): boolean {
-	return idOf(element) !== "" || isFormControl(element) || hasDescendantIdMarker || hasMatchKeyAttribute(element)
+// Only an element's own identity counts, so a wrapper holding an id'd element still matches by its tag.
+function canSoftMatchByTagName(element: Element): boolean {
+	return idOf(element) === "" && !isFormControl(element) && !hasMatchKeyAttribute(element)
 }
 
 // Whether the elements have the same non-empty name, href or src.
