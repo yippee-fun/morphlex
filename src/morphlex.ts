@@ -37,6 +37,7 @@ const CHOICE_PASSES = [
 ] as const
 
 const STYLING_ATTRIBUTES = ["class", "style"]
+const OPEN_ATTRIBUTE = ["open"]
 
 const Operation = {
 	EqualNode: 0,
@@ -48,7 +49,8 @@ type Operation = (typeof Operation)[keyof typeof Operation]
 
 type IdSetMap = WeakMap<Node, Set<string>>
 type IdArrayMap = WeakMap<Node, Array<string>>
-type DefaultOptionMap = Map<HTMLSelectElement, HTMLOptionElement | null>
+// What the markup selects in each option's single select, or undefined for an option of a multiple select.
+type DefaultOptionMap = Map<Element, HTMLOptionElement | null | undefined>
 
 /**
  * Configuration options for morphing operations.
@@ -292,8 +294,7 @@ function stripMarkerAttributes(element: Element): boolean {
 // tell whether they changed it. When they're all open or all closed, matching one to any other keeps what it shows.
 function flagDirtyInputs(node: Element, to: ChildNode | NodeListOf<ChildNode> | null): Array<Element> {
 	const flagged: Array<Element> = []
-	const defaultOptions: DefaultOptionMap = new Map()
-	let optionSelects: Map<Element, HTMLSelectElement> | null = null
+	let defaultOptions: DefaultOptionMap | null = null
 	const openStateElements: Array<Element> = []
 
 	// The selector also matches elements with these names in other namespaces, like SVG.
@@ -305,8 +306,8 @@ function flagDirtyInputs(node: Element, to: ChildNode | NodeListOf<ChildNode> | 
 		} else if (isInputElement(element)) {
 			dirty = isDirtyInput(element)
 		} else if (isOptionElement(element)) {
-			optionSelects ??= optionSelectsOf(node)
-			dirty = isDirtyOption(element, optionSelects.get(element), defaultOptions)
+			defaultOptions ??= defaultOptionsOf(node)
+			dirty = isDirtyOption(element, defaultOptions)
 		} else if (isTextAreaElement(element)) {
 			dirty = isDirtyTextArea(element)
 		}
@@ -411,19 +412,9 @@ function isDirtyTextArea(textarea: HTMLTextAreaElement): boolean {
 
 // A single select shows one option as selected even when no option has a `selected`
 // attribute, so compare each option with what the browser selects from the markup alone.
-function isDirtyOption(
-	option: HTMLOptionElement,
-	select: HTMLSelectElement | undefined,
-	defaultOptions: DefaultOptionMap,
-): boolean {
-	if (!select || select.multiple) return option.selected !== option.defaultSelected
-
-	let defaultOption = defaultOptions.get(select)
-	if (defaultOption === undefined) {
-		defaultOption = defaultOptionOf(select)
-		defaultOptions.set(select, defaultOption)
-	}
-
+function isDirtyOption(option: HTMLOptionElement, defaultOptions: DefaultOptionMap): boolean {
+	const defaultOption = defaultOptions.get(option)
+	if (defaultOption === undefined) return option.selected !== option.defaultSelected
 	return option.selected !== (option === defaultOption)
 }
 
@@ -540,23 +531,25 @@ function selectOf(node: Node): HTMLSelectElement | null {
 	return null
 }
 
-// The select each option belongs to, taken from the browser's own option lists. These leave
-// out options the select doesn't own, such as those inside a datalist or a nested optgroup.
-function optionSelectsOf(node: Element): Map<Element, HTMLSelectElement> {
-	const optionSelects = new Map<Element, HTMLSelectElement>()
+// What the markup selects in the single select each option belongs to, or undefined for an option of a multiple
+// select, taken from the browser's own option lists. These leave out options the select doesn't own, such as those
+// inside a datalist or a nested optgroup.
+function defaultOptionsOf(node: Element): DefaultOptionMap {
+	const defaultOptions: DefaultOptionMap = new Map()
 	const enclosing = selectOf(node)
-	if (enclosing) addOptionSelects(optionSelects, enclosing)
-	if (isSelectElement(node)) addOptionSelects(optionSelects, node)
+	if (enclosing) addDefaultOptions(defaultOptions, enclosing)
+	if (isSelectElement(node)) addDefaultOptions(defaultOptions, node)
 
 	for (const select of querySelectorAll(node, "select")) {
-		if (isSelectElement(select)) addOptionSelects(optionSelects, select)
+		if (isSelectElement(select)) addDefaultOptions(defaultOptions, select)
 	}
 
-	return optionSelects
+	return defaultOptions
 }
 
-function addOptionSelects(optionSelects: Map<Element, HTMLSelectElement>, select: HTMLSelectElement): void {
-	for (const option of select.options) optionSelects.set(option, select)
+function addDefaultOptions(defaultOptions: DefaultOptionMap, select: HTMLSelectElement): void {
+	const defaultOption = select.multiple ? undefined : defaultOptionOf(select)
+	for (const option of select.options) defaultOptions.set(option, defaultOption)
 }
 
 // The options the markup selects, then the options the select shows, to tell whether a morph inside
@@ -763,22 +756,24 @@ function focusOf(node: Node): Focus | null {
 // The focus a move of the node would take: the focused element when the node holds it or the selection inside it.
 function focusHeldBy(node: Node): Focus | null {
 	const focus = focusOf(node)
-	if (!focus) return null
-	const { element, range } = focus
-	return holds(node, element) || (range && (holds(node, range[0]) || holds(node, range[2]))) ? focus : null
+	return focus && holdersOf(focus).has(node) ? focus : null
 }
 
 // The nodes holding the focused element inside the root, or the selection inside it, when the morph starts.
 function focusHoldersIn(root: Node): Set<Node> | null {
 	const focus = focusOf(root)
 	if (!focus) return null
+	const holders = holdersOf(focus)
+	return holders.has(root) ? holders : null
+}
 
+// The nodes holding the focused element or an end of its selection.
+function holdersOf({ element, range }: Focus): Set<Node> {
 	const holders = new Set<Node>()
-	const { element, range } = focus
 	for (const held of range ? [element, range[0], range[2]] : [element]) {
 		for (let node: Node | null = held; node; node = parentOrHost(node)) holders.add(node)
 	}
-	return holders.has(root) ? holders : null
+	return holders
 }
 
 // Put back the focus and selection a move just took. Focus that another element took meanwhile, such as from a
@@ -843,13 +838,6 @@ function activeElementIn(root: Node): Element | null {
 	return (root as Partial<ShadowRoot>).activeElement ?? null
 }
 
-function holds(node: Node, element: Node): boolean {
-	for (let holder: Node | null = element; holder; holder = parentOrHost(holder)) {
-		if (holder === node) return true
-	}
-	return false
-}
-
 function parentOrHost(node: Node): Node | null {
 	// Focus and the selection are always in a document, so a fragment here is a shadow root.
 	return parentNodeOf(node) ?? (nodeTypeOf(node) === DOCUMENT_FRAGMENT_NODE_TYPE ? (node as ShadowRoot).host : null)
@@ -887,8 +875,10 @@ class Siblings {
 	dirtyCandidatesByShape: Map<string, Array<number>> | null = null
 	// The untouched candidates that gave their equal target to a candidate holding the user's changes.
 	readonly displaced: Array<number> = []
-	// A shape spans the whole subtree, so it's worked out once for each node.
+	// A shape spans the whole subtree, so it's worked out once for each node. Under preserveChanges, it ignores the
+	// `open` state the user toggles.
 	readonly #shapes: Map<Node, string> = new Map()
+	readonly #ignoresOpen: boolean
 	// Each element's choice, worked out once while its siblings are matched.
 	choices: Map<Element, string | null> | null = null
 	readonly #fromLocalNames: Array<string> = []
@@ -896,13 +886,14 @@ class Siblings {
 	readonly #toLocalNames: Array<string> = []
 	readonly #toNamespaces: Array<string | null> = []
 
-	shapeOf(node: Node, ignoresOpen: boolean): string {
+	shapeOf(node: Node): string {
 		let shape = this.#shapes.get(node)
-		if (shape === undefined) this.#shapes.set(node, (shape = shapeOf(node, ignoresOpen)))
+		if (shape === undefined) this.#shapes.set(node, (shape = shapeOf(node, this.#ignoresOpen)))
 		return shape
 	}
 
-	constructor(from: Element, to: Element) {
+	constructor(from: Element, to: Element, ignoresOpen: boolean) {
+		this.#ignoresOpen = ignoresOpen
 		this.from = nodeListToArray(childNodesOf(from))
 		this.to = nodeListToArray(childNodesOf(to))
 		this.candidateActive = new Uint8Array(this.from.length)
@@ -918,9 +909,7 @@ class Siblings {
 				if (id === "") {
 					this.candidateElements.push(i)
 				} else {
-					const bucket = this.candidateElementsById.get(id)
-					if (bucket) bucket.push(i)
-					else this.candidateElementsById.set(id, [i])
+					addToBucket(this.candidateElementsById, id, i)
 				}
 			} else if (isWhitespaceTextNode(candidate)) {
 				this.whitespace.push(i)
@@ -1230,24 +1219,18 @@ class Morph {
 		this.#scope = parentNodeOf(from) ?? from
 		this.#scopeStart = previousSiblingOf(from)
 		this.#scopeEnd = nextSiblingOf(from)
-		this.#keyForm = enclosingForm(parentElementOf(from))
+		this.#keyForm = closestForm(parentNodeOf(from))
 		if (isParentNode(from)) {
 			this.#mapIdSets(from)
 		}
 
-		if (isNodeList(to)) {
-			for (const node of to) this.#targetRoots.add(node)
-			this.#mapIdArraysForEach(to)
-			if (this.#targetOpensDetails) closeLaterOpenDetails(to)
-			this.#morphOneToMany(from, to)
-		} else {
-			this.#targetRoots.add(to)
-			if (isParentNode(to)) {
-				this.#mapIdArrays(to)
-			}
-			if (this.#targetOpensDetails) closeLaterOpenDetails([to])
-			this.#morphOneToOne(from, to)
+		const targets = isNodeList(to) ? [...to] : [to]
+		for (const node of targets) {
+			this.#targetRoots.add(node)
+			if (isParentNode(node)) this.#mapIdArrays(node)
 		}
+		if (this.#targetOpensDetails) closeLaterOpenDetails(targets)
+		this.#morphOneToMany(from, targets)
 
 		this.#finish()
 	}
@@ -1256,7 +1239,7 @@ class Morph {
 		this.#root = from
 		this.#focusHolders = focusHoldersIn(from)
 		this.#scope = from
-		this.#keyForm = enclosingForm(from)
+		this.#keyForm = closestForm(from)
 		this.#innerTarget = to
 		this.#targetRoots.add(to)
 		this.#mapIdSets(from)
@@ -1382,7 +1365,7 @@ class Morph {
 		}
 	}
 
-	#morphOneToMany(from: ChildNode, to: NodeListOf<ChildNode>): void {
+	#morphOneToMany(from: ChildNode, to: Array<ChildNode>): void {
 		const length = to.length
 
 		if (length === 0) {
@@ -1394,14 +1377,13 @@ class Morph {
 			if (!parent) throw new Error(DETACHED_NODE_ERROR)
 
 			// Add the other nodes first, so moves into them are settled when the first node's morph finishes.
-			const newNodes = [...to]
-			const first = newNodes.shift()!
+			const [first, ...newNodes] = to
 			const insertionPoint = nextSiblingOf(from)
 			for (let i = 0; i < newNodes.length; i++) {
 				this.#addNode(parent, newNodes[i]!, insertionPoint)
 			}
 
-			this.#morphOneToOne(from, first)
+			this.#morphOneToOne(from, first!)
 		}
 	}
 
@@ -1410,23 +1392,37 @@ class Morph {
 		if (from === to) return
 		if (isEqualNode(from, to)) return
 
-		if (nodeTypeOf(from) === ELEMENT_NODE_TYPE && nodeTypeOf(to) === ELEMENT_NODE_TYPE) {
-			if (canMorphElementInPlace(from as Element, to as Element)) {
-				this.#morphMatchingElements(from as Element, to as Element)
-			} else {
-				this.#morphNonMatchingElements(from as Element, to as Element)
-			}
-		} else {
-			this.#morphOtherNode(from, to)
-		}
+		this.#visitNode(from, to, isElement(from) && isElement(to) && canMorphElementInPlace(from, to))
 	}
 
-	#morphMatchingElements(from: Element, to: Element): void {
+	// Morph an element in place when it can be, update another node's text, or replace the node.
+	#visitNode(from: ChildNode, to: ChildNode, inPlace: boolean): void {
 		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) {
 			this.#pinSubtree(from)
 			return
 		}
 
+		// Nodes of the same type that aren't elements aren't forms either. A processing instruction's target is its name.
+		if (inPlace) {
+			this.#morphMatchingElements(from as Element, to as Element)
+		} else if (
+			!isElement(from) &&
+			nodeTypeOf(from) === nodeTypeOf(to) &&
+			from.nodeName === to.nodeName &&
+			from.nodeValue !== null &&
+			to.nodeValue !== null
+		) {
+			from.nodeValue = to.nodeValue
+			// A root settles here, so its afterNodeVisited sees the finished DOM.
+			this.#settleIfRoot(from)
+		} else {
+			this.#replaceNode(from, to)
+		}
+
+		this.#options.afterNodeVisited?.(from, to)
+	}
+
+	#morphMatchingElements(from: Element, to: Element): void {
 		// Discard user changes inside a `morphlex-clobber` element, as if `preserveChanges` were off.
 		const preserveChanges = this.#preserveChanges
 		const clobberedScope = this.#clobberedScope
@@ -1451,41 +1447,6 @@ class Morph {
 
 		this.#preserveChanges = preserveChanges
 		this.#clobberedScope = clobberedScope
-		this.#options.afterNodeVisited?.(from, to)
-	}
-
-	#morphNonMatchingElements(from: Element, to: Element): void {
-		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) {
-			this.#pinSubtree(from)
-			return
-		}
-
-		this.#replaceNode(from, to)
-
-		this.#options.afterNodeVisited?.(from, to)
-	}
-
-	#morphOtherNode(from: ChildNode, to: ChildNode): void {
-		if (!(this.#options.beforeNodeVisited?.(from, to) ?? true)) {
-			this.#pinSubtree(from)
-			return
-		}
-
-		// Nodes of the same type here aren't elements, so neither is a form. A processing instruction's target is its name.
-		if (
-			nodeTypeOf(from) === nodeTypeOf(to) &&
-			from.nodeName === to.nodeName &&
-			from.nodeValue !== null &&
-			to.nodeValue !== null
-		) {
-			from.nodeValue = to.nodeValue
-			// A root settles here, so its afterNodeVisited sees the finished DOM.
-			this.#settleIfRoot(from)
-		} else {
-			this.#replaceNode(from, to)
-		}
-
-		this.#options.afterNodeVisited?.(from, to)
 	}
 
 	#visitAttributes(from: Element, to: Element): void {
@@ -1687,7 +1648,7 @@ class Morph {
 			// it's morphed straight away.
 			this.#morphOneToOne(text, targetText)
 		} else {
-			const siblings = new Siblings(from, to)
+			const siblings = new Siblings(from, to, this.#preserveChanges)
 			this.#matchEqualElements(siblings)
 			this.#matchDirtyElements(siblings)
 			this.#matchElementsById(siblings)
@@ -1726,9 +1687,7 @@ class Morph {
 		const { from, to, candidateElements, unmatchedElements, candidateActive, unmatchedActive } = siblings
 		const dirtyElements = this.#dirtyElements
 		const buckets =
-			candidateElements.length * unmatchedElements.length > 1024
-				? new EqualBuckets(siblings, candidateElements, this.#preserveChanges)
-				: null
+			candidateElements.length * unmatchedElements.length > 1024 ? new EqualBuckets(siblings, candidateElements) : null
 
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
@@ -1765,23 +1724,17 @@ class Morph {
 		if (!dirtyElements) return
 		const { from, to, candidateElements, unmatchedElements, candidateActive, unmatchedActive } = siblings
 
-		const candidatesByShape: Map<string, Array<number>> = (siblings.dirtyCandidatesByShape = new Map())
-		for (let c = 0; c < candidateElements.length; c++) {
-			const candidateIndex = candidateElements[c]!
-			const candidate = from[candidateIndex] as Element
-			if (!candidateActive[candidateIndex] || !dirtyElements.has(candidate)) continue
-			const shape = siblings.shapeOf(candidate, this.#preserveChanges)
-			const bucket = candidatesByShape.get(shape)
-			if (bucket) bucket.push(candidateIndex)
-			else candidatesByShape.set(shape, [candidateIndex])
-		}
+		const candidatesByShape = (siblings.dirtyCandidatesByShape = bucketByShape(
+			siblings,
+			candidateElements.filter((candidate) => candidateActive[candidate] && dirtyElements.has(from[candidate] as Element)),
+		))
 
 		const firstActive: Map<Array<number>, number> = new Map()
 		for (let i = 0; candidatesByShape.size && i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
 			if (!unmatchedActive[target]) continue
 			const element = to[target] as Element
-			const candidates = candidatesByShape.get(siblings.shapeOf(element, this.#preserveChanges))
+			const candidates = candidatesByShape.get(siblings.shapeOf(element))
 			// A target discarding user changes can't keep them, so it's left for the passes that rank it last.
 			if (!candidates || this.#holdsClobbered(element)) continue
 
@@ -1822,9 +1775,7 @@ class Morph {
 			if (!names.has(localNameOf(candidate))) continue
 			const outline = outlineOf(candidate)
 			if (!outlines.has(outline)) continue
-			const bucket = candidatesByOutline.get(outline)
-			if (bucket) bucket.push(candidateIndex)
-			else candidatesByOutline.set(outline, [candidateIndex])
+			addToBucket(candidatesByOutline, outline, candidateIndex)
 		}
 		const targets: Array<[number, Array<number>]> = []
 		const targetCounts: Map<Array<number>, number> = new Map()
@@ -2017,9 +1968,7 @@ class Morph {
 				const element = to[target] as Element
 				for (const choice of this.#targetChoicesOf(element).counts.keys()) {
 					const key = indexKey(element, choice, sameAttributes)
-					const list = holders.get(key)
-					if (list) list.push(target)
-					else holders.set(key, [target])
+					addToBucket(holders, key, target)
 				}
 			}
 
@@ -2074,16 +2023,13 @@ class Morph {
 			for (const candidateIndex of candidates) {
 				if (!candidateActive[candidateIndex]) continue
 				if (!equalTargets) {
-					equalTargets = new Map()
-					for (const target of unmatchedElements) {
-						if (op[target] !== Operation.EqualNode) continue
-						const element = to[target] as Element
-						if (this.#holdsClobbered(element)) continue
-						const targetShape = siblings.shapeOf(element, this.#preserveChanges)
-						const list = equalTargets.get(targetShape)
-						if (list) list.push(target)
-						else equalTargets.set(targetShape, [target])
-					}
+					equalTargets = bucketByShape(
+						siblings,
+						unmatchedElements.filter(
+							(target) => op[target] === Operation.EqualNode && !this.#holdsClobbered(to[target] as Element),
+						),
+						to,
+					)
 				}
 				const list = equalTargets.get(shape)
 				if (!list) continue
@@ -2225,10 +2171,8 @@ class Morph {
 					const target = to[targetOf[candidate]!] as Element
 					const choices = [...this.#targetChoicesOf(target).counts].map(([choice, count]) => `${count} ${choice}`).sort()
 					if (choices.length) choices.push(attributesKeyOf(target, STYLING_ATTRIBUTES))
-					const shape = siblings.shapeOf(from[candidate]!, this.#preserveChanges) + outlineOf(target) + JSON.stringify(choices)
-					const bucket = candidatesByShape.get(shape)
-					if (bucket) bucket.push(candidate)
-					else candidatesByShape.set(shape, [candidate])
+					const shape = siblings.shapeOf(from[candidate]!) + outlineOf(target) + JSON.stringify(choices)
+					addToBucket(candidatesByShape, shape, candidate)
 				}
 				// Each set holding a changed element takes its targets in order. The other sets are left to the ordering
 				// below, which keeps the passes' order on a tie.
@@ -2236,19 +2180,17 @@ class Morph {
 				let reordered = false
 				const isChanged = (candidate: number): boolean => dirtyElements.has(from[candidate] as Element)
 				// The untouched candidates no target took, by shape, which can stay instead of an identical one.
-				const goingByShape: Map<string, Array<number>> = new Map()
-				for (const candidateIndex of siblings.candidateElements) {
-					if (!candidateActive[candidateIndex] || isChanged(candidateIndex) || !changedKeys.has(keyOf(candidateIndex))) continue
-					const shape = siblings.shapeOf(from[candidateIndex]!, this.#preserveChanges)
-					const going = goingByShape.get(shape)
-					if (going) going.push(candidateIndex)
-					else goingByShape.set(shape, [candidateIndex])
-				}
+				const goingByShape = bucketByShape(
+					siblings,
+					siblings.candidateElements.filter(
+						(candidate) => candidateActive[candidate] && !isChanged(candidate) && changedKeys.has(keyOf(candidate)),
+					),
+				)
 				// The sets that can trade candidates with those going are ordered last, so the other sets are in order
 				// when the crossings are counted.
 				const buckets = [...candidatesByShape.values()].filter((bucket) => bucket.some(isChanged))
 				const goingOf = buckets.map((bucket) =>
-					goingByShape.size ? goingByShape.get(siblings.shapeOf(from[bucket[0]!]!, this.#preserveChanges)) : undefined,
+					goingByShape.size ? goingByShape.get(siblings.shapeOf(from[bucket[0]!]!)) : undefined,
 				)
 				const order = buckets.map((_, b) => b).sort((a, b) => Number(!!goingOf[a]) - Number(!!goingOf[b]))
 				const targetsOf = buckets.map((bucket) => bucket.map((candidate) => targetOf[candidate]!).sort((a, b) => a - b))
@@ -2311,8 +2253,7 @@ class Morph {
 		}
 		if (changed.length) {
 			// With many siblings, compare within the candidate's bucket.
-			const buckets =
-				changed.length * candidates.length > 1024 ? new EqualBuckets(siblings, candidates, this.#preserveChanges) : null
+			const buckets = changed.length * candidates.length > 1024 ? new EqualBuckets(siblings, candidates) : null
 			const identicalTo = (candidate: number): Array<number> => {
 				const bucket = buckets ? buckets.get(from[candidate]!)! : candidates
 				const identical = bucket.filter((other) => other === candidate || isEqualNode(from[other]!, from[candidate]!))
@@ -2427,10 +2368,8 @@ class Morph {
 				} else if (operation === Operation.SameElement) {
 					// Elements matched by id skip the isEqualNode pass, so check here before visiting them.
 					if (isEqualNode(match, node)) {
-					} else if (hasSameIs(match as Element, node as Element)) {
-						this.#morphMatchingElements(match as Element, node as Element)
 					} else {
-						this.#morphNonMatchingElements(match as Element, node as Element)
+						this.#visitNode(match, node, hasSameIs(match as Element, node as Element))
 					}
 				} else {
 					this.#morphOneToOne(match, node)
@@ -3303,14 +3242,6 @@ class Morph {
 		this.#preserveChanges = preserveChanges
 	}
 
-	#mapIdArraysForEach(nodeList: NodeList): void {
-		for (const childNode of nodeList) {
-			if (isParentNode(childNode)) {
-				this.#mapIdArrays(childNode)
-			}
-		}
-	}
-
 	// For each node with an ID, push that ID into the IdArray on the IdArrayMap, for each of its parent elements.
 	#mapIdArrays(node: ParentNode, countRoot = true): void {
 		const idArrayMap = this.#idArrayMap
@@ -3404,8 +3335,6 @@ function hasExcessAttributes(from: Element, to: Element): boolean {
 	return false
 }
 
-// Give each changed candidate's set of interchangeable candidates, from `identicalTo`, to their targets in order in
-// `matches`. Returns whether any target changed hands.
 // The candidate each target takes, both in order. A target discarding the user's changes takes the first untouched
 // candidate, so no changed candidate trades into it, and the other targets take the first free candidate while enough
 // untouched ones are left for those.
@@ -3526,6 +3455,8 @@ function chooseStaying(
 	return stays.reverse()
 }
 
+// Give each changed candidate's set of interchangeable candidates, from `identicalTo`, to their targets in order in
+// `matches`. Returns whether any target changed hands.
 function orderSets(
 	matches: Array<number>,
 	changed: Array<number>,
@@ -3559,13 +3490,11 @@ function orderSets(
 // prefix, so many identical siblings aren't scanned again for each target.
 class EqualBuckets {
 	readonly #siblings: Siblings
-	readonly #ignoresOpen: boolean
 	readonly #byText: Map<string, Array<number>>
 	readonly #state: Map<Array<number>, { taken: number; failures: number; byShape?: Map<string, Array<number>> }> = new Map()
 
-	constructor(siblings: Siblings, indices: Array<number>, ignoresOpen: boolean) {
+	constructor(siblings: Siblings, indices: Array<number>) {
 		this.#siblings = siblings
-		this.#ignoresOpen = ignoresOpen
 		this.#byText = bucketByTextContent(siblings.from, indices)
 	}
 
@@ -3573,8 +3502,8 @@ class EqualBuckets {
 		const bucket = this.#byText.get(textContentOf(node)!)
 		const state = bucket && bucket.length > 1 && this.#state.get(bucket)
 		if (!state || state.failures <= bucket.length) return bucket
-		state.byShape ??= bucketByShape(this.#siblings, bucket, this.#ignoresOpen)
-		return state.byShape.get(this.#siblings.shapeOf(node, this.#ignoresOpen))
+		state.byShape ??= bucketByShape(this.#siblings, bucket)
+		return state.byShape.get(this.#siblings.shapeOf(node))
 	}
 
 	// The first position in the bucket from which candidates may still be active.
@@ -3597,13 +3526,18 @@ class EqualBuckets {
 	}
 }
 
-function bucketByShape(siblings: Siblings, indices: Array<number>, ignoresOpen: boolean): Map<string, Array<number>> {
+// Adds the value to the list under the key, starting the list when there's none.
+function addToBucket<K, V>(buckets: Map<K, Array<V>>, key: K, value: V): void {
+	const bucket = buckets.get(key)
+	if (bucket) bucket.push(value)
+	else buckets.set(key, [value])
+}
+
+// The nodes at the indices, the candidates unless others are given, by shape.
+function bucketByShape(siblings: Siblings, indices: Array<number>, nodes = siblings.from): Map<string, Array<number>> {
 	const buckets: Map<string, Array<number>> = new Map()
 	for (const index of indices) {
-		const shape = siblings.shapeOf(siblings.from[index]!, ignoresOpen)
-		const bucket = buckets.get(shape)
-		if (bucket) bucket.push(index)
-		else buckets.set(shape, [index])
+		addToBucket(buckets, siblings.shapeOf(nodes[index]!), index)
 	}
 	return buckets
 }
@@ -3613,9 +3547,7 @@ function bucketByTextContent(nodes: Array<ChildNode>, indices: Array<number>): M
 	for (let i = 0; i < indices.length; i++) {
 		const index = indices[i]!
 		const text = textContentOf(nodes[index]!)!
-		const bucket = buckets.get(text)
-		if (bucket) bucket.push(index)
-		else buckets.set(text, [index])
+		addToBucket(buckets, text, index)
 	}
 	return buckets
 }
@@ -3667,16 +3599,7 @@ function trimAsciiWhitespace(string: string): string {
 }
 
 function trimFragmentEdgeWhitespace(fragment: DocumentFragment): void {
-	let hasElementChild = false
-
-	for (let current = fragment.firstChild; current; current = nextSiblingOf(current)) {
-		if (nodeTypeOf(current) === ELEMENT_NODE_TYPE) {
-			hasElementChild = true
-			break
-		}
-	}
-
-	if (!hasElementChild) return
+	if (!fragment.firstElementChild) return
 
 	while (fragment.firstChild && isWhitespaceTextNode(fragment.firstChild)) {
 		fragment.firstChild.remove()
@@ -3706,12 +3629,6 @@ function choiceOf(element: Element, select: HTMLSelectElement | null, form: Elem
 	return null
 }
 
-// The form the element is, or is in.
-function enclosingForm(element: Element | null): HTMLFormElement | null {
-	for (let node = element; node; node = parentElementOf(node)) if (isFormElement(node)) return node
-	return null
-}
-
 // The control's `form` attribute, or null when it names the form the control is in.
 function formOf(control: Element, form: Element | null): string | null {
 	const name = getAttribute(control, "form")
@@ -3738,13 +3655,13 @@ function countChoices(choices: Array<string>): Map<string, number> {
 
 // A key for the element's attributes, equal for elements with the same attributes ignoring `morphlex-dirty` and any `ignored` names.
 function attributesKeyOf(element: Element, ignored: ReadonlyArray<string>): string {
-	const attributes: Array<[string | null, string, string]> = []
-	for (const { namespaceURI, name, localName, value } of attributesOf(element)) {
-		if (namespaceURI !== null || (name !== DIRTY_ATTRIBUTE && !ignored.includes(name))) {
-			attributes.push([namespaceURI, localName, value])
+	const attributes: Array<string> = []
+	for (const { namespaceURI, localName, value } of attributesOf(element)) {
+		if (namespaceURI !== null || (localName !== DIRTY_ATTRIBUTE && !ignored.includes(localName))) {
+			attributes.push(JSON.stringify([namespaceURI, localName, value]))
 		}
 	}
-	return JSON.stringify(attributes.sort((a, b) => (`${a[0]} ${a[1]}` < `${b[0]} ${b[1]}` ? -1 : 1)))
+	return JSON.stringify(attributes.sort())
 }
 
 // An option the user deselected or moved a select away from, or a radio they moved their group away from. What holds
@@ -3759,13 +3676,7 @@ function isLeftChoice(element: Element): boolean {
 // since `preserveChanges` keeps it as the user left it.
 function shapeOf(node: Node, ignoresOpen: boolean): string {
 	if (!isElement(node)) return JSON.stringify([nodeTypeOf(node), node.nodeName, node.nodeValue])
-	const ignored = ignoresOpen && hasOpenState(node) ? "open" : DIRTY_ATTRIBUTE
-	const attributes: Array<string> = []
-	for (const { namespaceURI, localName, value } of attributesOf(node)) {
-		if (namespaceURI !== null || (localName !== DIRTY_ATTRIBUTE && localName !== ignored)) {
-			attributes.push(JSON.stringify([namespaceURI, localName, value]))
-		}
-	}
+	const attributes = attributesKeyOf(node, ignoresOpen && hasOpenState(node) ? OPEN_ATTRIBUTE : [])
 	let children = ""
 	for (const child of childNodesOf(node)) children += shapeOf(child, ignoresOpen)
 	if (isTemplateElement(node)) {
@@ -3773,7 +3684,7 @@ function shapeOf(node: Node, ignoresOpen: boolean): string {
 		for (const child of node.content.childNodes) children += shapeOf(child, ignoresOpen)
 		children += ">"
 	}
-	return `<${JSON.stringify([namespaceURIOf(node), prefixOf(node), localNameOf(node), attributes.sort()])}${children}>`
+	return `<${JSON.stringify([namespaceURIOf(node), prefixOf(node), localNameOf(node)])}${attributes}${children}>`
 }
 
 // The shape of a subtree without its attributes, apart from `is`, which decides whether an element can be morphed.
@@ -3835,9 +3746,7 @@ function radioGroupOf(radio: HTMLInputElement, groups: RadioGroups): Array<HTMLI
 		for (let i = 0; i < inputs.length; i++) {
 			const input = inputs[i] as Element
 			if (isInputElement(input) && input.type === "radio" && input.form === form) {
-				const group = byName.get(input.name)
-				if (group) group.push(input)
-				else byName.set(input.name, [input])
+				addToBucket(byName, input.name, input)
 			}
 		}
 	}
@@ -3954,9 +3863,7 @@ function indexByMatchKeys(nodes: Array<ChildNode>, candidates: Array<number>): M
 	const sharing: Map<string, Array<number>> = new Map()
 	for (const candidateIndex of candidates) {
 		for (const key of matchKeysOf(nodes[candidateIndex] as Element)) {
-			const bucket = sharing.get(key)
-			if (bucket) bucket.push(candidateIndex)
-			else sharing.set(key, [candidateIndex])
+			addToBucket(sharing, key, candidateIndex)
 		}
 	}
 	return sharing
@@ -4250,12 +4157,9 @@ function getElementsByName(document: Document, name: string): NodeListOf<HTMLEle
 // Returns the indices in the sequence that form the LIS
 function longestIncreasingSubsequence(sequence: Array<number | undefined>): Array<number> {
 	const n = sequence.length
-	if (n === 0) return []
-
 	const smallestEnding = new Array<number>(n)
 	const indices = new Array<number>(n)
 	const prev = new Int32Array(n)
-	prev.fill(-1)
 
 	let lisLength = 0
 
