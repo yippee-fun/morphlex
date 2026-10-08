@@ -8,6 +8,8 @@ function runScripts(node: Node) {
 	for (const inert of scripts) {
 		const script = document.createElement("script")
 		for (const { name, value } of inert.attributes) script.setAttribute(name, value)
+		script.nonce = inert.nonce
+		script.async = inert.async
 		script.textContent = inert.textContent
 		inert.replaceWith(script)
 	}
@@ -48,5 +50,19 @@ test("afterNodeAdded can run the scripts in new content", () => {
 	expect(container.innerHTML).toBe(
 		`<p>New</p><script data-kind="top">ran.push("top")</script><section><script>ran.push("nested")</script></section>`,
 	)
+	container.remove()
+})
+
+test("the copies keep the nonce and run in order", () => {
+	const { container } = setup()
+
+	morphInner(container, `<div><script nonce="abc">ran.push("nonce")</script><script async src="data:,"></script></div>`, {
+		afterNodeAdded: runScripts,
+	})
+
+	const [first, second] = [...container.querySelectorAll("script")] as [HTMLScriptElement, HTMLScriptElement]
+	expect(first.nonce).toBe("abc")
+	expect(first.async).toBe(false)
+	expect(second.async).toBe(true)
 	container.remove()
 })
