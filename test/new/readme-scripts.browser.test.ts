@@ -2,13 +2,21 @@ import { expect, test } from "vitest"
 import { morphInner } from "../../src/morphlex"
 
 // The example from the README’s “Scripts” section.
-function runScripts(node: Node) {
-	if (!(node instanceof Element)) return
-	const scripts = node.matches("script") ? [node] : node.querySelectorAll("script")
+function morphInnerRunningScripts(container: Element, html: string) {
+	const scripts: Element[] = []
+
+	morphInner(container, html, {
+		afterNodeAdded(node) {
+			if (!(node instanceof Element)) return
+			scripts.push(...(node.matches("script") ? [node] : node.querySelectorAll("script")))
+		},
+	})
+
 	for (const inert of scripts) {
+		if (!inert.isConnected) continue
 		const script = document.createElement("script")
 		for (const { name, value } of inert.attributes) script.setAttribute(name, value)
-		script.nonce = inert.nonce
+		script.nonce = (inert as HTMLScriptElement).nonce
 		script.async = inert.hasAttribute("async")
 		script.textContent = inert.textContent
 		inert.replaceWith(script)
@@ -37,13 +45,12 @@ test("scripts in a string target don’t run", () => {
 	container.remove()
 })
 
-test("afterNodeAdded can run the scripts in new content", () => {
+test("the README example runs the scripts in new content", () => {
 	const { ran, container } = setup()
 
-	morphInner(
+	morphInnerRunningScripts(
 		container,
 		`<div><p>New</p><script data-kind="top">ran.push("top")</script><section><script>ran.push("nested")</script></section></div>`,
-		{ afterNodeAdded: runScripts },
 	)
 
 	expect(ran).toEqual(["top", "nested"])
@@ -53,12 +60,25 @@ test("afterNodeAdded can run the scripts in new content", () => {
 	container.remove()
 })
 
-test("the copies keep the nonce and run in order", () => {
+test("the README example runs scripts once the morph is done", () => {
+	const { ran, container } = setup()
+
+	morphInnerRunningScripts(
+		container,
+		`<div><script>ran.push(document.getElementById("later").textContent)</script><p id="later">Later</p></div>`,
+	)
+
+	expect(ran).toEqual(["Later"])
+	container.remove()
+})
+
+test("the README example keeps the nonce and runs scripts in order", () => {
 	const { container } = setup()
 
-	morphInner(container, `<div><script nonce="abc">ran.push("nonce")</script><script async src="data:,"></script></div>`, {
-		afterNodeAdded: runScripts,
-	})
+	morphInnerRunningScripts(
+		container,
+		`<div><script nonce="abc">ran.push("nonce")</script><script async src="data:,"></script></div>`,
+	)
 
 	const [first, second] = [...container.querySelectorAll("script")] as [HTMLScriptElement, HTMLScriptElement]
 	expect(first.nonce).toBe("abc")

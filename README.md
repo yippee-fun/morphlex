@@ -114,23 +114,27 @@ An element with a unique id can move to a new parent during a morph (except `<op
 
 A `<script>` in new content doesn’t run when Morphlex inserts it, just as it wouldn’t with `innerHTML`. Browsers never run a script parsed from a string, a `<template>` or `DOMParser`, so this applies to string targets and to most node targets. A script that is morphed into an existing `<script>` doesn’t run again either, even when its content changes.
 
-To run new scripts, replace each one with a fresh copy in `afterNodeAdded`:
+To run new scripts, collect them in `afterNodeAdded` and replace each one with a fresh copy once the morph is done, so they see the finished DOM:
 
 ```javascript
-function runScripts(node) {
-  if (!(node instanceof Element)) return
-  const scripts = node.matches("script") ? [node] : node.querySelectorAll("script")
-  for (const inert of scripts) {
-    const script = document.createElement("script")
-    for (const { name, value } of inert.attributes) script.setAttribute(name, value)
-    script.nonce = inert.nonce
-    script.async = inert.hasAttribute("async")
-    script.textContent = inert.textContent
-    inert.replaceWith(script)
-  }
-}
+const scripts = []
 
-morph(currentNode, newHTML, { afterNodeAdded: runScripts })
+morph(currentNode, newHTML, {
+  afterNodeAdded(node) {
+    if (!(node instanceof Element)) return
+    scripts.push(...(node.matches("script") ? [node] : node.querySelectorAll("script")))
+  },
+})
+
+for (const inert of scripts) {
+  if (!inert.isConnected) continue
+  const script = document.createElement("script")
+  for (const { name, value } of inert.attributes) script.setAttribute(name, value)
+  script.nonce = inert.nonce
+  script.async = inert.hasAttribute("async")
+  script.textContent = inert.textContent
+  inert.replaceWith(script)
+}
 ```
 
 Copying `nonce` keeps the script allowed under a nonce-based Content Security Policy, since the browser hides the attribute once the script is in the page. Setting `async` from the attribute keeps external scripts running in order, but inline scripts still run straight away, so one can run before an external script above it has loaded. Only use this with HTML strings, templates or parsed documents: a script you create with `document.createElement` already runs when it’s inserted, so this would run it twice.
