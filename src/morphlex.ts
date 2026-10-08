@@ -241,7 +241,7 @@ const runningFlags: Array<Array<Element>> = []
 
 // Flag the controls the user changed, note the select around the root and what its markup selects, and
 // run the morph. A root select's options are keyed by the live select, even if the target renames it and the
-// rename is vetoed. A morph run from a callback puts back the flags of the morphs around it when it's done.
+// rename is vetoed. A morph run from a callback puts back the flags of the morphs around it that it cleared.
 function run(
 	from: ChildNode,
 	to: ChildNode | NodeListOf<ChildNode>,
@@ -250,7 +250,7 @@ function run(
 	morph: (morpher: Morph) => void,
 ): void {
 	const select = selectOf(from)
-	const outerFlags = runningFlags.slice()
+	const outerFlags = runningFlags.flat().filter((element) => hasAttribute(element, DIRTY_ATTRIBUTE))
 	const flagged: Array<Element> = []
 	runningFlags.push(flagged)
 	try {
@@ -262,10 +262,8 @@ function run(
 	} finally {
 		runningFlags.pop()
 		clearDirtyFlags(flagged)
-		for (const flags of outerFlags) {
-			for (const element of flags) {
-				if (!hasAttribute(element, DIRTY_ATTRIBUTE)) setAttribute(element, DIRTY_ATTRIBUTE, "")
-			}
+		for (const element of outerFlags) {
+			if (!hasAttribute(element, DIRTY_ATTRIBUTE)) setAttribute(element, DIRTY_ATTRIBUTE, "")
 		}
 	}
 }
@@ -347,10 +345,11 @@ function flagDirtyInputs(node: Element, to: ChildNode | NodeListOf<ChildNode> | 
 	}
 }
 
+// The element is noted first, so a morph from its attribute callback puts its flag back.
 function flagDirty(element: Element, flagged: Array<Element>): void {
+	flagged.push(element)
 	// Stryker disable next-line StringLiteral: only the marker's presence matters, never its value.
 	setAttribute(element, DIRTY_ATTRIBUTE, "")
-	flagged.push(element)
 }
 
 // Checkboxes and radios report a `.value` of "on" when they have no `value` attribute,

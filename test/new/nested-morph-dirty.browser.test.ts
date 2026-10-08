@@ -159,3 +159,46 @@ test("a nested morph leaves the flags it didn't clear as they are", () => {
 	observer.disconnect()
 	expect(input.value).toBe("a")
 })
+
+test("the outer morph resets a control whose attribute callback morphs it while it's flagged", () => {
+	let nested = false
+	class SelfMorpher extends HTMLInputElement {
+		static observedAttributes = ["morphlex-dirty"]
+		attributeChangedCallback() {
+			if (nested) return
+			nested = true
+			morph(this, `<input is="x-self-morpher" id="a" value="a">`, { preserveChanges: true })
+		}
+	}
+	customElements.define("x-self-morpher", SelfMorpher, { extends: "input" })
+	const host = document.createElement("div")
+	host.innerHTML = `<form><input is="x-self-morpher" id="a" value="a"></form>`
+	const form = host.firstElementChild!
+	const input = form.querySelector("input")!
+	input.value = "typed"
+
+	morph(form, `<form><input is="x-self-morpher" id="a" value="a"></form>`)
+
+	expect(input.value).toBe("a")
+})
+
+test("a nested morph doesn't put back a flag the outer morph already cleared", () => {
+	const host = document.createElement("div")
+	host.innerHTML = `<form><input id="i" value="a"></form><p></p>`
+	const form = host.firstElementChild!
+	const paragraph = host.lastElementChild!
+	const input = form.querySelector("input")!
+	input.value = "typed"
+	let flaggedAfterNestedMorph: boolean | null = null
+
+	morph(form, `<form><input id="i" value="a"></form>`, {
+		afterNodeVisited(node) {
+			if (node !== form) return
+			morphInner(paragraph, `<p>new</p>`)
+			flaggedAfterNestedMorph = input.hasAttribute("morphlex-dirty")
+		},
+	})
+
+	expect(flaggedAfterNestedMorph).toBe(false)
+	expect(input.value).toBe("a")
+})
