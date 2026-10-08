@@ -236,9 +236,12 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 	}
 }
 
+// Morphs run from a callback of another morph.
+let nesting = 0
+
 // Flag the controls the user changed, note the select around the root and what its markup selects, and
 // run the morph. A root select's options are keyed by the live select, even if the target renames it and the
-// rename is vetoed.
+// rename is vetoed. A nested morph clears the flags of the morph around it, so it puts them back when it's done.
 function run(
 	from: ChildNode,
 	to: ChildNode | NodeListOf<ChildNode>,
@@ -247,15 +250,27 @@ function run(
 	morph: (morpher: Morph) => void,
 ): void {
 	const select = selectOf(from)
+	const outerFlags = nesting && isElement(from) ? dirtyFlagsIn(from) : null
 	const flagged = isElement(from) ? flagDirtyInputs(from, options.preserveChanges ? to : null) : null
 	const keySelect = isElement(from) && isSelectElement(from) ? from : select
+	nesting++
 	try {
 		const morpher = new Morph(options, clobbered, flagged, keySelect)
 		if (select) morpher.setEnclosingSelect(select, selectionOf(select))
 		morph(morpher)
 	} finally {
+		nesting--
 		if (flagged) clearDirtyFlags(flagged)
+		if (outerFlags) {
+			for (const element of outerFlags) setAttribute(element, DIRTY_ATTRIBUTE, "")
+		}
 	}
+}
+
+function dirtyFlagsIn(element: Element): Array<Element> {
+	const flags = [...querySelectorAll(element, `[${DIRTY_ATTRIBUTE}]`)]
+	if (hasAttribute(element, DIRTY_ATTRIBUTE)) flags.push(element)
+	return flags
 }
 
 // Remove `morphlex-clobber` from the target so it never reaches the live DOM,
@@ -1390,15 +1405,9 @@ class Morph {
 	#morphOneToOne(from: ChildNode, to: ChildNode): void {
 		// Fast path: if nodes are exactly the same object, skip morphing
 		if (from === to) return
-		if (this.#isEqual(from, to)) return
+		if (isEqualNode(from, to)) return
 
 		this.#visitNode(from, to, isElement(from) && isElement(to) && canMorphElementInPlace(from, to))
-	}
-
-	// A nested morph from a callback can clear the `morphlex-dirty` flags, so an element holding the user's changes is
-	// never equal to its target, even when its flags are gone.
-	#isEqual(from: ChildNode, to: ChildNode): boolean {
-		return !this.#dirtyElements?.has(from as Element) && isEqualNode(from, to)
 	}
 
 	// Morph an element in place when it can be, update another node's text, or replace the node.
@@ -2373,7 +2382,7 @@ class Morph {
 				if (operation === Operation.EqualNode) {
 				} else if (operation === Operation.SameElement) {
 					// Elements matched by id skip the isEqualNode pass, so check here before visiting them.
-					if (this.#isEqual(match, node)) {
+					if (isEqualNode(match, node)) {
 					} else {
 						this.#visitNode(match, node, hasSameIs(match as Element, node as Element))
 					}

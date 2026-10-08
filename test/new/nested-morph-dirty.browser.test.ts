@@ -60,3 +60,38 @@ test("the outer morph resets an input whose flag a nested morph cleared before t
 
 	expect(input.value).toBe("a")
 })
+
+test("the outer morph resets an input that a nested morph moved into a new wrapper", () => {
+	const host = document.createElement("div")
+	host.innerHTML = `<form><input id="i" value="a"></form>`
+	const form = host.firstElementChild!
+	const input = form.querySelector("input")!
+	input.value = "typed"
+
+	morph(form, `<form><div><input id="i" value="a"></div></form>`, {
+		beforeNodeVisited(node) {
+			if (node === form) morphInner(form, `<form><div><input id="i" value="a"></div></form>`, { preserveChanges: true })
+			return true
+		},
+	})
+
+	expect(form.querySelector("div > input")).toBe(input)
+	expect(input.value).toBe("a")
+})
+
+test("the outer morph resets an input that a nested morph was rooted at", () => {
+	const host = document.createElement("div")
+	host.innerHTML = `<form><input id="i" value="a"></form>`
+	const form = host.firstElementChild!
+	const input = form.querySelector("input")!
+	input.value = "typed"
+
+	morph(form, `<form><input id="i" value="a"></form>`, {
+		beforeChildrenVisited(node) {
+			if (node === form) morph(input, `<input id="i" value="a">`, { preserveChanges: true })
+			return true
+		},
+	})
+
+	expect(input.value).toBe("a")
+})
