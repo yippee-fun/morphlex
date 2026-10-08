@@ -51,7 +51,7 @@ morphDocument(document, await response.text())
 ```
 
 - **`morph(from, to, options?)`** morphs `from` into `to`. The target can be a node, a `NodeList` or a string. If it has several nodes, the first is morphed into `from` and the rest are inserted after it. If it has none, `from` is removed. A string is parsed where `from` is, as `innerHTML` on its parent would parse it: a string for an `<html>`, `<head>` or `<body>` is parsed as a document, and one for an element inside SVG or MathML is parsed in that namespace.
-- **`morphInner(from, to, options?)`** morphs the children of `from` into the children of `to`, leaving the attributes of `from` alone. Both must be elements with the same tag name and namespace. A string target must contain exactly one element.
+- **`morphInner(from, to, options?)`** morphs the children of `from` into the children of `to`, leaving the attributes of `from` alone. Both must be elements with the same tag name and namespace. A string target must contain exactly one element. `from` can also be a shadow root, in which case `to` is a `DocumentFragment` (or another shadow root) whose children it takes, or a string of its content, like `shadowRoot.innerHTML`.
 - **`morphDocument(from, to, options?)`** morphs the `<html>` element of one document into another. A string target is parsed with `DOMParser`.
 
 Morphlex throws if it needs to replace or insert next to a node that has no parent, for example when morphing a detached `<div>` into a `<span>`.

@@ -193,9 +193,10 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 /**
  * Morph the inner content of one ChildNode to the inner content of another.
  * If the `to` node is a string, it will be parsed where `from` is, as with `morph`.
+ * A shadow root is morphed to the children of a fragment (or another shadow root), or to a string of its content.
  *
- * @param from The source node to morph from.
- * @param to The target node, node list or string to morph to.
+ * @param from The source element or shadow root to morph from.
+ * @param to The target element, fragment or string to morph to.
  * @example
  * ```ts
  * morphInner(originalDom, newDom)
@@ -207,9 +208,21 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
  * `onclick`) and resource-loading attributes (e.g. `src`, `href`) take effect once
  * the nodes are adopted. Do not pass untrusted HTML; sanitize it first.
  */
-export function morphInner(from: ChildNode, to: ChildNode | string, options: Options = {}): void {
+export function morphInner(from: ChildNode | ShadowRoot, to: ChildNode | DocumentFragment | string, options: Options = {}): void {
+	if (nodeTypeOf(from) === DOCUMENT_FRAGMENT_NODE_TYPE) {
+		const root = from as ShadowRoot
+		if (typeof to === "string") to = parseFragment(to)
+		if (nodeTypeOf(to) !== DOCUMENT_FRAGMENT_NODE_TYPE) {
+			throw new Error("[Morphlex] You can only do an inner morph of a shadow root with a fragment or a string.")
+		}
+		const fragment = to as DocumentFragment
+		const targets = fragment.childNodes
+		run(root, targets, takeClobbered(targets), options, (morpher) => morpher.morphChildren(root, fragment))
+		return
+	}
+
 	if (typeof to === "string") {
-		const parsed = parseTarget(from, to)
+		const parsed = parseTarget(from as ChildNode, to)
 
 		if (!isNodeList(parsed)) {
 			to = parsed
@@ -243,7 +256,7 @@ const runningFlags: Array<Array<Element>> = []
 // run the morph. A root select's options are keyed by the live select, even if the target renames it and the
 // rename is vetoed. A morph run from a callback puts back the flags of the morphs around it that it cleared.
 function run(
-	from: ChildNode,
+	from: ChildNode | ShadowRoot,
 	to: ChildNode | NodeListOf<ChildNode>,
 	clobbered: Set<Element> | null,
 	options: Options,
@@ -254,7 +267,7 @@ function run(
 	const flagged: Array<Element> = []
 	runningFlags.push(flagged)
 	try {
-		if (isElement(from)) flagDirtyInputs(from, options.preserveChanges ? to : null, flagged)
+		if (isParentNode(from)) flagDirtyInputs(from, options.preserveChanges ? to : null, flagged)
 		const keySelect = isElement(from) && isSelectElement(from) ? from : select
 		const morpher = new Morph(options, clobbered, flagged, keySelect)
 		if (select) morpher.setEnclosingSelect(select, selectionOf(select))
@@ -302,13 +315,15 @@ function stripMarkerAttributes(element: Element): boolean {
 // With `preserveChanges`, the target is given, and the `details` and `dialog` elements are flagged too when some are open
 // and others closed, here or in the target, since an element's open state is the user's, and there's no default to
 // tell whether they changed it. When they're all open or all closed, matching one to any other keeps what it shows.
-function flagDirtyInputs(node: Element, to: ChildNode | NodeListOf<ChildNode> | null, flagged: Array<Element>): void {
+function flagDirtyInputs(node: ParentNode, to: ChildNode | NodeListOf<ChildNode> | null, flagged: Array<Element>): void {
 	let defaultOptions: DefaultOptionMap | null = null
 	const openStateElements: Array<Element> = []
 
 	// The selector also matches elements with these names in other namespaces, like SVG.
 	const selector = to ? "input, option, textarea, details, dialog" : "input, option, textarea"
-	for (const element of [node, ...querySelectorAll(node, selector)]) {
+	const elements = [...querySelectorAll(node, selector)]
+	if (isElement(node)) elements.unshift(node)
+	for (const element of elements) {
 		let dirty = false
 		if (hasOpenState(element)) {
 			openStateElements.push(element)
@@ -542,11 +557,11 @@ function selectOf(node: Node): HTMLSelectElement | null {
 // What the markup selects in the single select each option belongs to, or undefined for an option of a multiple
 // select, taken from the browser's own option lists. These leave out options the select doesn't own, such as those
 // inside a datalist or a nested optgroup.
-function defaultOptionsOf(node: Element): DefaultOptionMap {
+function defaultOptionsOf(node: ParentNode): DefaultOptionMap {
 	const defaultOptions: DefaultOptionMap = new Map()
 	const enclosing = selectOf(node)
 	if (enclosing) addDefaultOptions(defaultOptions, enclosing)
-	if (isSelectElement(node)) addDefaultOptions(defaultOptions, node)
+	if (isElement(node) && isSelectElement(node)) addDefaultOptions(defaultOptions, node)
 
 	for (const select of querySelectorAll(node, "select")) {
 		if (isSelectElement(select)) addDefaultOptions(defaultOptions, select)
@@ -923,7 +938,7 @@ class Siblings {
 		return shape
 	}
 
-	constructor(from: Element, to: Element, ignoresOpen: boolean) {
+	constructor(from: ParentNode, to: ParentNode, ignoresOpen: boolean) {
 		this.#ignoresOpen = ignoresOpen
 		this.from = nodeListToArray(childNodesOf(from))
 		this.to = nodeListToArray(childNodesOf(to))
@@ -1142,7 +1157,7 @@ class Morph {
 	// The live form a target's control past the target's roots ends up in, and an inner morph's target, which
 	// stands for the live root rather than a form of its own.
 	#keyForm: HTMLFormElement | null = null
-	#innerTarget: Element | null = null
+	#innerTarget: Node | null = null
 	// Nodes whose visit or children's visit was vetoed, and controls with a vetoed attribute update.
 	#vetoedNodes: Array<Node> | null = null
 	#vetoedControls: Set<Element> | null = null
@@ -1266,7 +1281,7 @@ class Morph {
 		this.#finish()
 	}
 
-	morphChildren(from: Element, to: Element): void {
+	morphChildren(from: Element | ShadowRoot, to: Element | DocumentFragment): void {
 		this.#root = from
 		this.#focusHolders = focusHoldersIn(from)
 		this.#scope = from
@@ -1275,8 +1290,9 @@ class Morph {
 		this.#targetRoots.add(to)
 		this.#mapIdSets(from)
 		this.#mapIdArrays(to, false)
-		if (this.#targetOpensDetails) closeLaterOpenDetails(childrenOf(to))
-		this.visitChildNodes(from, to)
+		if (this.#targetOpensDetails) closeLaterOpenDetails(childNodesOf(to))
+		if (isElement(from)) this.visitChildNodes(from, to as Element)
+		else this.#visitShadowRootChildNodes(from, to as DocumentFragment)
 		this.#finish()
 	}
 
@@ -1672,6 +1688,32 @@ class Morph {
 		// pairing to the loosest, and the remaining candidates are removed before the targets are placed.
 		// Placing the children moves the target's text into a textarea, so its text is read first.
 		const textAreaText = isTextAreaElement(from) ? textContentOf(to) : null
+		this.#morphChildNodes(from, to)
+
+		// Changing a textarea's text updates its default value, which the browser copies to `.value` until the user
+		// changes it, so the browser decides whether the user changed it. Text that still differs from the target's
+		// means a callback vetoed the update, so the value is left alone too.
+		if (isTextAreaElement(from) && textContentOf(from) === textAreaText) this.#resetTextArea(from)
+		// Sync the select before a root settles, which syncs it again, so nothing changes it after its callbacks.
+		if (isSelectElement(from)) this.#syncDefaultSelection(from)
+		this.#settleIfRoot(from)
+
+		this.#options.afterChildrenVisited?.(from)
+	}
+
+	// A shadow root's children are visited like an element's, without what's special to some elements.
+	#visitShadowRootChildNodes(from: ShadowRoot, to: DocumentFragment): void {
+		if (this.#options.beforeChildrenVisited?.(from) ?? true) {
+			this.#morphChildNodes(from, to)
+			this.#settleIfRoot(from)
+			this.#options.afterChildrenVisited?.(from)
+		} else {
+			this.#pinSubtree(from)
+			this.#settleIfRoot(from)
+		}
+	}
+
+	#morphChildNodes(from: ParentNode, to: ParentNode): void {
 		const text = onlyTextChildOf(from)
 		const targetText = text && onlyTextChildOf(to)
 		if (text && targetText && isWhitespaceTextNode(text) === isWhitespaceTextNode(targetText)) {
@@ -1700,16 +1742,6 @@ class Morph {
 			}
 			this.#placeChildren(from, siblings)
 		}
-
-		// Changing a textarea's text updates its default value, which the browser copies to `.value` until the user
-		// changes it, so the browser decides whether the user changed it. Text that still differs from the target's
-		// means a callback vetoed the update, so the value is left alone too.
-		if (isTextAreaElement(from) && textContentOf(from) === textAreaText) this.#resetTextArea(from)
-		// Sync the select before a root settles, which syncs it again, so nothing changes it after its callbacks.
-		if (isSelectElement(from)) this.#syncDefaultSelection(from)
-		this.#settleIfRoot(from)
-
-		this.#options.afterChildrenVisited?.(from)
 	}
 
 	// Match elements by isEqualNode. With many siblings, bucket the candidates rather than comparing every pair. An
@@ -1901,7 +1933,7 @@ class Morph {
 	}
 
 	// A target whose live element is elsewhere is left for #addNode to claim, so no other candidate takes its id.
-	#leaveClaimedTargets(siblings: Siblings, parent: Element): void {
+	#leaveClaimedTargets(siblings: Siblings, parent: ParentNode): void {
 		const { to, unmatchedElements, unmatchedActive } = siblings
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
@@ -2339,7 +2371,7 @@ class Morph {
 
 	// Put the target's children in order, moving the matched candidates that aren't already in order, morphing
 	// each into its target and adding the targets nothing matched.
-	#placeChildren(parent: Element, siblings: Siblings): void {
+	#placeChildren(parent: ParentNode, siblings: Siblings): void {
 		const { from, to, matches, op } = siblings
 
 		// The nodes in the longest increasing subsequence of matches don't need to move.
@@ -2483,7 +2515,7 @@ class Morph {
 	// Without `moveBefore`, moving the focused element loses focus. So keep only the matches in order with the child
 	// holding it, so the longest increasing subsequence includes that child and its siblings move around it, even when
 	// that moves more of them. `moveBefore` keeps focus, so there the fewest nodes move.
-	#pinFocused(parent: Element, siblings: Siblings): Array<number | undefined> {
+	#pinFocused(parent: ParentNode, siblings: Siblings): Array<number | undefined> {
 		const { from, matches } = siblings
 		const holders = this.#focusHolders
 		/* v8 ignore start -- only browsers without moveBefore pin the focused child */
@@ -3584,8 +3616,8 @@ function bucketByTextContent(nodes: Array<ChildNode>, indices: Array<number>): M
 }
 
 // The element's child when it's a single text node.
-function onlyTextChildOf(element: Element): ChildNode | null {
-	const child = firstChildOf(element)
+function onlyTextChildOf(parent: ParentNode): ChildNode | null {
+	const child = firstChildOf(parent)
 	return child && nodeTypeOf(child) === TEXT_NODE_TYPE && !nextSiblingOf(child) ? child : null
 }
 
@@ -4029,7 +4061,6 @@ const localNameOf = getter(() => Element.prototype, "localName")
 const namespaceURIOf = getter(() => Element.prototype, "namespaceURI")
 const prefixOf = getter(() => Element.prototype, "prefix")
 const attributesOf = getter(() => Element.prototype, "attributes")
-const childrenOf = getter(() => Element.prototype, "children")
 const firstElementChildOf = getter(() => Element.prototype, "firstElementChild")
 const nextElementSiblingOf = getter(() => Element.prototype, "nextElementSibling")
 const documentElementOf = getter(() => Document.prototype, "documentElement")
