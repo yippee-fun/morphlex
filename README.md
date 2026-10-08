@@ -110,6 +110,27 @@ When a node can’t be morphed in place and has to be replaced, `beforeNodeRemov
 
 An element with a unique id can move to a new parent during a morph (except `<option>` and `<optgroup>` elements, whose selection belongs to their `<select>`), and it moves once the rest of the morph is done. Until then, callbacks for other nodes, including `afterNodeAdded`, may see an empty comment where the element will go, or the element still in its old place. The after callbacks for the node you passed to `morph` see the finished DOM.
 
+## Scripts
+
+A `<script>` in new content doesn’t run when Morphlex inserts it, just as it wouldn’t with `innerHTML`. Browsers never run a script parsed from a string, a `<template>` or `DOMParser`, so this applies to string targets and to most node targets. A script that is morphed into an existing `<script>` doesn’t run again either, even when its content changes.
+
+To run new scripts, replace each one with a fresh copy in `afterNodeAdded`:
+
+```javascript
+function runScripts(node) {
+  if (!(node instanceof Element)) return
+  const scripts = node.matches("script") ? [node] : node.querySelectorAll("script")
+  for (const inert of scripts) {
+    const script = document.createElement("script")
+    for (const { name, value } of inert.attributes) script.setAttribute(name, value)
+    script.textContent = inert.textContent
+    inert.replaceWith(script)
+  }
+}
+
+morph(currentNode, newHTML, { afterNodeAdded: runScripts })
+```
+
 ## Preserving changes
 
 Form controls have two sides: the content attribute in the markup (`value`, `checked`, `selected`, or the text inside a `<textarea>`), and the live property the user edits. Morphlex always updates the attributes to match the new markup. What happens to the live properties depends on `preserveChanges`.
