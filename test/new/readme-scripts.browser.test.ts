@@ -1,19 +1,20 @@
 import { expect, test } from "vitest"
-import { morphInner } from "../../src/morphlex"
+import { morph, morphInner, type Options } from "../../src/morphlex"
 
-// The example from the README’s “Scripts” section.
-function morphInnerRunningScripts(container: Element, html: string) {
+// The example from the README’s “Scripts” section, around any morph.
+function runningScripts(morphWith: (options: Options) => void) {
 	const scripts: Element[] = []
 
-	morphInner(container, html, {
+	morphWith({
 		afterNodeAdded(node) {
 			if (!(node instanceof Element)) return
 			scripts.push(...(node.matches("script") ? [node] : node.querySelectorAll("script")))
 		},
 	})
 
+	scripts.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+
 	for (const inert of scripts) {
-		if (!inert.isConnected) continue
 		const script = document.createElement("script")
 		for (const { name, value } of inert.attributes) script.setAttribute(name, value)
 		script.nonce = (inert as HTMLScriptElement).nonce
@@ -21,6 +22,10 @@ function morphInnerRunningScripts(container: Element, html: string) {
 		script.textContent = inert.textContent
 		inert.replaceWith(script)
 	}
+}
+
+function morphInnerRunningScripts(container: Element, html: string) {
+	runningScripts((options) => morphInner(container, html, options))
 }
 
 function setup() {
@@ -84,5 +89,16 @@ test("the README example keeps the nonce and runs scripts in order", () => {
 	expect(first.nonce).toBe("abc")
 	expect(first.async).toBe(false)
 	expect(second.async).toBe(true)
+	container.remove()
+})
+
+test("the README example runs scripts in document order", () => {
+	const { ran, container } = setup()
+
+	runningScripts((options) =>
+		morph(container.firstChild!, `<script>ran.push("first")</script><script>ran.push("second")</script>`, options),
+	)
+
+	expect(ran).toEqual(["first", "second"])
 	container.remove()
 })

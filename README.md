@@ -114,7 +114,7 @@ An element with a unique id can move to a new parent during a morph (except `<op
 
 A `<script>` in new content doesn’t run when Morphlex inserts it, just as it wouldn’t with `innerHTML`. Browsers never run a script parsed from a string, a `<template>` or `DOMParser`, so this applies to string targets and to most node targets. A script that is morphed into an existing `<script>` doesn’t run again either, even when its content changes.
 
-To run new scripts, collect them in `afterNodeAdded` and replace each one with a fresh copy once the morph is done, so they see the finished DOM:
+To run new scripts, collect them in `afterNodeAdded`, then once the morph is done, replace each one with a fresh copy in document order, so they see the finished DOM:
 
 ```javascript
 const scripts = []
@@ -126,8 +126,9 @@ morph(currentNode, newHTML, {
   },
 })
 
+scripts.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+
 for (const inert of scripts) {
-  if (!inert.isConnected) continue
   const script = document.createElement("script")
   for (const { name, value } of inert.attributes) script.setAttribute(name, value)
   script.nonce = inert.nonce
