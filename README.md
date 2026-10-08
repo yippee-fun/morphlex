@@ -186,7 +186,7 @@ When morphing the children of an element, Morphlex pairs each new child with an 
 4. An element that contains one of the same `id`s somewhere inside it.
 5. With `preserveChanges`, a checkbox, radio or option the user changed is paired with one making the same choice, such as the same name and value in the same form, and an element such as a `<label>` holding one is paired with an element holding the same choice. This keeps the user’s pick in place when items are added or reordered around it.
 6. An element with the same non-empty `name`, `href` or `src` attribute.
-7. Any element with the same tag name, as long as neither element has an `id` or a non-empty `name`, and neither is a form control. Ids inside the elements don’t count, so a wrapper without its own identity still pairs by position, and an `href` or `src` doesn’t either, so a link, image or iframe whose address changes is updated in place.
+7. Any element with the same tag name, as long as neither element has an `id` or a non-empty `name`, and neither is a form control. Ids inside the elements don’t count, so a wrapper without its own identity still pairs by position, and an `href` or `src` doesn’t either, so a link, image or iframe whose address changes is updated in place. A `<script>` with a `src` still isn’t paired by tag, since it wouldn’t run again.
 
 When a new child’s unique `id` belongs to a live element under another parent that can be morphed into it, the new child isn’t paired here. That element moves to the new child’s place instead (see [Options](#options)).
 

@@ -76,3 +76,13 @@ test("a form control with a changed src is still replaced", () => {
 		removed: 1,
 	})
 })
+
+test("a script whose src changes is still replaced, so the new script can be run", () => {
+	expect(
+		morphChildren(`<script src="data:text/javascript,0"></script>`, `<script src="data:text/javascript,1"></script>`),
+	).toEqual({
+		original: [-1],
+		added: 1,
+		removed: 1,
+	})
+})
