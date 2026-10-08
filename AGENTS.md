@@ -73,3 +73,7 @@ Whitespace text nodes are only ever matched with whitespace. The live whitespace
 ### Reading members of forms and documents
 
 A form's fields shadow its members, so `<input name="parentNode">` makes `form.parentNode` the input, and a named image does the same to its document. So members of a node that can be a form or a document (anything typed as `Node`, `ChildNode`, `ParentNode`, `Element` or `Document`) are read through the helpers at the end of `src/morphlex.ts`, like `parentNodeOf(node)` and `getAttribute(element, name)`, which call the member on the prototype that defines it. An element narrowed to an input, an option, a select and the like, or a text node, is read directly.
+
+### Shadow roots as the inner morph root
+
+`morphInner` takes a shadow root as `from`. It has no tag to match, so its target is the content itself: a `DocumentFragment` or another shadow root, whose children it takes, or a string parsed as a fragment, as `shadowRoot.innerHTML` would. An element target throws. Its children are flagged and matched like an element's through `#morphChildNodes`, without what's special to templates, selects and textareas. Nothing around it counts, since forms and selects don't reach across the shadow boundary.
