@@ -1565,19 +1565,23 @@ class Morph {
 		// so addresses are updated last, after the other attributes are added, changed and removed.
 		const toAttributes = attributesOf(to)
 		let addresses: Array<Attr> | null = null
+		// Whether the element already had every attribute of the target, with the same values.
+		let unchanged = true
 		for (let i = 0; i < toAttributes.length; i++) {
 			const attribute = toAttributes[i]!
 			if (attribute.namespaceURI === null && ADDRESS_ATTRIBUTES.has(attribute.name)) {
 				// An iframe's `srcdoc` takes precedence over its `src`, so it goes first.
 				if (attribute.name === "srcdoc") (addresses ??= []).unshift(attribute)
 				else (addresses ??= []).push(attribute)
-			} else {
-				this.#updateAttribute(from, attribute, keepsOpen, details)
+				if (getAttributeNS(from, null, attribute.name) !== attribute.value) unchanged = false
+			} else if (!this.#updateAttribute(from, attribute, keepsOpen, details)) {
+				unchanged = false
 			}
 		}
 
-		// Second pass: remove excess attributes. Check for any first, to avoid copying the attribute list.
-		if (hasExcessAttributes(from, to)) {
+		// Second pass: remove excess attributes. Check for any first, to avoid copying the attribute list. An element that
+		// had every attribute of the target, and no more of them, has none.
+		if (!(unchanged && attributesOf(from).length === toAttributes.length) && hasExcessAttributes(from, to)) {
 			for (const { name, localName, value, namespaceURI } of Array.from(attributesOf(from))) {
 				if (!hasAttributeNS(to, namespaceURI, localName)) {
 					if (keepsOpen && name === "open" && namespaceURI === null) continue
@@ -1612,14 +1616,15 @@ class Morph {
 		}
 	}
 
-	// Add the attribute, or update its value, asking the callbacks first.
-	#updateAttribute(from: Element, attribute: Attr, keepsOpen: boolean, details: boolean): void {
+	// Add the attribute, or update its value, asking the callbacks first. Returns whether the element already had it,
+	// with the same value.
+	#updateAttribute(from: Element, attribute: Attr, keepsOpen: boolean, details: boolean): boolean {
 		const { name, localName, value, namespaceURI } = attribute
 		// Adding `open` would open it, but changing the value of an existing one is fine.
-		if (keepsOpen && name === "open" && namespaceURI === null && !hasAttributeNS(from, null, "open")) return
+		if (keepsOpen && name === "open" && namespaceURI === null && !hasAttributeNS(from, null, "open")) return false
 		const oldValue = getAttributeNS(from, namespaceURI, localName)
 
-		if (oldValue === value) return
+		if (oldValue === value) return true
 		if (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true) {
 			// Go through `Attr` nodes, because `setAttribute` rejects names the parser accepts, like `@click`.
 			// Look the attribute up after the callback, which may have removed or replaced it.
@@ -1641,6 +1646,7 @@ class Morph {
 		} else {
 			this.#noteVetoedAttribute(from, name, namespaceURI)
 		}
+		return false
 	}
 
 	// Note the `open` value the morph means an accordion item to have, whatever the browser does to it:
@@ -1799,6 +1805,12 @@ class Morph {
 			// Text that's the only child on both sides would be matched with the other text and stay where it is, so
 			// it's morphed straight away.
 			this.#morphOneToOne(text, targetText)
+		} else if (this.#isOnlyKindChild(from, to)) {
+			// An element without its own identity that's the only child on both sides would be matched by kind and stay
+			// where it is, so it's visited straight away.
+			const child = firstChildOf(from) as Element
+			const targetChild = firstChildOf(to) as Element
+			if (!isEqualNode(child, targetChild)) this.#visitNode(child, targetChild, hasSameIs(child, targetChild))
 		} else {
 			const siblings = new Siblings(from, to, this.#preserveChanges)
 			this.#matchEqualElements(siblings)
@@ -1826,6 +1838,23 @@ class Morph {
 			}
 			this.#placeChildren(from, siblings, kept)
 		}
+	}
+
+	// Whether each side's only child is an element of the same kind that only the kind pass can match, with no changes
+	// of the user's anywhere in the morph, which the other passes rank by.
+	#isOnlyKindChild(from: ParentNode, to: ParentNode): boolean {
+		if (this.#dirtyElements) return false
+		const child = onlyChildOf(from)
+		const targetChild = child && onlyChildOf(to)
+		return (
+			!!targetChild &&
+			isElement(child!) &&
+			isElement(targetChild) &&
+			localNameOf(child) === localNameOf(targetChild) &&
+			namespaceURIOf(child) === namespaceURIOf(targetChild) &&
+			canSoftMatchByTagName(child) &&
+			canSoftMatchByTagName(targetChild)
+		)
 	}
 
 	// Match elements by isEqualNode. With many siblings, bucket the candidates rather than comparing every pair. An
@@ -3738,6 +3767,12 @@ function bucketByTextContent(nodes: Array<ChildNode>, indices: Array<number>): M
 		addToBucket(buckets, text, index)
 	}
 	return buckets
+}
+
+// The node's child when it has just one.
+function onlyChildOf(parent: ParentNode): ChildNode | null {
+	const child = firstChildOf(parent)
+	return child && !nextSiblingOf(child) ? child : null
 }
 
 // The element's child when it's a single text node.
