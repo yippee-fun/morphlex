@@ -38,6 +38,8 @@ const CHOICE_PASSES = [
 
 const STYLING_ATTRIBUTES = ["class", "style"]
 const OPEN_ATTRIBUTE = ["open"]
+// Attributes that load what they point to as soon as they change.
+const ADDRESS_ATTRIBUTES = new Set(["src", "href", "srcdoc"])
 
 const Operation = {
 	EqualNode: 0,
@@ -1508,36 +1510,17 @@ class Morph {
 		// The user toggles `open` on these elements, so with `preserveChanges` it's neither added nor removed.
 		const keepsOpen = this.#preserveChanges && hasOpenState(from)
 
-		// First pass: update/add attributes from reference (iterate forwards)
+		// First pass: update/add attributes from reference (iterate forwards). An address loads as soon as it
+		// changes, with the attributes the element has then, like an iframe's `sandbox` or a link's `integrity`,
+		// so addresses are updated last, after the other attributes are added, changed and removed.
 		const toAttributes = attributesOf(to)
+		let addresses: Array<Attr> | null = null
 		for (let i = 0; i < toAttributes.length; i++) {
 			const attribute = toAttributes[i]!
-			const { name, localName, value, namespaceURI } = attribute
-			// Adding `open` would open it, but changing the value of an existing one is fine.
-			if (keepsOpen && name === "open" && namespaceURI === null && !hasAttributeNS(from, null, "open")) continue
-			const oldValue = getAttributeNS(from, namespaceURI, localName)
-
-			if (oldValue === value) continue
-			if (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true) {
-				// Go through `Attr` nodes, because `setAttribute` rejects names the parser accepts, like `@click`.
-				// Look the attribute up after the callback, which may have removed or replaced it.
-				const radios = namespaceURI ? null : this.#uncheckRadiosForAttribute(from, name, value)
-				// Checking a radio unchecks the rest of its group, which gets its check back if the radio then leaves.
-				const group =
-					name === "checked" && namespaceURI === null && isRadio(from) && !from.checked ? checkedRadiosInGroup(from) : null
-				const existing = getAttributeNodeNS(from, namespaceURI, localName)
-				if (existing) {
-					existing.value = value
-				} else if (details && name === "open" && namespaceURI === null) {
-					this.#openDetailsItem(from, value)
-				} else {
-					setAttributeNodeNS(from, attribute.cloneNode() as Attr)
-				}
-				this.#checkRadios(radios)
-				if (group) this.#noteDisplacedRadios(group, from as HTMLInputElement)
-				this.#options.afterAttributeUpdated?.(from, name, oldValue)
+			if (attribute.namespaceURI === null && ADDRESS_ATTRIBUTES.has(attribute.name)) {
+				;(addresses ??= []).push(attribute)
 			} else {
-				this.#noteVetoedAttribute(from, name, namespaceURI)
+				this.#updateAttribute(from, attribute, keepsOpen, details)
 			}
 		}
 
@@ -1566,10 +1549,45 @@ class Morph {
 			}
 		}
 
+		if (addresses) {
+			for (const attribute of addresses) this.#updateAttribute(from, attribute, keepsOpen, details)
+		}
+
 		if (details) this.#noteIntendedOpen(from, to, open)
 
 		if (!this.#preserveChanges) {
 			this.#resetFormProperties(from, to)
+		}
+	}
+
+	// Add the attribute, or update its value, asking the callbacks first.
+	#updateAttribute(from: Element, attribute: Attr, keepsOpen: boolean, details: boolean): void {
+		const { name, localName, value, namespaceURI } = attribute
+		// Adding `open` would open it, but changing the value of an existing one is fine.
+		if (keepsOpen && name === "open" && namespaceURI === null && !hasAttributeNS(from, null, "open")) return
+		const oldValue = getAttributeNS(from, namespaceURI, localName)
+
+		if (oldValue === value) return
+		if (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true) {
+			// Go through `Attr` nodes, because `setAttribute` rejects names the parser accepts, like `@click`.
+			// Look the attribute up after the callback, which may have removed or replaced it.
+			const radios = namespaceURI ? null : this.#uncheckRadiosForAttribute(from, name, value)
+			// Checking a radio unchecks the rest of its group, which gets its check back if the radio then leaves.
+			const group =
+				name === "checked" && namespaceURI === null && isRadio(from) && !from.checked ? checkedRadiosInGroup(from) : null
+			const existing = getAttributeNodeNS(from, namespaceURI, localName)
+			if (existing) {
+				existing.value = value
+			} else if (details && name === "open" && namespaceURI === null) {
+				this.#openDetailsItem(from, value)
+			} else {
+				setAttributeNodeNS(from, attribute.cloneNode() as Attr)
+			}
+			this.#checkRadios(radios)
+			if (group) this.#noteDisplacedRadios(group, from as HTMLInputElement)
+			this.#options.afterAttributeUpdated?.(from, name, oldValue)
+		} else {
+			this.#noteVetoedAttribute(from, name, namespaceURI)
 		}
 	}
 
@@ -3903,13 +3921,14 @@ function canMorphElementInPlace(from: Element, to: Element): boolean {
 
 // Only an element's own identity counts, so a wrapper holding an id'd element still matches by its tag. An `href` or
 // `src` pairs elements sharing it first, but doesn't stop one matching by its tag, so a link or an iframe whose
-// address changes is updated in place. A script doesn't run again when its `src` changes, so it's still replaced.
+// address changes is updated in place. A script doesn't run again when its `src` (or an SVG script's `href`)
+// changes, so it's still replaced.
 function canSoftMatchByTagName(element: Element): boolean {
 	return (
 		idOf(element) === "" &&
 		!isFormControl(element) &&
 		!getAttribute(element, "name") &&
-		!(localNameOf(element) === "script" && getAttribute(element, "src"))
+		!(localNameOf(element) === "script" && (getAttribute(element, "src") || getAttribute(element, "href")))
 	)
 }
 

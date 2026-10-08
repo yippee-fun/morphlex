@@ -86,3 +86,47 @@ test("a script whose src changes is still replaced, so the new script can be run
 		removed: 1,
 	})
 })
+
+test("an SVG script whose href changes is still replaced", () => {
+	const from = document.createElement("div")
+	from.innerHTML = `<svg><script href="data:text/javascript,0"></script></svg>`
+	const script = from.querySelector("script")
+	const to = document.createElement("div")
+	to.innerHTML = `<svg><script href="data:text/javascript,1"></script></svg>`
+	const expected = to.innerHTML
+
+	morph(from, to)
+
+	expect(from.querySelector("script")).not.toBe(script)
+	expect(from.innerHTML).toBe(expected)
+})
+
+// The order the attributes of the element were updated in.
+function attributeUpdates(fromHTML: string, toHTML: string): Array<string> {
+	const from = document.createElement("div")
+	from.innerHTML = fromHTML
+	const to = document.createElement("div")
+	to.innerHTML = toHTML
+	const updates: Array<string> = []
+
+	morph(from, to, { afterAttributeUpdated: (_element, name) => updates.push(name) })
+
+	expect(from.innerHTML).toBe(to.innerHTML)
+	return updates
+}
+
+test("an iframe's src changes after its sandbox, so the new page loads sandboxed", () => {
+	expect(attributeUpdates(`<iframe src="about:blank#a"></iframe>`, `<iframe src="about:blank#b" sandbox=""></iframe>`)).toEqual([
+		"sandbox",
+		"src",
+	])
+})
+
+test("a link's href changes after its integrity is updated or removed", () => {
+	expect(
+		attributeUpdates(
+			`<link rel="stylesheet" href="data:text/css,a" integrity="sha256-a" crossorigin="">`,
+			`<link rel="stylesheet" href="data:text/css,b" integrity="sha256-b">`,
+		),
+	).toEqual(["integrity", "crossorigin", "href"])
+})
