@@ -124,7 +124,7 @@ function runScripts(node) {
     const script = document.createElement("script")
     for (const { name, value } of inert.attributes) script.setAttribute(name, value)
     script.nonce = inert.nonce
-    script.async = inert.async
+    script.async = inert.hasAttribute("async")
     script.textContent = inert.textContent
     inert.replaceWith(script)
   }
@@ -133,7 +133,7 @@ function runScripts(node) {
 morph(currentNode, newHTML, { afterNodeAdded: runScripts })
 ```
 
-Copying `nonce` keeps the script allowed under a nonce-based Content Security Policy, since the browser hides the attribute once the script is in the page. Copying `async` keeps external scripts running in order, but inline scripts still run straight away, so one can run before an external script above it has loaded. Only use this with HTML strings, templates or parsed documents: a script you create with `document.createElement` already runs when it’s inserted, so this would run it twice.
+Copying `nonce` keeps the script allowed under a nonce-based Content Security Policy, since the browser hides the attribute once the script is in the page. Setting `async` from the attribute keeps external scripts running in order, but inline scripts still run straight away, so one can run before an external script above it has loaded. Only use this with HTML strings, templates or parsed documents: a script you create with `document.createElement` already runs when it’s inserted, so this would run it twice.
 
 ## Preserving changes
 

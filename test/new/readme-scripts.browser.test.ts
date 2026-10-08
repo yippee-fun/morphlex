@@ -9,7 +9,7 @@ function runScripts(node: Node) {
 		const script = document.createElement("script")
 		for (const { name, value } of inert.attributes) script.setAttribute(name, value)
 		script.nonce = inert.nonce
-		script.async = inert.async
+		script.async = inert.hasAttribute("async")
 		script.textContent = inert.textContent
 		inert.replaceWith(script)
 	}
