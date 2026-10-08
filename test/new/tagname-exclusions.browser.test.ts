@@ -29,30 +29,6 @@ test("elements with unmatched name attribute are not matched by tag name", () =>
 	expect(a.children[0]!.getAttribute("name")).toBe("new-anchor")
 })
 
-test("elements with unmatched href attribute are not matched by tag name", () => {
-	const a = dom(`<div><a href="/old">old</a></div>`)
-	const b = dom(`<div><a href="/new">new</a></div>`)
-
-	const original = a.children[0]!
-
-	morph(a, b)
-
-	expect(a.children[0]).not.toBe(original)
-	expect(a.children[0]!.getAttribute("href")).toBe("/new")
-})
-
-test("elements with unmatched src attribute are not matched by tag name", () => {
-	const a = dom(`<div><img src="/old.png"></div>`)
-	const b = dom(`<div><img src="/new.png"></div>`)
-
-	const original = a.children[0]!
-
-	morph(a, b)
-
-	expect(a.children[0]).not.toBe(original)
-	expect(a.children[0]!.getAttribute("src")).toBe("/new.png")
-})
-
 test("input elements are not matched by tag name", () => {
 	const a = dom(`<div><input type="text" class="old"></div>`)
 	const b = dom(`<div><input type="text" class="new"></div>`)

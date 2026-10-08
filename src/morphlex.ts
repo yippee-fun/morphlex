@@ -3901,9 +3901,11 @@ function canMorphElementInPlace(from: Element, to: Element): boolean {
 	return true
 }
 
-// Only an element's own identity counts, so a wrapper holding an id'd element still matches by its tag.
+// Only an element's own identity counts, so a wrapper holding an id'd element still matches by its tag. An `href` or
+// `src` pairs elements sharing it first, but doesn't stop one matching by its tag, so a link or an iframe whose
+// address changes is updated in place.
 function canSoftMatchByTagName(element: Element): boolean {
-	return idOf(element) === "" && !isFormControl(element) && !hasMatchKeyAttribute(element)
+	return idOf(element) === "" && !isFormControl(element) && !getAttribute(element, "name")
 }
 
 // Whether the elements have the same non-empty name, href or src.
