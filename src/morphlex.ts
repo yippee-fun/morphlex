@@ -591,10 +591,26 @@ function clearDirtyFlags(elements: Array<Element>): void {
 	}
 }
 
+// HTML elements whose innerHTML is parsed as text, as a page with scripting enabled parses a noscript's.
+const TEXT_PARENTS = new Set([
+	"script",
+	"style",
+	"textarea",
+	"title",
+	"xmp",
+	"iframe",
+	"noembed",
+	"noframes",
+	"noscript",
+	"plaintext",
+])
+
 // A string is parsed where `from` is, as `innerHTML` on its parent would parse it. An `html`, `head` or `body`
-// can't be parsed in a template, so it's taken from a parsed document. Inside SVG or MathML, the string is parsed
-// in an element like the parent (or for a root without one, an `svg` or `math`), so a `circle` isn't an HTML
-// element. Anything else is parsed in a template, which keeps table rows and the like where they are.
+// can't be parsed in a template, so it's taken from a parsed document. Inside a script, a textarea and the like,
+// it's parsed in a new element of the parent's name, which keeps tags as text, so nothing loads. Inside SVG or
+// MathML, the string is parsed in an element like the parent (or for a root without one, an `svg` or `math`), so
+// a `circle` isn't an HTML element. Anything else is parsed in a template, which keeps table rows and the like
+// where they are.
 function parseTarget(from: ChildNode, string: string): ChildNode | NodeListOf<ChildNode> {
 	if (isElement(from) && namespaceURIOf(from) === HTML_NAMESPACE) {
 		const name = localNameOf(from)
@@ -602,6 +618,13 @@ function parseTarget(from: ChildNode, string: string): ChildNode | NodeListOf<Ch
 			const parsed = parseDocument(string)
 			return name === "html" ? documentElementOf(parsed)! : name === "head" ? headOf(parsed) : bodyOf(parsed)
 		}
+	}
+
+	const parent = parentNodeOf(from)
+	if (parent && isElement(parent) && namespaceURIOf(parent) === HTML_NAMESPACE && TEXT_PARENTS.has(localNameOf(parent))) {
+		const element = createElement(document, localNameOf(parent))
+		setHTML(element, string)
+		return element.childNodes
 	}
 
 	return parseFragment(string, foreignContextOf(from)).childNodes
