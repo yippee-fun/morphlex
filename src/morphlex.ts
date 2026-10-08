@@ -3160,6 +3160,8 @@ class Morph {
 		// checked again straight away, since they're the target's own state, not markup the morph resets.
 		const live = isConnected(node)
 		const sourceRadios = live ? this.#uncheckRadiosNamingFormsIn(node, getRootNode(node), true) : null
+		// Before its claimed forms leave it, which takes them out of the radios' sight.
+		const unnamed = live ? unnameRadiosNamingFormsIn(node) : null
 		// A live target can hold the focused element, which its claimed descendants take out of it next.
 		const focus = this.#watchFocus(node, parent)
 		clearImplicitSelection(node, parent)
@@ -3172,7 +3174,6 @@ class Morph {
 				: live
 					? this.#uncheckRadiosInFormsIn(node)
 					: null
-		const unnamed = live ? unnameRadiosNamingFormsIn(node) : null
 		moveInto(parent, node, insertionPoint)
 		restoreNames(unnamed)
 		if (focus) this.#restoreFocus(focus)
