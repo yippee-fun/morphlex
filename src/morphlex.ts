@@ -2767,12 +2767,16 @@ class Morph {
 	#uncheckRadiosNaming(ids: ReadonlySet<string>, root: Node, except: Node | null): Array<HTMLInputElement> | null {
 		let unchecked: Array<HTMLInputElement> | null = null
 		// Only checked inputs matter, which keeps this short on pages with many radios.
-		const inputs = querySelectorAll(root as ParentNode, "input[form]:checked")
+		const inputs = querySelectorAll(root as ParentNode, "input[form]:checked, input[form][checked]")
 		for (let i = 0; i < inputs.length; i++) {
 			const input = inputs[i]!
-			if (isCheckedRadio(input) && ids.has(input.getAttribute("form")!) && !(except && contains(except, input))) {
+			if (!isRadio(input) || !ids.has(input.getAttribute("form")!) || (except && contains(except, input))) continue
+			if (input.checked) {
 				this.#uncheckRadio(input)
 				;(unchecked ??= []).push(input)
+			} else if (this.#defersRadio(input)) {
+				// Another radio of the morph unchecked it in its old group, and the markup decides it in the new one.
+				;(this.#radiosToSync ??= new Set()).add(input)
 			}
 		}
 		return unchecked
