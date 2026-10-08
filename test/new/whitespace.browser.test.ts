@@ -233,22 +233,22 @@ test("a callback that removes the whitespace after a node keeps later nodes afte
 	expect(from.querySelector("#list")!.innerHTML).toBe(`<i id="x"></i><span></span><b></b>`)
 })
 
-test("whitespace stays in front of an element whose removal was vetoed", () => {
+test("an element whose removal was vetoed keeps its place in front of the whitespace", () => {
 	const from = dom(`<div><b></b> </div>`)
 
 	morph(from, dom(`<div> </div>`), {
 		beforeNodeRemoved: (node) => node.nodeName !== "B",
 	})
 
-	expect(from.outerHTML).toBe(`<div> <b></b></div>`)
+	expect(from.outerHTML).toBe(`<div><b></b> </div>`)
 })
 
-test("whitespace stays in front of a movable element whose removal was vetoed", () => {
+test("new nodes go after a movable element whose removal was vetoed", () => {
 	const from = dom(`<div><i id="x"></i> </div>`)
 
 	morph(from, dom(`<div> <b id="x"></b></div>`), {
 		beforeNodeRemoved: (node) => node.nodeName !== "I",
 	})
 
-	expect(from.outerHTML).toBe(`<div> <b id="x"></b><i id="x"></i></div>`)
+	expect(from.outerHTML).toBe(`<div><i id="x"></i> <b id="x"></b></div>`)
 })

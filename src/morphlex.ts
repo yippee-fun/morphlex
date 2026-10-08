@@ -1774,10 +1774,15 @@ class Morph {
 			this.#matchEqualNodes(siblings)
 			this.#matchNodesByType(siblings)
 			this.#orderIdenticalCandidates(siblings)
+			// The candidates still here, and whether a callback vetoed their removal or it waits for the morph to settle.
+			let kept: Map<ChildNode, boolean> | null = null
 			for (let i = 0; i < siblings.from.length; i++) {
-				if (siblings.candidateActive[i]) this.#removeNode(siblings.from[i]!)
+				if (!siblings.candidateActive[i]) continue
+				const candidate = siblings.from[i]!
+				const vetoed = this.#removeNode(candidate)
+				if (parentNodeOf(candidate) === from) (kept ??= new Map()).set(candidate, vetoed)
 			}
-			this.#placeChildren(from, siblings)
+			this.#placeChildren(from, siblings, kept)
 		}
 	}
 
@@ -2408,7 +2413,7 @@ class Morph {
 
 	// Put the target's children in order, moving the matched candidates that aren't already in order, morphing
 	// each into its target and adding the targets nothing matched.
-	#placeChildren(parent: ParentNode, siblings: Siblings): void {
+	#placeChildren(parent: ParentNode, siblings: Siblings, kept: Map<ChildNode, boolean> | null): void {
 		const { from, to, matches, op } = siblings
 
 		// The nodes in the longest increasing subsequence of matches don't need to move.
@@ -2416,6 +2421,17 @@ class Morph {
 		const shouldNotMove: Array<boolean> = new Array(from.length)
 		for (let i = 0; i < lisIndices.length; i++) {
 			shouldNotMove[matches[lisIndices[i]!]!] = true
+		}
+
+		// The matches that move, which go after the kept nodes too, so a kept node never ends up after the nodes placed
+		// in front of one of them.
+		let moving: Set<ChildNode> | null = null
+		if (kept) {
+			moving = new Set()
+			for (let i = 0; i < to.length; i++) {
+				const matchInd = matches[i]
+				if (matchInd !== undefined && !shouldNotMove[matchInd]) moving.add(from[matchInd]!)
+			}
 		}
 
 		// Whitespace stays in place for now, so target whitespace can reuse whatever is at the insertion point.
@@ -2441,7 +2457,12 @@ class Morph {
 
 			const node = to[i]!
 			const matchInd = matches[i]
-			if (insertionPoint && liveWhitespace?.has(insertionPoint) && isWhitespaceTextNode(node)) {
+			const isWhitespace = isWhitespaceTextNode(node)
+			// Target whitespace still reuses the live whitespace where it is.
+			if (kept && !(isWhitespace && insertionPoint && liveWhitespace?.has(insertionPoint))) {
+				insertionPoint = skipKeptNodes(insertionPoint, kept, moving!, liveWhitespace)
+			}
+			if (isWhitespace && insertionPoint && liveWhitespace?.has(insertionPoint)) {
 				const whitespace: ChildNode = insertionPoint
 				liveWhitespace.delete(whitespace)
 				placed.push(whitespace)
@@ -3202,13 +3223,16 @@ class Morph {
 	}
 
 	// A movable element stays put for now, since the target may place it under another parent, until the morph settles.
-	#removeNode(node: ChildNode, settled = false): void {
+	// Returns whether a callback vetoed the removal.
+	#removeNode(node: ChildNode, settled = false): boolean {
 		if (!settled && isElement(node) && this.#movableElement(idOf(node)) === node) {
 			;(this.#unplacedElements ??= []).push(node)
-			return
+			return false
 		}
 
-		if (this.#options.beforeNodeRemoved?.(node) ?? true) this.#removeApprovedNode(node, settled)
+		if (!(this.#options.beforeNodeRemoved?.(node) ?? true)) return true
+		this.#removeApprovedNode(node, settled)
+		return false
 	}
 
 	#removeApprovedNode(node: ChildNode, settled = false): void {
@@ -4259,6 +4283,33 @@ function createComment(document: Document, data: string): Comment {
 
 function getElementsByName(document: Document, name: string): NodeListOf<HTMLElement> {
 	return Document.prototype.getElementsByName.call(document, name)
+}
+
+// New nodes and moved matches go after the nodes whose removal was vetoed, as they go in other morphers, and after the
+// movable elements that may stay when the morph settles. So the insertion point skips the kept nodes in front of it,
+// with the matches that move later and the whitespace among them. The whitespace before a vetoed node stays with it,
+// rather than being removed.
+function skipKeptNodes(
+	insertionPoint: ChildNode | null,
+	kept: Map<ChildNode, boolean>,
+	moving: Set<ChildNode>,
+	liveWhitespace: Set<ChildNode> | null,
+): ChildNode | null {
+	let after = insertionPoint
+	for (let node = insertionPoint; node;) {
+		const next = nextSiblingOf(node)
+		const vetoed = kept.get(node)
+		if (vetoed !== undefined) {
+			if (vetoed) {
+				for (let skipped = after!; skipped !== node; skipped = nextSiblingOf(skipped)!) liveWhitespace?.delete(skipped)
+			}
+			after = next
+		} else if (!moving.has(node) && !liveWhitespace?.has(node)) {
+			break
+		}
+		node = next
+	}
+	return after
 }
 
 // Find longest increasing subsequence to minimize moves during reordering

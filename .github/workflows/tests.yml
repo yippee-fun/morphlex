@@ -96,6 +96,8 @@ jobs:
           VITE_MORPHLEX_FUZZ_RADIO_SEED_START: ${{ github.run_id }}
           VITE_MORPHLEX_FUZZ_FORM_SEEDS: 2000
           VITE_MORPHLEX_FUZZ_FORM_SEED_START: ${{ github.run_id }}
+          VITE_MORPHLEX_FUZZ_KEPT_SEEDS: 2000
+          VITE_MORPHLEX_FUZZ_KEPT_SEED_START: ${{ github.run_id }}
 
   fuzz:
     name: Fuzz (${{ matrix.browser }})
@@ -143,7 +145,7 @@ jobs:
         run: |
           for batch in $(seq 1 "$BATCHES"); do
             start=$(( ${{ github.run_id }} + batch * SEEDS_PER_BATCH ))
-            for fuzzer in MOVE CHOICE TEXT OPEN FOCUS SELECT RADIO FORM; do
+            for fuzzer in MOVE CHOICE TEXT OPEN FOCUS SELECT RADIO FORM KEPT; do
               export "VITE_MORPHLEX_FUZZ_${fuzzer}_SEEDS=$SEEDS_PER_BATCH" "VITE_MORPHLEX_FUZZ_${fuzzer}_SEED_START=$start"
             done
             echo "Seeds $start to $(( start + SEEDS_PER_BATCH - 1 ))"
@@ -151,5 +153,5 @@ jobs:
               test/new/move-fuzz-*.browser.test.ts test/new/choice-fuzz.browser.test.ts test/new/text-fuzz.browser.test.ts \
               test/new/open-state-fuzz.browser.test.ts test/new/focus-fuzz.browser.test.ts \
               test/new/select-root-fuzz.browser.test.ts test/new/radio-fuzz.browser.test.ts \
-              test/new/form-state-fuzz.browser.test.ts
+              test/new/form-state-fuzz.browser.test.ts test/new/vetoed-removal-fuzz.browser.test.ts
           done

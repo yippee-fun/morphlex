@@ -74,6 +74,10 @@ A non-empty `href` or `src` pairs elements sharing it first, but doesn't stop an
 
 Whitespace text nodes are only ever matched with whitespace. The live whitespace stays in place while the children are placed, and target whitespace reuses the live whitespace at the insertion point, so unchanged whitespace isn't removed and added again. Whitespace nothing reused is removed afterwards.
 
+### Nodes whose removal was vetoed
+
+A node whose removal `beforeNodeRemoved` vetoed stays where it is, and the nodes the morph adds or moves go after it, as other morphers place them (a b morphed into c with the removals vetoed gives a b c). So when placing children, the insertion point skips the kept nodes in front of it, with the matches still to move and the whitespace among them, up to the next node that stays put. A movable element waiting for the morph to settle counts as kept, since its removal can still be vetoed then. The whitespace before a vetoed node stays with it, but target whitespace still reuses the live whitespace where it is.
+
 ### Parsing string targets
 
 `morph` and `morphInner` parse a string where `from` is, as `innerHTML` on its parent would. An `html`, `head` or `body` root takes the matching element of a parsed document, since a template drops those tags. Inside an HTML element whose innerHTML is text (a `script`, `style`, `textarea`, `title`, `noscript` and the like), the string is parsed in a new element of that name in the page's document, so tags stay text, a script's character references stay as written, and a `noscript` holds text as with scripting enabled. Inside SVG or MathML, the string is parsed in a shallow copy of the parent (an `svg` or `math` for a root without a parent) in the template's inert document, so nothing loads. So a `circle` stays SVG, and a `foreignObject`'s content, or an `annotation-xml`'s with an HTML `encoding`, stays HTML. Anything else is parsed in a template, which keeps table rows and the like.
