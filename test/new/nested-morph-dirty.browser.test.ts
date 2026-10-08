@@ -95,3 +95,67 @@ test("the outer morph resets an input that a nested morph was rooted at", () => 
 
 	expect(input.value).toBe("a")
 })
+
+test("a nested morph doesn't put back a flag that no running morph set", () => {
+	const host = document.createElement("div")
+	host.innerHTML = `<div><p></p></div><section><input id="s" morphlex-dirty value="a"></section>`
+	const root = host.firstElementChild!
+	const section = host.lastElementChild!
+
+	morph(root, `<div><p>new</p></div>`, {
+		beforeNodeVisited(node) {
+			if (node === root) morphInner(section, `<section><input id="s" value="a"></section>`)
+			return true
+		},
+	})
+
+	expect(section.querySelector("input")!.hasAttribute("morphlex-dirty")).toBe(false)
+})
+
+test("the outer morph resets an input after a morph from a callback while flagging cleared its flag", () => {
+	let nested = false
+	class FlagWatcher extends HTMLInputElement {
+		static observedAttributes = ["morphlex-dirty"]
+		attributeChangedCallback() {
+			if (nested) return
+			nested = true
+			const typed = this.form!.querySelector<HTMLInputElement>("#a")!
+			morph(typed, `<input id="a" value="a">`, { preserveChanges: true })
+		}
+	}
+	customElements.define("x-flag-watcher", FlagWatcher, { extends: "input" })
+	const host = document.createElement("div")
+	host.innerHTML = `<form><input id="a" value="a"><input is="x-flag-watcher" id="b" value="b"></form>`
+	const form = host.firstElementChild!
+	const [typed, watcher] = form.querySelectorAll("input")
+	typed!.value = "typed"
+	watcher!.value = "typed"
+
+	morph(form, `<form><input id="a" value="a"><input is="x-flag-watcher" id="b" value="b"></form>`)
+
+	expect(typed!.value).toBe("a")
+	expect(watcher!.value).toBe("b")
+})
+
+test("a nested morph leaves the flags it didn't clear as they are", () => {
+	const host = document.createElement("div")
+	host.innerHTML = `<form><input id="i" value="a"><p></p></form>`
+	const form = host.firstElementChild!
+	const input = form.querySelector("input")!
+	const paragraph = form.querySelector("p")!
+	input.value = "typed"
+	const changes: Array<string | null> = []
+	const observer = new MutationObserver((records) => changes.push(...records.map((record) => record.attributeName)))
+	observer.observe(input, { attributes: true })
+
+	morph(form, `<form><input id="i" value="a"><p></p></form>`, {
+		beforeNodeVisited(node) {
+			if (node === form) morphInner(paragraph, `<p>new</p>`)
+			return true
+		},
+	})
+
+	expect(observer.takeRecords().length + changes.length).toBe(2)
+	observer.disconnect()
+	expect(input.value).toBe("a")
+})

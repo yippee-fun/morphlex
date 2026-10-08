@@ -236,12 +236,12 @@ export function morphInner(from: ChildNode, to: ChildNode | string, options: Opt
 	}
 }
 
-// Morphs run from a callback of another morph.
-let nesting = 0
+// The flags of the morphs running, which a morph from a callback of one of them can clear.
+const runningFlags: Array<Array<Element>> = []
 
 // Flag the controls the user changed, note the select around the root and what its markup selects, and
 // run the morph. A root select's options are keyed by the live select, even if the target renames it and the
-// rename is vetoed. A nested morph clears the flags of the morph around it, so it puts them back when it's done.
+// rename is vetoed. A morph run from a callback puts back the flags of the morphs around it when it's done.
 function run(
 	from: ChildNode,
 	to: ChildNode | NodeListOf<ChildNode>,
@@ -250,27 +250,24 @@ function run(
 	morph: (morpher: Morph) => void,
 ): void {
 	const select = selectOf(from)
-	const outerFlags = nesting && isElement(from) ? dirtyFlagsIn(from) : null
-	const flagged = isElement(from) ? flagDirtyInputs(from, options.preserveChanges ? to : null) : null
-	const keySelect = isElement(from) && isSelectElement(from) ? from : select
-	nesting++
+	const outerFlags = runningFlags.slice()
+	const flagged: Array<Element> = []
+	runningFlags.push(flagged)
 	try {
+		if (isElement(from)) flagDirtyInputs(from, options.preserveChanges ? to : null, flagged)
+		const keySelect = isElement(from) && isSelectElement(from) ? from : select
 		const morpher = new Morph(options, clobbered, flagged, keySelect)
 		if (select) morpher.setEnclosingSelect(select, selectionOf(select))
 		morph(morpher)
 	} finally {
-		nesting--
-		if (flagged) clearDirtyFlags(flagged)
-		if (outerFlags) {
-			for (const element of outerFlags) setAttribute(element, DIRTY_ATTRIBUTE, "")
+		runningFlags.pop()
+		clearDirtyFlags(flagged)
+		for (const flags of outerFlags) {
+			for (const element of flags) {
+				if (!hasAttribute(element, DIRTY_ATTRIBUTE)) setAttribute(element, DIRTY_ATTRIBUTE, "")
+			}
 		}
 	}
-}
-
-function dirtyFlagsIn(element: Element): Array<Element> {
-	const flags = [...querySelectorAll(element, `[${DIRTY_ATTRIBUTE}]`)]
-	if (hasAttribute(element, DIRTY_ATTRIBUTE)) flags.push(element)
-	return flags
 }
 
 // Remove `morphlex-clobber` from the target so it never reaches the live DOM,
@@ -307,8 +304,7 @@ function stripMarkerAttributes(element: Element): boolean {
 // With `preserveChanges`, the target is given, and the `details` and `dialog` elements are flagged too when some are open
 // and others closed, here or in the target, since an element's open state is the user's, and there's no default to
 // tell whether they changed it. When they're all open or all closed, matching one to any other keeps what it shows.
-function flagDirtyInputs(node: Element, to: ChildNode | NodeListOf<ChildNode> | null): Array<Element> {
-	const flagged: Array<Element> = []
+function flagDirtyInputs(node: Element, to: ChildNode | NodeListOf<ChildNode> | null, flagged: Array<Element>): void {
 	let defaultOptions: DefaultOptionMap | null = null
 	const openStateElements: Array<Element> = []
 
@@ -349,8 +345,6 @@ function flagDirtyInputs(node: Element, to: ChildNode | NodeListOf<ChildNode> | 
 			if (mixed.includes(localNameOf(element))) flagDirty(element, flagged)
 		}
 	}
-
-	return flagged
 }
 
 function flagDirty(element: Element, flagged: Array<Element>): void {
