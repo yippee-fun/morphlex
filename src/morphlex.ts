@@ -40,6 +40,8 @@ const STYLING_ATTRIBUTES = ["class", "style"]
 const OPEN_ATTRIBUTE = ["open"]
 // Attributes that load what they point to as soon as they change.
 const ADDRESS_ATTRIBUTES = new Set(["src", "href", "srcdoc"])
+// Elements that don't load their new address when it changes, so they're replaced rather than matched by tag.
+const REPLACED_ON_ADDRESS_CHANGE = new Set(["script", "source"])
 
 const Operation = {
 	EqualNode: 0,
@@ -1518,7 +1520,9 @@ class Morph {
 		for (let i = 0; i < toAttributes.length; i++) {
 			const attribute = toAttributes[i]!
 			if (attribute.namespaceURI === null && ADDRESS_ATTRIBUTES.has(attribute.name)) {
-				;(addresses ??= []).push(attribute)
+				// An iframe's `srcdoc` takes precedence over its `src`, so it goes first.
+				if (attribute.name === "srcdoc") (addresses ??= []).unshift(attribute)
+				else (addresses ??= []).push(attribute)
 			} else {
 				this.#updateAttribute(from, attribute, keepsOpen, details)
 			}
@@ -3922,13 +3926,13 @@ function canMorphElementInPlace(from: Element, to: Element): boolean {
 // Only an element's own identity counts, so a wrapper holding an id'd element still matches by its tag. An `href` or
 // `src` pairs elements sharing it first, but doesn't stop one matching by its tag, so a link or an iframe whose
 // address changes is updated in place. A script doesn't run again when its `src` (or an SVG script's `href`)
-// changes, so it's still replaced.
+// changes, and a media element doesn't look at a source again, so they're still replaced.
 function canSoftMatchByTagName(element: Element): boolean {
 	return (
 		idOf(element) === "" &&
 		!isFormControl(element) &&
 		!getAttribute(element, "name") &&
-		!(localNameOf(element) === "script" && (getAttribute(element, "src") || getAttribute(element, "href")))
+		!(REPLACED_ON_ADDRESS_CHANGE.has(localNameOf(element)) && (getAttribute(element, "src") || getAttribute(element, "href")))
 	)
 }
 
