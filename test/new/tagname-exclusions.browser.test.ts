@@ -116,7 +116,7 @@ test("from-side input candidates are not matched by tag name", () => {
 	expect(a.children[0]!.textContent).toBe("new")
 })
 
-test("elements with descendant IDs are not matched by tag name", () => {
+test("elements with descendant IDs are still matched by tag name", () => {
 	const a = dom(`<div><ul><li id="a">A</li></ul></div>`)
 	const b = dom(`<div><ul><li id="b">B</li></ul></div>`)
 
@@ -124,9 +124,10 @@ test("elements with descendant IDs are not matched by tag name", () => {
 
 	morph(a, b)
 
-	// The <ul> has descendant IDs that didn't overlap, so it should not
-	// be reused via tag name matching
-	expect(a.children[0]).not.toBe(originalUl)
+	// The <ul> has no identity of its own, so the ids it holds don't stop
+	// it being reused via tag name matching
+	expect(a.children[0]).toBe(originalUl)
+	expect(a.innerHTML).toBe(`<ul><li id="b">B</li></ul>`)
 })
 
 test("plain elements without distinguishing attributes still match by tag name", () => {
