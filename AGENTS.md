@@ -26,7 +26,7 @@ The browser copies the selected option's content into each `selectedcontent` of 
 
 ### Focused contenteditable
 
-With `preserveChanges`, the focused editing host (the `isContentEditable` element that's active in its document or shadow root) keeps its children as the user left them, like a typed-in input keeps its value. Its attributes are still updated, and nothing inside it moves elsewhere, as when `beforeChildrenVisited` vetoes. Whether the user typed in it can't be told, so being focused stands in for that. Without focus, or without `preserveChanges`, it follows the markup.
+With `preserveChanges`, the focused editing host (the `isContentEditable` element that's active in its document or shadow root when the morph starts, so a target that adds or removes `contenteditable` doesn't change it) keeps its children as the user left them, like a typed-in input keeps its value. So does an element inside it that's the morph's root. Its attributes are still updated, and nothing inside it moves elsewhere, as when `beforeChildrenVisited` vetoes. Whether the user typed in it can't be told, so being focused stands in for that. Without focus, or without `preserveChanges`, it follows the markup.
 
 ### Content attributes vs DOM properties for form elements
 

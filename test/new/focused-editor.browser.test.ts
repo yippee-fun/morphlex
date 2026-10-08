@@ -94,3 +94,45 @@ test("a focused element that isn't editable follows the markup under preserveCha
 
 	host.remove()
 })
+
+test("preserveChanges keeps what the user typed in an element of a focused contenteditable that's the morph's root", () => {
+	const host = mount(`<div contenteditable="true"><p>Hello</p></div>`)
+	const editor = host.querySelector("div")!
+	const paragraph = editor.querySelector("p")!
+	editor.focus()
+	paragraph.textContent = "Hello there"
+
+	morph(paragraph, `<p class="new">Server</p>`, { preserveChanges: true })
+
+	expect(editor.firstChild).toBe(paragraph)
+	expect(paragraph.textContent).toBe("Hello there")
+	expect(paragraph.className).toBe("new")
+
+	host.remove()
+})
+
+test("a focused contenteditable that the target makes read-only keeps what the user typed under preserveChanges", () => {
+	const host = mount(`<div contenteditable="true">Hello</div>`)
+	const editor = host.querySelector("div")!
+	editor.focus()
+	editor.textContent = "Hello there"
+
+	morphInner(host, `<div><div>Server</div></div>`, { preserveChanges: true })
+
+	expect(editor.hasAttribute("contenteditable")).toBe(false)
+	expect(editor.textContent).toBe("Hello there")
+
+	host.remove()
+})
+
+test("a focused element that the target makes editable follows the markup under preserveChanges", () => {
+	const host = mount(`<div tabindex="0">Hello</div>`)
+	const element = host.querySelector("div")!
+	element.focus()
+
+	morphInner(host, `<div><div tabindex="0" contenteditable="true">Server</div></div>`, { preserveChanges: true })
+
+	expect(element.textContent).toBe("Server")
+
+	host.remove()
+})

@@ -593,8 +593,9 @@ function selectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null>
 // its children alone. The target's copy shows what the target's markup selects rather than what the user picked,
 // and WebKit leaves it empty when parsing a template.
 // Focus inside an editable region goes to its editing host, so the active element is the one the user types in.
-function isFocusedEditingHost(element: Element): boolean {
-	return (element as Partial<HTMLElement>).isContentEditable === true && activeElementIn(getRootNode(element)) === element
+function focusedEditorOf(node: Node): Element | null {
+	const element = activeElementIn(getRootNode(node))
+	return (element as Partial<HTMLElement> | null)?.isContentEditable ? element : null
 }
 
 function isFilledSelectedContent(element: Element): boolean {
@@ -1239,6 +1240,8 @@ class Morph {
 	// The nodes holding the focused element inside the root, or the selection inside it, which stay where they are
 	// among their siblings when they can.
 	#focusHolders: Set<Node> | null = null
+	// The editing host that's focused when the morph starts.
+	#editor: Element | null = null
 	// Focus a move took to where it couldn't be put back straight away, such as into a closed `details` that the
 	// morph opens later. It's tried again when the morph settles.
 	#unrestoredFocus: Focus | null = null
@@ -1272,6 +1275,7 @@ class Morph {
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
 		this.#root = from
 		this.#focusHolders = focusHoldersIn(from)
+		this.#editor = focusedEditorOf(from)
 		// A detached root has no siblings, so it's its own scope.
 		this.#scope = parentNodeOf(from) ?? from
 		this.#scopeStart = previousSiblingOf(from)
@@ -1295,6 +1299,7 @@ class Morph {
 	morphChildren(from: Element | ShadowRoot, to: Element | DocumentFragment): void {
 		this.#root = from
 		this.#focusHolders = focusHoldersIn(from)
+		this.#editor = focusedEditorOf(from)
 		this.#scope = from
 		this.#keyForm = closestForm(from)
 		this.#innerTarget = to
@@ -1697,8 +1702,8 @@ class Morph {
 		}
 
 		// The focused editing host keeps what the user typed, as a typed-in input keeps its value, and nothing inside it
-		// moves elsewhere.
-		const keepsEdits = this.#preserveChanges && isFocusedEditingHost(from)
+		// moves elsewhere. So does an element inside it, when the morph starts there.
+		const keepsEdits = this.#preserveChanges && this.#editor !== null && contains(this.#editor, from)
 		if (keepsEdits) this.#pinSubtree(from)
 		if (keepsEdits || isFilledSelectedContent(from)) {
 			this.#settleIfRoot(from)
