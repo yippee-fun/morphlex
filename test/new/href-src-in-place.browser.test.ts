@@ -130,3 +130,17 @@ test("a link's href changes after its integrity is updated or removed", () => {
 		),
 	).toEqual(["integrity", "crossorigin", "href"])
 })
+
+test("an iframe's srcdoc changes before its src, so the src never starts loading", () => {
+	expect(
+		attributeUpdates(`<iframe src="about:blank#a"></iframe>`, `<iframe src="about:blank#b" srcdoc="<p>b</p>"></iframe>`),
+	).toEqual(["srcdoc", "src"])
+})
+
+test("a media source whose src changes is still replaced, so the media element picks it up", () => {
+	expect(morphChildren(`<source src="data:video/mp4,a">`, `<source src="data:video/mp4,b">`)).toEqual({
+		original: [-1],
+		added: 1,
+		removed: 1,
+	})
+})
