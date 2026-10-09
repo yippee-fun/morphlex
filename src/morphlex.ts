@@ -594,7 +594,9 @@ function selectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null>
 // Focus inside an editable region goes to its editing host, so the active element is the one the user types in.
 function focusedEditorOf(node: Node): Element | null {
 	const element = activeElementIn(getRootNode(node))
-	return element && namespaceURIOf(element) === HTML_NAMESPACE && isContentEditableOf(element as HTMLElement) ? element : null
+	// A shadow host is active when focus is inside its shadow root, where the user isn't typing in its children.
+	if (!element || element.shadowRoot?.activeElement) return null
+	return namespaceURIOf(element) === HTML_NAMESPACE && isContentEditableOf(element as HTMLElement) ? element : null
 }
 
 // The browser copies the selected option's content into each `selectedcontent` of a drop-down, so the morph leaves
