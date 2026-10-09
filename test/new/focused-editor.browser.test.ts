@@ -166,3 +166,17 @@ test("a morphlex-clobber element in a focused contenteditable follows the markup
 
 	host.remove()
 })
+
+test("a contenteditable shadow host follows the markup under preserveChanges while focus is inside its shadow root", () => {
+	const host = mount(`<div contenteditable="true">Hello</div>`)
+	const editor = host.querySelector("div")!
+	const input = document.createElement("input")
+	editor.attachShadow({ mode: "open" }).append(input, document.createElement("slot"))
+	input.focus()
+
+	morphInner(host, `<div><div contenteditable="true">Server</div></div>`, { preserveChanges: true })
+
+	expect(editor.textContent).toBe("Server")
+
+	host.remove()
+})
