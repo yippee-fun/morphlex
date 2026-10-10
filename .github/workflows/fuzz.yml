@@ -92,3 +92,10 @@ jobs:
         env:
           VITE_MORPHLEX_FUZZ_FORM_SEEDS: ${{ env.SEEDS_PER_SHARD }}
           VITE_MORPHLEX_FUZZ_FORM_SEED_START: ${{ env.SEED_START }}
+
+      - name: Run the vetoed removal fuzzer
+        if: ${{ !cancelled() }}
+        run: aube exec vitest run -c vitest.config.browser.ts --project chromium --retry 0 test/new/vetoed-removal-fuzz.browser.test.ts
+        env:
+          VITE_MORPHLEX_FUZZ_KEPT_SEEDS: ${{ env.SEEDS_PER_SHARD }}
+          VITE_MORPHLEX_FUZZ_KEPT_SEED_START: ${{ env.SEED_START }}

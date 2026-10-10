@@ -38,6 +38,10 @@ const CHOICE_PASSES = [
 
 const STYLING_ATTRIBUTES = ["class", "style"]
 const OPEN_ATTRIBUTE = ["open"]
+// Attributes that load what they point to as soon as they change.
+const ADDRESS_ATTRIBUTES = new Set(["src", "href", "srcdoc"])
+// Elements that don't load their new address when it changes, so they're replaced rather than matched by tag.
+const REPLACED_ON_ADDRESS_CHANGE = new Set(["script", "source"])
 
 const Operation = {
 	EqualNode: 0,
@@ -193,9 +197,10 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
 /**
  * Morph the inner content of one ChildNode to the inner content of another.
  * If the `to` node is a string, it will be parsed where `from` is, as with `morph`.
+ * A shadow root is morphed to the children of a fragment (or another shadow root), or to a string of its content.
  *
- * @param from The source node to morph from.
- * @param to The target node, node list or string to morph to.
+ * @param from The source element or shadow root to morph from.
+ * @param to The target element, fragment or string to morph to.
  * @example
  * ```ts
  * morphInner(originalDom, newDom)
@@ -207,9 +212,23 @@ export function morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode> | s
  * `onclick`) and resource-loading attributes (e.g. `src`, `href`) take effect once
  * the nodes are adopted. Do not pass untrusted HTML; sanitize it first.
  */
-export function morphInner(from: ChildNode, to: ChildNode | string, options: Options = {}): void {
+export function morphInner(from: ChildNode, to: ChildNode | string, options?: Options): void
+export function morphInner(from: ShadowRoot, to: DocumentFragment | string, options?: Options): void
+export function morphInner(from: ChildNode | ShadowRoot, to: ChildNode | DocumentFragment | string, options: Options = {}): void {
+	if (nodeTypeOf(from) === DOCUMENT_FRAGMENT_NODE_TYPE) {
+		const root = from as ShadowRoot
+		if (typeof to === "string") to = parseFragment(to, root.host)
+		if (nodeTypeOf(to) !== DOCUMENT_FRAGMENT_NODE_TYPE) {
+			throw new Error("[Morphlex] You can only do an inner morph of a shadow root with a fragment or a string.")
+		}
+		const fragment = to as DocumentFragment
+		const targets = fragment.childNodes
+		run(root, targets, takeClobbered(targets), options, (morpher) => morpher.morphChildren(root, fragment))
+		return
+	}
+
 	if (typeof to === "string") {
-		const parsed = parseTarget(from, to)
+		const parsed = parseTarget(from as ChildNode, to)
 
 		if (!isNodeList(parsed)) {
 			to = parsed
@@ -243,7 +262,7 @@ const runningFlags: Array<Array<Element>> = []
 // run the morph. A root select's options are keyed by the live select, even if the target renames it and the
 // rename is vetoed. A morph run from a callback puts back the flags of the morphs around it that it cleared.
 function run(
-	from: ChildNode,
+	from: ChildNode | ShadowRoot,
 	to: ChildNode | NodeListOf<ChildNode>,
 	clobbered: Set<Element> | null,
 	options: Options,
@@ -254,7 +273,7 @@ function run(
 	const flagged: Array<Element> = []
 	runningFlags.push(flagged)
 	try {
-		if (isElement(from)) flagDirtyInputs(from, options.preserveChanges ? to : null, flagged)
+		if (isParentNode(from)) flagDirtyInputs(from, options.preserveChanges ? to : null, flagged)
 		const keySelect = isElement(from) && isSelectElement(from) ? from : select
 		const morpher = new Morph(options, clobbered, flagged, keySelect)
 		if (select) morpher.setEnclosingSelect(select, selectionOf(select))
@@ -302,13 +321,15 @@ function stripMarkerAttributes(element: Element): boolean {
 // With `preserveChanges`, the target is given, and the `details` and `dialog` elements are flagged too when some are open
 // and others closed, here or in the target, since an element's open state is the user's, and there's no default to
 // tell whether they changed it. When they're all open or all closed, matching one to any other keeps what it shows.
-function flagDirtyInputs(node: Element, to: ChildNode | NodeListOf<ChildNode> | null, flagged: Array<Element>): void {
+function flagDirtyInputs(node: ParentNode, to: ChildNode | NodeListOf<ChildNode> | null, flagged: Array<Element>): void {
 	let defaultOptions: DefaultOptionMap | null = null
 	const openStateElements: Array<Element> = []
 
 	// The selector also matches elements with these names in other namespaces, like SVG.
 	const selector = to ? "input, option, textarea, details, dialog" : "input, option, textarea"
-	for (const element of [node, ...querySelectorAll(node, selector)]) {
+	const elements = [...querySelectorAll(node, selector)]
+	if (isElement(node)) elements.unshift(node)
+	for (const element of elements) {
 		let dirty = false
 		if (hasOpenState(element)) {
 			openStateElements.push(element)
@@ -542,11 +563,11 @@ function selectOf(node: Node): HTMLSelectElement | null {
 // What the markup selects in the single select each option belongs to, or undefined for an option of a multiple
 // select, taken from the browser's own option lists. These leave out options the select doesn't own, such as those
 // inside a datalist or a nested optgroup.
-function defaultOptionsOf(node: Element): DefaultOptionMap {
+function defaultOptionsOf(node: ParentNode): DefaultOptionMap {
 	const defaultOptions: DefaultOptionMap = new Map()
 	const enclosing = selectOf(node)
 	if (enclosing) addDefaultOptions(defaultOptions, enclosing)
-	if (isSelectElement(node)) addDefaultOptions(defaultOptions, node)
+	if (isElement(node) && isSelectElement(node)) addDefaultOptions(defaultOptions, node)
 
 	for (const select of querySelectorAll(node, "select")) {
 		if (isSelectElement(select)) addDefaultOptions(defaultOptions, select)
@@ -568,6 +589,14 @@ function selectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null>
 	if (!select.multiple) return [defaultOptionOf(select), select.options[select.selectedIndex] ?? null]
 	const markup = Array.from(select.options).filter((option) => option.hasAttribute("selected"))
 	return [...markup, null, ...select.selectedOptions]
+}
+
+// Focus inside an editable region goes to its editing host, so the active element is the one the user types in.
+function focusedEditorOf(node: Node): Element | null {
+	const element = activeElementIn(getRootNode(node))
+	// A shadow host is active when focus is inside its shadow root, where the user isn't typing in its children.
+	if (!element || element.shadowRoot?.activeElement) return null
+	return namespaceURIOf(element) === HTML_NAMESPACE && isContentEditableOf(element as HTMLElement) ? element : null
 }
 
 // The browser copies the selected option's content into each `selectedcontent` of a drop-down, so the morph leaves
@@ -635,7 +664,9 @@ function parseTarget(from: ChildNode, string: string): ChildNode | NodeListOf<Ch
 		return element.childNodes
 	}
 
-	return parseFragment(string, foreignContextOf(from)).childNodes
+	const fragment = parseFragment(string, foreignContextOf(from))
+	trimFragmentEdgeWhitespace(fragment)
+	return fragment.childNodes
 }
 
 // The parent of `from` when it's an SVG or MathML element, or for an SVG or MathML root without one, an `svg` or
@@ -652,7 +683,8 @@ function foreignContextOf(from: ChildNode): Element | null {
 
 // `setHTMLUnsafe` and `Document.parseHTMLUnsafe` attach declarative shadow roots, as a page does, so a
 // `<template shadowrootmode>` never lands in a host's light DOM. Older browsers fall back to parsers that don't.
-// A foreign context is parsed in a shallow copy of it in the template's inert document, so nothing loads.
+// A context (a foreign parent, or a shadow root's host) is parsed in a shallow copy of it in the template's inert
+// document, so nothing loads.
 function parseFragment(string: string, context: Element | null = null): DocumentFragment {
 	const template = createElement(document, "template") as HTMLTemplateElement
 	if (context) {
@@ -662,7 +694,6 @@ function parseFragment(string: string, context: Element | null = null): Document
 	} else {
 		setHTML(template, string)
 	}
-	trimFragmentEdgeWhitespace(template.content)
 	/* v8 ignore next -- only Firefox parses a template's content with scripting enabled */
 	if (!templateKeepsNoscriptText()) flattenNoscripts(template.content)
 
@@ -727,6 +758,42 @@ function moveBefore(parent: ParentNode, node: ChildNode, insertionPoint: ChildNo
 	insertBefore(parent, node, insertionPoint)
 }
 /* v8 ignore stop */
+
+// The ids of the forms in a node, or null when it holds none.
+function formIdsIn(node: Node): Set<string> | null {
+	// An element without children holds no form, which saves looking for one.
+	if (!isElement(node) || (!isFormElement(node) && !firstElementChildOf(node))) return null
+	let ids: Set<string> | null = null
+	const forms = isFormElement(node) ? [node] : getElementsByTagName(node, "form")
+	for (let i = 0; i < forms.length; i++) {
+		const form = forms[i]!
+		if (idOf(form) !== "" && isFormElement(form)) (ids ??= new Set()).add(idOf(form))
+	}
+	return ids
+}
+
+// Firefox keeps whether the user changed a radio for its whole group, and a radio takes that on when it joins one.
+// Moving a form briefly drops the radios whose `form` attribute names it into the group of radios without a form,
+// where a radio the user picked would stop them following their `checked` attribute. So they move without a name,
+// which keeps them out of any group, and get it back straight after with `restoreNames`.
+function unnameRadiosNamingFormsIn(node: Node): Array<[HTMLInputElement, string]> | null {
+	const ids = formIdsIn(node)
+	if (!ids) return null
+	let unnamed: Array<[HTMLInputElement, string]> | null = null
+	const inputs = querySelectorAll(getRootNode(node) as ParentNode, `input[form][name]:not([name=""])`)
+	for (let i = 0; i < inputs.length; i++) {
+		const input = inputs[i]!
+		if (isRadio(input) && ids.has(getAttribute(input, "form")!)) {
+			;(unnamed ??= []).push([input, getAttribute(input, "name")!])
+			removeAttribute(input, "name")
+		}
+	}
+	return unnamed
+}
+
+function restoreNames(unnamed: Array<[HTMLInputElement, string]> | null): void {
+	if (unnamed) for (const [input, name] of unnamed) setAttribute(input, "name", name)
+}
 
 // Radios that a change to a form unchecked by removing their `checked` attribute, with its value, so
 // they're checked again the same way and keep following the markup.
@@ -923,7 +990,7 @@ class Siblings {
 		return shape
 	}
 
-	constructor(from: Element, to: Element, ignoresOpen: boolean) {
+	constructor(from: ParentNode, to: ParentNode, ignoresOpen: boolean) {
 		this.#ignoresOpen = ignoresOpen
 		this.from = nodeListToArray(childNodesOf(from))
 		this.to = nodeListToArray(childNodesOf(to))
@@ -1142,7 +1209,7 @@ class Morph {
 	// The live form a target's control past the target's roots ends up in, and an inner morph's target, which
 	// stands for the live root rather than a form of its own.
 	#keyForm: HTMLFormElement | null = null
-	#innerTarget: Element | null = null
+	#innerTarget: Node | null = null
 	// Nodes whose visit or children's visit was vetoed, and controls with a vetoed attribute update.
 	#vetoedNodes: Array<Node> | null = null
 	#vetoedControls: Set<Element> | null = null
@@ -1213,6 +1280,8 @@ class Morph {
 	// The nodes holding the focused element inside the root, or the selection inside it, which stay where they are
 	// among their siblings when they can.
 	#focusHolders: Set<Node> | null = null
+	// The editing host that's focused when the morph starts.
+	#editor: Element | null = null
 	// Focus a move took to where it couldn't be put back straight away, such as into a closed `details` that the
 	// morph opens later. It's tried again when the morph settles.
 	#unrestoredFocus: Focus | null = null
@@ -1246,6 +1315,7 @@ class Morph {
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
 		this.#root = from
 		this.#focusHolders = focusHoldersIn(from)
+		this.#editor = focusedEditorOf(from)
 		// A detached root has no siblings, so it's its own scope.
 		this.#scope = parentNodeOf(from) ?? from
 		this.#scopeStart = previousSiblingOf(from)
@@ -1266,17 +1336,19 @@ class Morph {
 		this.#finish()
 	}
 
-	morphChildren(from: Element, to: Element): void {
+	morphChildren(from: Element | ShadowRoot, to: Element | DocumentFragment): void {
 		this.#root = from
 		this.#focusHolders = focusHoldersIn(from)
+		this.#editor = focusedEditorOf(from)
 		this.#scope = from
 		this.#keyForm = closestForm(from)
 		this.#innerTarget = to
 		this.#targetRoots.add(to)
 		this.#mapIdSets(from)
 		this.#mapIdArrays(to, false)
-		if (this.#targetOpensDetails) closeLaterOpenDetails(childrenOf(to))
-		this.visitChildNodes(from, to)
+		if (this.#targetOpensDetails) closeLaterOpenDetails(childNodesOf(to))
+		if (isElement(from)) this.visitChildNodes(from, to as Element)
+		else this.#visitShadowRootChildNodes(from, to as DocumentFragment)
 		this.#finish()
 	}
 
@@ -1488,41 +1560,28 @@ class Morph {
 		// The user toggles `open` on these elements, so with `preserveChanges` it's neither added nor removed.
 		const keepsOpen = this.#preserveChanges && hasOpenState(from)
 
-		// First pass: update/add attributes from reference (iterate forwards)
+		// First pass: update/add attributes from reference (iterate forwards). An address loads as soon as it
+		// changes, with the attributes the element has then, like an iframe's `sandbox` or a link's `integrity`,
+		// so addresses are updated last, after the other attributes are added, changed and removed.
 		const toAttributes = attributesOf(to)
+		let addresses: Array<Attr> | null = null
+		// Whether the element already had every attribute of the target, with the same values.
+		let unchanged = true
 		for (let i = 0; i < toAttributes.length; i++) {
 			const attribute = toAttributes[i]!
-			const { name, localName, value, namespaceURI } = attribute
-			// Adding `open` would open it, but changing the value of an existing one is fine.
-			if (keepsOpen && name === "open" && namespaceURI === null && !hasAttributeNS(from, null, "open")) continue
-			const oldValue = getAttributeNS(from, namespaceURI, localName)
-
-			if (oldValue === value) continue
-			if (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true) {
-				// Go through `Attr` nodes, because `setAttribute` rejects names the parser accepts, like `@click`.
-				// Look the attribute up after the callback, which may have removed or replaced it.
-				const radios = namespaceURI ? null : this.#uncheckRadiosForAttribute(from, name, value)
-				// Checking a radio unchecks the rest of its group, which gets its check back if the radio then leaves.
-				const group =
-					name === "checked" && namespaceURI === null && isRadio(from) && !from.checked ? checkedRadiosInGroup(from) : null
-				const existing = getAttributeNodeNS(from, namespaceURI, localName)
-				if (existing) {
-					existing.value = value
-				} else if (details && name === "open" && namespaceURI === null) {
-					this.#openDetailsItem(from, value)
-				} else {
-					setAttributeNodeNS(from, attribute.cloneNode() as Attr)
-				}
-				this.#checkRadios(radios)
-				if (group) this.#noteDisplacedRadios(group, from as HTMLInputElement)
-				this.#options.afterAttributeUpdated?.(from, name, oldValue)
-			} else {
-				this.#noteVetoedAttribute(from, name, namespaceURI)
+			if (attribute.namespaceURI === null && ADDRESS_ATTRIBUTES.has(attribute.name)) {
+				// An iframe's `srcdoc` takes precedence over its `src`, so it goes first.
+				if (attribute.name === "srcdoc") (addresses ??= []).unshift(attribute)
+				else (addresses ??= []).push(attribute)
+				if (getAttributeNS(from, null, attribute.name) !== attribute.value) unchanged = false
+			} else if (!this.#updateAttribute(from, attribute, keepsOpen, details)) {
+				unchanged = false
 			}
 		}
 
-		// Second pass: remove excess attributes. Check for any first, to avoid copying the attribute list.
-		if (hasExcessAttributes(from, to)) {
+		// Second pass: remove excess attributes. Check for any first, to avoid copying the attribute list. An element that
+		// had every attribute of the target, and no more of them, has none.
+		if (!(unchanged && attributesOf(from).length === toAttributes.length) && hasExcessAttributes(from, to)) {
 			for (const { name, localName, value, namespaceURI } of Array.from(attributesOf(from))) {
 				if (!hasAttributeNS(to, namespaceURI, localName)) {
 					if (keepsOpen && name === "open" && namespaceURI === null) continue
@@ -1546,11 +1605,48 @@ class Morph {
 			}
 		}
 
+		if (addresses) {
+			for (const attribute of addresses) this.#updateAttribute(from, attribute, keepsOpen, details)
+		}
+
 		if (details) this.#noteIntendedOpen(from, to, open)
 
 		if (!this.#preserveChanges) {
 			this.#resetFormProperties(from, to)
 		}
+	}
+
+	// Add the attribute, or update its value, asking the callbacks first. Returns whether the element already had it,
+	// with the same value.
+	#updateAttribute(from: Element, attribute: Attr, keepsOpen: boolean, details: boolean): boolean {
+		const { name, localName, value, namespaceURI } = attribute
+		// Adding `open` would open it, but changing the value of an existing one is fine.
+		if (keepsOpen && name === "open" && namespaceURI === null && !hasAttributeNS(from, null, "open")) return false
+		const oldValue = getAttributeNS(from, namespaceURI, localName)
+
+		if (oldValue === value) return true
+		if (this.#options.beforeAttributeUpdated?.(from, name, value) ?? true) {
+			// Go through `Attr` nodes, because `setAttribute` rejects names the parser accepts, like `@click`.
+			// Look the attribute up after the callback, which may have removed or replaced it.
+			const radios = namespaceURI ? null : this.#uncheckRadiosForAttribute(from, name, value)
+			// Checking a radio unchecks the rest of its group, which gets its check back if the radio then leaves.
+			const group =
+				name === "checked" && namespaceURI === null && isRadio(from) && !from.checked ? checkedRadiosInGroup(from) : null
+			const existing = getAttributeNodeNS(from, namespaceURI, localName)
+			if (existing) {
+				existing.value = value
+			} else if (details && name === "open" && namespaceURI === null) {
+				this.#openDetailsItem(from, value)
+			} else {
+				setAttributeNodeNS(from, attribute.cloneNode() as Attr)
+			}
+			this.#checkRadios(radios)
+			if (group) this.#noteDisplacedRadios(group, from as HTMLInputElement)
+			this.#options.afterAttributeUpdated?.(from, name, oldValue)
+		} else {
+			this.#noteVetoedAttribute(from, name, namespaceURI)
+		}
+		return false
 	}
 
 	// Note the `open` value the morph means an accordion item to have, whatever the browser does to it:
@@ -1653,7 +1749,12 @@ class Morph {
 			return
 		}
 
-		if (isFilledSelectedContent(from)) {
+		// The focused editing host keeps what the user typed, as a typed-in input keeps its value, and nothing inside it
+		// moves elsewhere. So does an element inside it, when the morph starts there. When the target holds a
+		// `morphlex-clobber` element, its children are visited, so that element discards the user's changes.
+		const keepsEdits = this.#preserveChanges && this.#editor !== null && contains(this.#editor, from) && !this.#holdsClobbered(to)
+		if (keepsEdits) this.#pinSubtree(from)
+		if (keepsEdits || isFilledSelectedContent(from)) {
 			this.#settleIfRoot(from)
 			this.#options.afterChildrenVisited?.(from)
 			return
@@ -1672,12 +1773,44 @@ class Morph {
 		// pairing to the loosest, and the remaining candidates are removed before the targets are placed.
 		// Placing the children moves the target's text into a textarea, so its text is read first.
 		const textAreaText = isTextAreaElement(from) ? textContentOf(to) : null
+		this.#morphChildNodes(from, to)
+
+		// Changing a textarea's text updates its default value, which the browser copies to `.value` until the user
+		// changes it, so the browser decides whether the user changed it. Text that still differs from the target's
+		// means a callback vetoed the update, so the value is left alone too.
+		if (isTextAreaElement(from) && textContentOf(from) === textAreaText) this.#resetTextArea(from)
+		// Sync the select before a root settles, which syncs it again, so nothing changes it after its callbacks.
+		if (isSelectElement(from)) this.#syncDefaultSelection(from)
+		this.#settleIfRoot(from)
+
+		this.#options.afterChildrenVisited?.(from)
+	}
+
+	// A shadow root's children are visited like an element's, without what's special to some elements.
+	#visitShadowRootChildNodes(from: ShadowRoot, to: DocumentFragment): void {
+		if (this.#options.beforeChildrenVisited?.(from) ?? true) {
+			this.#morphChildNodes(from, to)
+			this.#settleIfRoot(from)
+			this.#options.afterChildrenVisited?.(from)
+		} else {
+			this.#pinSubtree(from)
+			this.#settleIfRoot(from)
+		}
+	}
+
+	#morphChildNodes(from: ParentNode, to: ParentNode): void {
 		const text = onlyTextChildOf(from)
 		const targetText = text && onlyTextChildOf(to)
 		if (text && targetText && isWhitespaceTextNode(text) === isWhitespaceTextNode(targetText)) {
 			// Text that's the only child on both sides would be matched with the other text and stay where it is, so
 			// it's morphed straight away.
 			this.#morphOneToOne(text, targetText)
+		} else if (this.#isOnlyKindChild(from, to)) {
+			// An element without its own identity that's the only child on both sides would be matched by kind and stay
+			// where it is, so it's visited straight away.
+			const child = firstChildOf(from) as Element
+			const targetChild = firstChildOf(to) as Element
+			if (!isEqualNode(child, targetChild)) this.#visitNode(child, targetChild, hasSameIs(child, targetChild))
 		} else {
 			const siblings = new Siblings(from, to, this.#preserveChanges)
 			this.#matchEqualElements(siblings)
@@ -1695,21 +1828,33 @@ class Morph {
 			this.#matchEqualNodes(siblings)
 			this.#matchNodesByType(siblings)
 			this.#orderIdenticalCandidates(siblings)
+			// The candidates still here, and whether a callback vetoed their removal or it waits for the morph to settle.
+			let kept: Map<ChildNode, boolean> | null = null
 			for (let i = 0; i < siblings.from.length; i++) {
-				if (siblings.candidateActive[i]) this.#removeNode(siblings.from[i]!)
+				if (!siblings.candidateActive[i]) continue
+				const candidate = siblings.from[i]!
+				const vetoed = this.#removeNode(candidate)
+				if (parentNodeOf(candidate) === from) (kept ??= new Map()).set(candidate, vetoed)
 			}
-			this.#placeChildren(from, siblings)
+			this.#placeChildren(from, siblings, kept)
 		}
+	}
 
-		// Changing a textarea's text updates its default value, which the browser copies to `.value` until the user
-		// changes it, so the browser decides whether the user changed it. Text that still differs from the target's
-		// means a callback vetoed the update, so the value is left alone too.
-		if (isTextAreaElement(from) && textContentOf(from) === textAreaText) this.#resetTextArea(from)
-		// Sync the select before a root settles, which syncs it again, so nothing changes it after its callbacks.
-		if (isSelectElement(from)) this.#syncDefaultSelection(from)
-		this.#settleIfRoot(from)
-
-		this.#options.afterChildrenVisited?.(from)
+	// Whether each side's only child is an element of the same kind that only the kind pass can match, with no changes
+	// of the user's anywhere in the morph, which the other passes rank by.
+	#isOnlyKindChild(from: ParentNode, to: ParentNode): boolean {
+		if (this.#dirtyElements) return false
+		const child = onlyChildOf(from)
+		const targetChild = child && onlyChildOf(to)
+		return (
+			!!targetChild &&
+			isElement(child!) &&
+			isElement(targetChild) &&
+			localNameOf(child) === localNameOf(targetChild) &&
+			namespaceURIOf(child) === namespaceURIOf(targetChild) &&
+			canSoftMatchByTagName(child) &&
+			canSoftMatchByTagName(targetChild)
+		)
 	}
 
 	// Match elements by isEqualNode. With many siblings, bucket the candidates rather than comparing every pair. An
@@ -1901,7 +2046,7 @@ class Morph {
 	}
 
 	// A target whose live element is elsewhere is left for #addNode to claim, so no other candidate takes its id.
-	#leaveClaimedTargets(siblings: Siblings, parent: Element): void {
+	#leaveClaimedTargets(siblings: Siblings, parent: ParentNode): void {
 		const { to, unmatchedElements, unmatchedActive } = siblings
 		for (let i = 0; i < unmatchedElements.length; i++) {
 			const target = unmatchedElements[i]!
@@ -2339,7 +2484,7 @@ class Morph {
 
 	// Put the target's children in order, moving the matched candidates that aren't already in order, morphing
 	// each into its target and adding the targets nothing matched.
-	#placeChildren(parent: Element, siblings: Siblings): void {
+	#placeChildren(parent: ParentNode, siblings: Siblings, kept: Map<ChildNode, boolean> | null): void {
 		const { from, to, matches, op } = siblings
 
 		// The nodes in the longest increasing subsequence of matches don't need to move.
@@ -2353,6 +2498,30 @@ class Morph {
 		const liveWhitespace: Set<ChildNode> | null = siblings.whitespace.length ? new Set() : null
 		for (let i = 0; i < siblings.whitespace.length; i++) {
 			liveWhitespace!.add(from[siblings.whitespace[i]!]!)
+		}
+
+		// The matches that move, which go after the kept nodes too, so a kept node never ends up after the nodes placed
+		// in front of one of them. Only those with a kept node after them, before the next node that stays put, so the
+		// insertion point never scans the same moving nodes again for every target.
+		let moving: Set<ChildNode> | null = null
+		if (kept) {
+			const moves = new Set<ChildNode>()
+			for (let i = 0; i < to.length; i++) {
+				const matchInd = matches[i]
+				if (matchInd !== undefined && !shouldNotMove[matchInd]) moves.add(from[matchInd]!)
+			}
+			moving = new Set()
+			let run: Array<ChildNode> = []
+			for (let node = firstChildOf(parent); node; node = nextSiblingOf(node)) {
+				if (kept.has(node)) {
+					for (let i = 0; i < run.length; i++) moving.add(run[i]!)
+					run = []
+				} else if (moves.has(node)) {
+					run.push(node)
+				} else if (!liveWhitespace?.has(node)) {
+					run = []
+				}
+			}
 		}
 
 		let insertionPoint: ChildNode | null = firstChildOf(parent)
@@ -2372,7 +2541,12 @@ class Morph {
 
 			const node = to[i]!
 			const matchInd = matches[i]
-			if (insertionPoint && liveWhitespace?.has(insertionPoint) && isWhitespaceTextNode(node)) {
+			const isWhitespace = isWhitespaceTextNode(node)
+			// Target whitespace still reuses the live whitespace where it is.
+			if (kept && !(isWhitespace && insertionPoint && liveWhitespace?.has(insertionPoint))) {
+				insertionPoint = skipKeptNodes(insertionPoint, kept, moving!, liveWhitespace)
+			}
+			if (isWhitespace && insertionPoint && liveWhitespace?.has(insertionPoint)) {
 				const whitespace: ChildNode = insertionPoint
 				liveWhitespace.delete(whitespace)
 				placed.push(whitespace)
@@ -2385,8 +2559,10 @@ class Morph {
 				if (!shouldNotMove[matchInd]) {
 					const outsideRadios = this.#uncheckRadiosNamingFormsIn(match, getRootNode(match))
 					const insideRadios = this.#uncheckRadiosInFormsIn(match)
+					const unnamed = unnameRadiosNamingFormsIn(match)
 					const focus = this.#watchFocus(match, parent)
 					moveBefore(parent, match, insertionPoint)
+					restoreNames(unnamed)
 					if (focus) this.#restoreFocus(focus)
 					this.#checkRadios(outsideRadios)
 					this.#checkRadios(insideRadios, true)
@@ -2413,6 +2589,11 @@ class Morph {
 				// A new node can move or remove itself when it's added, and then the insertion point stays.
 				if (added === node && parentNodeOf(node) === parent) insertionPoint = nextSiblingOf(node)
 			}
+		}
+
+		// The whitespace before the vetoed nodes after the last target stays with them too.
+		if (kept && liveWhitespace && insertionPoint && parentNodeOf(insertionPoint) === parent) {
+			skipKeptNodes(insertionPoint, kept, moving!, liveWhitespace)
 		}
 
 		if (liveWhitespace) {
@@ -2483,7 +2664,7 @@ class Morph {
 	// Without `moveBefore`, moving the focused element loses focus. So keep only the matches in order with the child
 	// holding it, so the longest increasing subsequence includes that child and its siblings move around it, even when
 	// that moves more of them. `moveBefore` keeps focus, so there the fewest nodes move.
-	#pinFocused(parent: Element, siblings: Siblings): Array<number | undefined> {
+	#pinFocused(parent: ParentNode, siblings: Siblings): Array<number | undefined> {
 		const { from, matches } = siblings
 		const holders = this.#focusHolders
 		/* v8 ignore start -- only browsers without moveBefore pin the focused child */
@@ -2629,14 +2810,7 @@ class Morph {
 	// which unchecks the rest of their new group as the change itself would. Returns the radios it unchecked,
 	// which are only those outside the node unless `inside` is set.
 	#uncheckRadiosNamingFormsIn(node: Node, root: Node, inside = false): Array<HTMLInputElement> | null {
-		// An element without children holds no form, which saves looking for one.
-		if (!isElement(node) || (!isFormElement(node) && !firstElementChildOf(node))) return null
-		let ids: Set<string> | null = null
-		const forms = isFormElement(node) ? [node] : getElementsByTagName(node, "form")
-		for (let i = 0; i < forms.length; i++) {
-			const form = forms[i]!
-			if (idOf(form) !== "" && isFormElement(form)) (ids ??= new Set()).add(idOf(form))
-		}
+		const ids = formIdsIn(node)
 		return ids && this.#uncheckRadiosNaming(ids, root, inside ? null : node)
 	}
 
@@ -2672,12 +2846,16 @@ class Morph {
 	#uncheckRadiosNaming(ids: ReadonlySet<string>, root: Node, except: Node | null): Array<HTMLInputElement> | null {
 		let unchecked: Array<HTMLInputElement> | null = null
 		// Only checked inputs matter, which keeps this short on pages with many radios.
-		const inputs = querySelectorAll(root as ParentNode, "input[form]:checked")
+		const inputs = querySelectorAll(root as ParentNode, "input[form]:checked, input[form][checked]")
 		for (let i = 0; i < inputs.length; i++) {
 			const input = inputs[i]!
-			if (isCheckedRadio(input) && ids.has(input.getAttribute("form")!) && !(except && contains(except, input))) {
+			if (!isRadio(input) || !ids.has(input.getAttribute("form")!) || (except && contains(except, input))) continue
+			if (input.checked) {
 				this.#uncheckRadio(input)
 				;(unchecked ??= []).push(input)
+			} else if (this.#defersRadio(input)) {
+				// Another radio of the morph unchecked it in its old group, and the markup decides it in the new one.
+				;(this.#radiosToSync ??= new Set()).add(input)
 			}
 		}
 		return unchecked
@@ -3030,6 +3208,8 @@ class Morph {
 		// checked again straight away, since they're the target's own state, not markup the morph resets.
 		const live = isConnected(node)
 		const sourceRadios = live ? this.#uncheckRadiosNamingFormsIn(node, getRootNode(node), true) : null
+		// Before its claimed forms leave it, which takes them out of the radios' sight.
+		const unnamed = live ? unnameRadiosNamingFormsIn(node) : null
 		// A live target can hold the focused element, which its claimed descendants take out of it next.
 		const focus = this.#watchFocus(node, parent)
 		clearImplicitSelection(node, parent)
@@ -3043,6 +3223,7 @@ class Morph {
 					? this.#uncheckRadiosInFormsIn(node)
 					: null
 		moveInto(parent, node, insertionPoint)
+		restoreNames(unnamed)
 		if (focus) this.#restoreFocus(focus)
 		this.#checkRadios(radios)
 		this.#checkRadios(sourceRadios, true)
@@ -3091,8 +3272,10 @@ class Morph {
 			this.#liveElementsById.delete(idOf(target))
 			const radios = this.#uncheckRadiosForMove(live, parent)
 			const insideRadios = this.#uncheckRadiosInFormsIn(live)
+			const unnamed = unnameRadiosNamingFormsIn(live)
 			const focus = this.#watchFocus(live, parent)
 			moveInto(parent, live, placeholder)
+			restoreNames(unnamed)
 			if (focus) this.#restoreFocus(focus)
 			remove(placeholder)
 			this.#checkRadios(radios)
@@ -3133,13 +3316,16 @@ class Morph {
 	}
 
 	// A movable element stays put for now, since the target may place it under another parent, until the morph settles.
-	#removeNode(node: ChildNode, settled = false): void {
+	// Returns whether a callback vetoed the removal.
+	#removeNode(node: ChildNode, settled = false): boolean {
 		if (!settled && isElement(node) && this.#movableElement(idOf(node)) === node) {
 			;(this.#unplacedElements ??= []).push(node)
-			return
+			return false
 		}
 
-		if (this.#options.beforeNodeRemoved?.(node) ?? true) this.#removeApprovedNode(node, settled)
+		if (!(this.#options.beforeNodeRemoved?.(node) ?? true)) return true
+		this.#removeApprovedNode(node, settled)
+		return false
 	}
 
 	#removeApprovedNode(node: ChildNode, settled = false): void {
@@ -3583,9 +3769,15 @@ function bucketByTextContent(nodes: Array<ChildNode>, indices: Array<number>): M
 	return buckets
 }
 
+// The node's child when it has just one.
+function onlyChildOf(parent: ParentNode): ChildNode | null {
+	const child = firstChildOf(parent)
+	return child && !nextSiblingOf(child) ? child : null
+}
+
 // The element's child when it's a single text node.
-function onlyTextChildOf(element: Element): ChildNode | null {
-	const child = firstChildOf(element)
+function onlyTextChildOf(parent: ParentNode): ChildNode | null {
+	const child = firstChildOf(parent)
 	return child && nodeTypeOf(child) === TEXT_NODE_TYPE && !nextSiblingOf(child) ? child : null
 }
 
@@ -3865,9 +4057,17 @@ function canMorphElementInPlace(from: Element, to: Element): boolean {
 	return true
 }
 
-// Only an element's own identity counts, so a wrapper holding an id'd element still matches by its tag.
+// Only an element's own identity counts, so a wrapper holding an id'd element still matches by its tag. An `href` or
+// `src` pairs elements sharing it first, but doesn't stop one matching by its tag, so a link or an iframe whose
+// address changes is updated in place. A script doesn't run again when its `src` (or an SVG script's `href`)
+// changes, and a media element doesn't look at a source again, so they're still replaced.
 function canSoftMatchByTagName(element: Element): boolean {
-	return idOf(element) === "" && !isFormControl(element) && !hasMatchKeyAttribute(element)
+	return (
+		idOf(element) === "" &&
+		!isFormControl(element) &&
+		!getAttribute(element, "name") &&
+		!(REPLACED_ON_ADDRESS_CHANGE.has(localNameOf(element)) && (getAttribute(element, "src") || getAttribute(element, "href")))
+	)
 }
 
 // Whether the elements have the same non-empty name, href or src.
@@ -4022,6 +4222,7 @@ const firstChildOf = getter(() => Node.prototype, "firstChild")
 const previousSiblingOf = getter(() => Node.prototype, "previousSibling")
 const nextSiblingOf = getter(() => Node.prototype, "nextSibling")
 const ownerDocumentOf = getter(() => Node.prototype, "ownerDocument")
+const isContentEditableOf = getter(() => HTMLElement.prototype, "isContentEditable")
 const isConnected = getter(() => Node.prototype, "isConnected")
 const textContentOf = getter(() => Node.prototype, "textContent")
 const idOf = getter(() => Element.prototype, "id")
@@ -4029,7 +4230,6 @@ const localNameOf = getter(() => Element.prototype, "localName")
 const namespaceURIOf = getter(() => Element.prototype, "namespaceURI")
 const prefixOf = getter(() => Element.prototype, "prefix")
 const attributesOf = getter(() => Element.prototype, "attributes")
-const childrenOf = getter(() => Element.prototype, "children")
 const firstElementChildOf = getter(() => Element.prototype, "firstElementChild")
 const nextElementSiblingOf = getter(() => Element.prototype, "nextElementSibling")
 const documentElementOf = getter(() => Document.prototype, "documentElement")
@@ -4182,6 +4382,33 @@ function createComment(document: Document, data: string): Comment {
 
 function getElementsByName(document: Document, name: string): NodeListOf<HTMLElement> {
 	return Document.prototype.getElementsByName.call(document, name)
+}
+
+// New nodes and moved matches go after the nodes whose removal was vetoed, as they go in other morphers, and after the
+// movable elements that may stay when the morph settles. So the insertion point skips the kept nodes in front of it,
+// with the matches that move later and the whitespace among them. The whitespace before a vetoed node stays with it,
+// rather than being removed.
+function skipKeptNodes(
+	insertionPoint: ChildNode | null,
+	kept: Map<ChildNode, boolean>,
+	moving: Set<ChildNode>,
+	liveWhitespace: Set<ChildNode> | null,
+): ChildNode | null {
+	let after = insertionPoint
+	for (let node = insertionPoint; node;) {
+		const next = nextSiblingOf(node)
+		const vetoed = kept.get(node)
+		if (vetoed !== undefined) {
+			if (vetoed) {
+				for (let skipped = after!; skipped !== node; skipped = nextSiblingOf(skipped)!) liveWhitespace?.delete(skipped)
+			}
+			after = next
+		} else if (!moving.has(node) && !liveWhitespace?.has(node)) {
+			break
+		}
+		node = next
+	}
+	return after
 }
 
 // Find longest increasing subsequence to minimize moves during reordering

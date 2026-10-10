@@ -51,7 +51,7 @@ morphDocument(document, await response.text())
 ```
 
 - **`morph(from, to, options?)`** morphs `from` into `to`. The target can be a node, a `NodeList` or a string. If it has several nodes, the first is morphed into `from` and the rest are inserted after it. If it has none, `from` is removed. A string is parsed where `from` is, as `innerHTML` on its parent would parse it: a string for an `<html>`, `<head>` or `<body>` is parsed as a document, and one for an element inside SVG or MathML is parsed in that namespace.
-- **`morphInner(from, to, options?)`** morphs the children of `from` into the children of `to`, leaving the attributes of `from` alone. Both must be elements with the same tag name and namespace. A string target must contain exactly one element.
+- **`morphInner(from, to, options?)`** morphs the children of `from` into the children of `to`, leaving the attributes of `from` alone. Both must be elements with the same tag name and namespace. A string target must contain exactly one element. `from` can also be a shadow root, in which case `to` is a `DocumentFragment` (or another shadow root) whose children it takes, or a string of its content, like `shadowRoot.innerHTML`.
 - **`morphDocument(from, to, options?)`** morphs the `<html>` element of one document into another. A string target is parsed with `DOMParser`.
 
 Morphlex throws if it needs to replace or insert next to a node that has no parent, for example when morphing a detached `<div>` into a `<span>`.
@@ -110,6 +110,36 @@ When a node can’t be morphed in place and has to be replaced, `beforeNodeRemov
 
 An element with a unique id can move to a new parent during a morph (except `<option>` and `<optgroup>` elements, whose selection belongs to their `<select>`), and it moves once the rest of the morph is done. Until then, callbacks for other nodes, including `afterNodeAdded`, may see an empty comment where the element will go, or the element still in its old place. The after callbacks for the node you passed to `morph` see the finished DOM.
 
+## Scripts
+
+A `<script>` in new content doesn’t run when Morphlex inserts it, just as it wouldn’t with `innerHTML`. Browsers never run a script parsed from a string, a `<template>` or `DOMParser`, so this applies to string targets and to most node targets. A script that is morphed into an existing `<script>` doesn’t run again either, even when its content changes.
+
+To run new scripts, collect them in `afterNodeAdded`, then once the morph is done, replace each one with a fresh copy in document order, so they see the finished DOM:
+
+```javascript
+const scripts = []
+
+morph(currentNode, newHTML, {
+  afterNodeAdded(node) {
+    if (!(node instanceof Element)) return
+    scripts.push(...(node.matches("script") ? [node] : node.querySelectorAll("script")))
+  },
+})
+
+scripts.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+
+for (const inert of scripts) {
+  const script = document.createElement("script")
+  for (const { name, value } of inert.attributes) script.setAttribute(name, value)
+  script.nonce = inert.nonce
+  script.async = inert.hasAttribute("async")
+  script.textContent = inert.textContent
+  inert.replaceWith(script)
+}
+```
+
+Copying `nonce` keeps the script allowed under a nonce-based Content Security Policy, since the browser hides the attribute once the script is in the page. Setting `async` from the attribute keeps external scripts running in order, but inline scripts still run straight away, so one can run before an external script above it has loaded. Only use this with HTML strings, templates or parsed documents: a script you create with `document.createElement` already runs when it’s inserted, so this would run it twice.
+
 ## Preserving changes
 
 Form controls have two sides: the content attribute in the markup (`value`, `checked`, `selected`, or the text inside a `<textarea>`), and the live property the user edits. Morphlex always updates the attributes to match the new markup. What happens to the live properties depends on `preserveChanges`.
@@ -156,7 +186,7 @@ When morphing the children of an element, Morphlex pairs each new child with an 
 4. An element that contains one of the same `id`s somewhere inside it.
 5. With `preserveChanges`, a checkbox, radio or option the user changed is paired with one making the same choice, such as the same name and value in the same form, and an element such as a `<label>` holding one is paired with an element holding the same choice. This keeps the user’s pick in place when items are added or reordered around it.
 6. An element with the same non-empty `name`, `href` or `src` attribute.
-7. Any element with the same tag name, as long as neither element has an `id`, a non-empty `name`, `href` or `src`, and neither is a form control. Ids inside the elements don’t count, so a wrapper without its own identity still pairs by position.
+7. Any element with the same tag name, as long as neither element has an `id` or a non-empty `name`, and neither is a form control. Ids inside the elements don’t count, so a wrapper without its own identity still pairs by position, and an `href` or `src` doesn’t either, so a link, image or iframe whose address changes is updated in place. A `<script>` or media `<source>` with a `src` still isn’t paired by tag, since it wouldn’t be loaded again.
 
 When a new child’s unique `id` belongs to a live element under another parent that can be morphed into it, the new child isn’t paired here. That element moves to the new child’s place instead (see [Options](#options)).
 
