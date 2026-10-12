@@ -44,7 +44,17 @@ When the server does need to overwrite what the user typed, such as clearing a f
 
 Whatever the user has or hasn’t touched, the morph ends with the markup you passed in, unless one of your callbacks says otherwise. That holds for the tricky parts of HTML too: `<template>` content, duplicate ids, SVG and MathML, forms with fields named like DOM properties (such as `<input name="remove">`), radio groups that span forms, and customizable selects.
 
-Morphlex is tested in Chromium, Firefox and WebKit, with over 1,200 tests and 100% code coverage. On every pull request and every push to main, fuzzers morph thousands of fresh random trees and forms in all three browsers, checking that the result matches the target and that the user’s changes, focus and caret survive. Every night, each fuzzer runs another 50,000 seeds.
+### How it’s tested
+
+Every test runs in a real browser, through Vitest’s browser mode and Playwright, never in a simulated DOM. Most of what a morph can get wrong depends on how browsers really behave: which controls they count as changed, how radio groups and selects pick, where focus and the caret go when a node moves, and what `moveBefore` keeps.
+
+The suite has over 1,200 tests of several kinds:
+
+- **Examples** of each behaviour, including cases adapted from the morphdom and idiomorph test suites, and before-and-after fixtures of a whole app and a whole document.
+- **Exhaustive tests** that morph every small tree over a fixed set of nodes into every other one, where matching rules interact most, and check that a second morph changes nothing.
+- **Fuzzers** that morph random trees, lists and forms and check a property over every seed: the result matches the target; morphing again makes no mutations; a small change makes only that one mutation; callbacks that allow everything change nothing, and vetoes are respected; elements that move keep their node, focus and caret; and the user’s typed text, checked boxes, picked options and radios, and open `<details>` and `<dialog>` are kept with `preserveChanges` and reset without it. A failure names its seed, so it can be rerun on its own.
+
+On every pull request and every push to main, CI checks formatting, lint and types, then runs the whole suite in Chromium, Firefox and WebKit, each on its own runner. Most fuzzers try 2,000 fresh seeds inside the suite and 4,000 more in a separate job for each browser, starting from a new seed on every run. Coverage is measured in Chromium, and the build fails if it drops below 100% of lines, branches, functions and statements. Every night, they each run another 50,000 seeds.
 
 ### Compared with other morphers
 
