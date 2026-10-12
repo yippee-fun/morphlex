@@ -1662,8 +1662,18 @@ class Morph {
 	// when it settles is left out, since giving it back would leave its group without a pick once it goes.
 	#heldPicks(): Array<Pick> | null {
 		if (!this.#preserveChanges || !this.#picks.length) return null
+		return this.#picks.filter((pick) => isPicked(pick) && !this.#isRemovedOnSettle(pick))
+	}
+
+	// Whether the element is inside a node the morph removes when it settles, and doesn't move out of it first.
+	#isRemovedOnSettle(element: Element): boolean {
 		const deferred = this.#deferredRemovals
-		return this.#picks.filter((pick) => isPicked(pick) && !deferred?.some((node) => contains(node, pick)))
+		if (!deferred) return false
+		for (let node: Element | null = element; node; node = parentElementOf(node)) {
+			if (this.#claimedElements.has(node)) return false
+			if (deferred.includes(node)) return true
+		}
+		return false
 	}
 
 	// Note the `open` value the morph means an accordion item to have, whatever the browser does to it:
