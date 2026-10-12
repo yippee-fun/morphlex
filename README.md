@@ -6,7 +6,7 @@ Morphlex is a DOM morphing library that transforms one DOM tree to match another
 
 ## It keeps what the user did
 
-Re-rendering a page from the server shouldn’t undo the user’s work. With [`preserveChanges`](#preserving-changes), what the user typed, checked, picked or opened survives it. Say the user picked a size and wrote a note on the second item of a list:
+Re-rendering a page from the server shouldn’t undo the user’s work. With [`preserveChanges`](#preserving-changes), what the user typed, checked, picked or opened survives it, as long as each form control has a `name` or `id` so Morphlex can tell which is which (see [How matching works](#how-matching-works)). Say the user picked a size and wrote a note on the second item of a list:
 
 ```javascript
 // <form>
@@ -42,7 +42,7 @@ When the server does need to overwrite what the user typed, such as clearing a f
 
 ## It’s correct
 
-Whatever the user has or hasn’t touched, the morph ends with the markup you passed in, unless one of your callbacks says otherwise, or `preserveChanges` leaves a `<details>` or `<dialog>` open or closed as the user left it. That holds for the tricky parts of HTML too: `<template>` content, duplicate ids, SVG and MathML, forms with fields named like DOM properties (such as `<input name="remove">`), radio groups that span forms, and customizable selects.
+Whatever the user has or hasn’t touched, the morph ends with the markup you passed in, unless one of your callbacks says otherwise, or `preserveChanges` keeps what only the user decides: whether a `<details>` or `<dialog>` is open, and the content of a focused `contenteditable`. That holds for the tricky parts of HTML too: `<template>` content, duplicate ids, SVG and MathML, forms with fields named like DOM properties (such as `<input name="remove">`), radio groups that span forms, and customizable selects.
 
 ### How it’s tested
 
