@@ -24,7 +24,7 @@ function keepsWrappersInSelects(): boolean {
 	return parse(`<select><div><option>x</option></div></select>`).firstElementChild?.localName === "div"
 }
 
-test("a new option with a selected attribute is selected, like any option that gains the attribute", () => {
+test("a new option with a selected attribute is selected, unless preserveChanges keeps the user's pick", () => {
 	for (const preserveChanges of [false, true]) {
 		const host = mount(`<select id="s"><option id="a">a</option><option id="b">b</option></select>`)
 		const select = host.querySelector("select")!
@@ -37,7 +37,7 @@ test("a new option with a selected attribute is selected, like any option that g
 		)
 
 		expect(host.querySelector("select")).toBe(select)
-		expect(select.value).toBe("n")
+		expect(select.value).toBe(preserveChanges ? "b" : "n")
 		host.remove()
 	}
 })

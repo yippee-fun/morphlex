@@ -1225,6 +1225,13 @@ class Morph {
 	// morph from a callback can clear their flags.
 	readonly #dirtyElements: Set<Element> | null = null
 	readonly #flagged: Set<Element> = new Set()
+	// The radios and the options of single selects the user picked. The browser only tracks those, not their groups,
+	// so with `preserveChanges` a radio the markup checks or an option it selects would take the pick, whether it gains
+	// the attribute or arrives with it. So the picks are given back.
+	readonly #picks: Array<Pick> = []
+	// Whether the radios the user picked outside the root have been added to the picks, which is left until a change
+	// could take one, since it looks through the whole document. A radio inside the root can take their group's pick.
+	#outsidePicksAdded = false
 	readonly #targetChoices: Map<Element, { counts: Map<string, number>; size: number }> = new Map()
 	// The select keying the target's options in a morph rooted at or inside a select, which the target's options
 	// don't have.
@@ -1269,6 +1276,8 @@ class Morph {
 	#displacedRadios: Map<HTMLInputElement, HTMLInputElement> | null = null
 	// Only a target with a checked input can add a checked radio, so other morphs skip looking for one.
 	#targetChecksInputs = false
+	// Only a target with a checked input or a selected option can take a user's pick by inserting one.
+	#targetPicks = false
 
 	// Items of exclusive accordions (`details` with a name) the morph wants open, with their `open` value.
 	// Inserting an open item, or giving one a name, closes it while another in its group is open, so the
@@ -1304,6 +1313,7 @@ class Morph {
 			const dirtyElements = new Set<Element>()
 			for (const element of flagged) {
 				this.#flagged.add(element)
+				if (isPick(element)) this.#picks.push(element)
 				for (let node: Element | null = element; node && !dirtyElements.has(node); node = parentElementOf(node)) {
 					dirtyElements.add(node)
 				}
@@ -1632,6 +1642,7 @@ class Morph {
 			// Checking a radio unchecks the rest of its group, which gets its check back if the radio then leaves.
 			const group =
 				name === "checked" && namespaceURI === null && isRadio(from) && !from.checked ? checkedRadiosInGroup(from) : null
+			const held = namespaceURI === null && (name === "checked" || name === "selected") ? this.#heldPicks() : null
 			const existing = getAttributeNodeNS(from, namespaceURI, localName)
 			if (existing) {
 				existing.value = value
@@ -1642,9 +1653,33 @@ class Morph {
 			}
 			this.#checkRadios(radios)
 			if (group) this.#noteDisplacedRadios(group, from as HTMLInputElement)
+			if (held) givePicksBack(held)
 			this.#options.afterAttributeUpdated?.(from, name, oldValue)
 		} else {
 			this.#noteVetoedAttribute(from, name, namespaceURI)
+		}
+		return false
+	}
+
+	// The picks the user still holds, to give back any that the markup's next change takes. A pick the morph removes
+	// when it settles is left out, since giving it back would leave its group without a pick once it goes.
+	#heldPicks(): Array<Pick> | null {
+		if (!this.#preserveChanges) return null
+		if (!this.#outsidePicksAdded) {
+			this.#outsidePicksAdded = true
+			this.#picks.push(...radiosPickedOutside(this.#root!))
+		}
+		if (!this.#picks.length) return null
+		return this.#picks.filter((pick) => isPicked(pick) && !this.#isRemovedOnSettle(pick))
+	}
+
+	// Whether the element is inside a node the morph removes when it settles, and doesn't move out of it first.
+	#isRemovedOnSettle(element: Element): boolean {
+		const deferred = this.#deferredRemovals
+		if (!deferred) return false
+		for (let node: Element | null = element; node; node = parentElementOf(node)) {
+			if (this.#claimedElements.has(node)) return false
+			if (deferred.includes(node)) return true
 		}
 		return false
 	}
@@ -3207,6 +3242,8 @@ class Morph {
 		// and inside it, including forms that live elements claim out of it next. Those inside it are
 		// checked again straight away, since they're the target's own state, not markup the morph resets.
 		const live = isConnected(node)
+		// Before anything unchecks radios for a moment, which would leave a pick out.
+		const held = this.#targetPicks && isElement(node) ? this.#heldPicks() : null
 		const sourceRadios = live ? this.#uncheckRadiosNamingFormsIn(node, getRootNode(node), true) : null
 		// Before its claimed forms leave it, which takes them out of the radios' sight.
 		const unnamed = live ? unnameRadiosNamingFormsIn(node) : null
@@ -3228,6 +3265,7 @@ class Morph {
 		this.#checkRadios(radios)
 		this.#checkRadios(sourceRadios, true)
 		this.#checkRadios(addedRadios, true)
+		if (held) givePicksBack(held)
 		if (this.#targetChecksInputs && !this.#preserveChanges && isElement(node)) this.#noteAddedRadios(node)
 		this.#options.afterNodeAdded?.(node)
 		return true
@@ -3466,6 +3504,9 @@ class Morph {
 		if (!this.#targetChecksInputs) {
 			this.#targetChecksInputs =
 				isElement(node) && isInputElement(node) ? hasAttribute(node, "checked") : querySelector(node, "input[checked]") !== null
+		}
+		if (!this.#targetPicks) {
+			this.#targetPicks = (isElement(node) && matchesSelector(node, PICK_SELECTOR)) || querySelector(node, PICK_SELECTOR) !== null
 		}
 		if (!this.#targetOpensDetails) {
 			this.#targetOpensDetails =
@@ -3955,6 +3996,38 @@ function isTemplateElement(element: Element): element is HTMLTemplateElement {
 // Groups are found per form, or per tree for radios without one, and kept in `groups` so each is
 // only searched once.
 type RadioGroups = Map<Node, Map<string, Array<HTMLInputElement>>>
+
+type Pick = HTMLInputElement | HTMLOptionElement
+
+const PICK_SELECTOR = "input[checked], option[selected]"
+
+function isPick(element: Element): element is Pick {
+	if (isRadio(element)) return element.checked
+	if (!isOptionElement(element) || !element.selected) return false
+	const select = selectOf(element)
+	return select !== null && !select.multiple
+}
+
+// The checked radios outside the node, in its document or shadow root, that the user picked rather than the markup.
+function radiosPickedOutside(node: Node): Array<HTMLInputElement> {
+	const picked: Array<HTMLInputElement> = []
+	for (const input of querySelectorAll(getRootNode(node) as ParentNode, "input:checked")) {
+		if (isRadio(input) && input.name !== "" && !input.defaultChecked && !contains(node, input)) picked.push(input)
+	}
+	return picked
+}
+
+function isPicked(pick: Pick): boolean {
+	return isOptionElement(pick) ? pick.selected : pick.checked
+}
+
+function givePicksBack(held: Array<Pick>): void {
+	for (const pick of held) {
+		if (isPicked(pick)) continue
+		if (isOptionElement(pick)) pick.selected = true
+		else pick.checked = true
+	}
+}
 
 function radioGroupOf(radio: HTMLInputElement, groups: RadioGroups): Array<HTMLInputElement> {
 	if (radio.name === "") return [radio]
