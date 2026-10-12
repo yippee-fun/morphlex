@@ -207,12 +207,25 @@ function assertUserChangesKept(
 	}
 }
 
-// An input or textarea the user didn't change follows its markup after the morph. Selects are left out, since under
-// `preserveChanges` the browser decides their selection.
+// An input or textarea the user didn't change follows its markup after the morph, unless it's a radio in a group where
+// the radio the user picked is still checked. Selects are left out, since their picks are checked above.
 function assertUntouchedFollowMarkup(untouched: Array<FormControl>, root: Element, message: () => string): void {
 	for (const control of untouched) {
-		if (root.contains(control)) expect(isDirty(control), `${message()}\nuntouched ${control.outerHTML}`).toBe(false)
+		if (!root.contains(control) || holdsUserPick(control)) continue
+		expect(isDirty(control), `${message()}\nuntouched ${control.outerHTML}`).toBe(false)
 	}
+}
+
+function holdsUserPick(control: FormControl): boolean {
+	if (!isInput(control) || control.type !== "radio" || !control.name) return false
+	return [...control.ownerDocument.querySelectorAll("input")].some(
+		(other) =>
+			(other as Element & { fuzzDirty?: boolean }).fuzzDirty &&
+			other.type === "radio" &&
+			other.checked &&
+			other.name === control.name &&
+			other.form === control.form,
+	)
 }
 
 type FormControl = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
@@ -488,8 +501,7 @@ function formOf(item: Container, forms: Array<Container>): Container | null {
 }
 
 // Zero to four changes to the target, within the root. With `preserveChanges` the changes keep every control's
-// path and never check a radio or select an option the user didn't, since the browser would then drop the user's
-// pick, and never rename a text control, whose target is found by name.
+// path and never rename a text control, whose target is found by name.
 function mutate(random: Random, root: Container, preserveChanges: boolean, formIds: Array<string>, nextId: () => string): void {
 	const count = random() < 0.1 ? 0 : randomInt(random, 1, 4)
 	for (let i = 0; i < count; i++) {
@@ -511,6 +523,8 @@ function mutate(random: Random, root: Container, preserveChanges: boolean, formI
 				for (const change of shuffle(random, changes).slice(0, randomInt(random, 1, 3))) change()
 			}
 			ops.push(retune, retune, retune)
+			// The markup moving `checked` to another radio.
+			if (preserveChanges && control.kind === "radio") ops.push(() => checkRadio(root, control))
 			ops.push(() => removeItem(root, control))
 			if (control.kind === "select") {
 				ops.push(() => shuffle(random, control.options))
@@ -522,7 +536,7 @@ function mutate(random: Random, root: Container, preserveChanges: boolean, formI
 				}
 				ops.push(() => {
 					const option = pick(random, control.options)
-					option.selected = preserveChanges ? false : !option.selected
+					option.selected = !option.selected
 				})
 			}
 			if (!preserveChanges) {
@@ -544,8 +558,8 @@ function mutate(random: Random, root: Container, preserveChanges: boolean, formI
 			if (source && random() < 0.7 && namesFor(source.kind) === namesFor(added.kind)) added.name = source.name
 			if (preserveChanges) {
 				if (makesSameChoice(added, controls)) return
-				added.checked = false
-				for (const option of added.options) option.selected = false
+				// A new radio the markup checks, which unchecks the rest of its group.
+				if (added.checked) checkRadio(root, added)
 			} else {
 				added.form = pick(random, [null, null, "missing", ...formIds])
 			}
@@ -622,6 +636,14 @@ function attributeChanges(random: Random, control: Control, preserveChanges: boo
 	}
 	if (!preserveChanges) changes.push(() => (control.form = pick(random, [null, "missing", ...formIds])))
 	return changes
+}
+
+// Unchecking every radio with its name keeps one checked in each group, so an untouched radio follows its markup.
+function checkRadio(root: Container, radio: Control): void {
+	for (const other of controlsIn(root)) {
+		if (other.kind === "radio" && other.name === radio.name) other.checked = false
+	}
+	radio.checked = true
 }
 
 function container(tag: Container["tag"], id: string | null): Container {

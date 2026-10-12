@@ -1225,6 +1225,10 @@ class Morph {
 	// morph from a callback can clear their flags.
 	readonly #dirtyElements: Set<Element> | null = null
 	readonly #flagged: Set<Element> = new Set()
+	// The radios and the options of single selects the user picked. The browser only tracks those, not their groups,
+	// so with `preserveChanges` a radio the markup checks or an option it selects would take the pick, whether it gains
+	// the attribute or arrives with it. So the picks are given back.
+	readonly #picks: Array<Pick> = []
 	readonly #targetChoices: Map<Element, { counts: Map<string, number>; size: number }> = new Map()
 	// The select keying the target's options in a morph rooted at or inside a select, which the target's options
 	// don't have.
@@ -1304,6 +1308,7 @@ class Morph {
 			const dirtyElements = new Set<Element>()
 			for (const element of flagged) {
 				this.#flagged.add(element)
+				if (isPick(element)) this.#picks.push(element)
 				for (let node: Element | null = element; node && !dirtyElements.has(node); node = parentElementOf(node)) {
 					dirtyElements.add(node)
 				}
@@ -1632,6 +1637,7 @@ class Morph {
 			// Checking a radio unchecks the rest of its group, which gets its check back if the radio then leaves.
 			const group =
 				name === "checked" && namespaceURI === null && isRadio(from) && !from.checked ? checkedRadiosInGroup(from) : null
+			const held = namespaceURI === null && (name === "checked" || name === "selected") ? this.#heldPicks() : null
 			const existing = getAttributeNodeNS(from, namespaceURI, localName)
 			if (existing) {
 				existing.value = value
@@ -1642,11 +1648,17 @@ class Morph {
 			}
 			this.#checkRadios(radios)
 			if (group) this.#noteDisplacedRadios(group, from as HTMLInputElement)
+			if (held) givePicksBack(held)
 			this.#options.afterAttributeUpdated?.(from, name, oldValue)
 		} else {
 			this.#noteVetoedAttribute(from, name, namespaceURI)
 		}
 		return false
+	}
+
+	// The picks the user still holds, to give back any that the markup's next change takes.
+	#heldPicks(): Array<Pick> | null {
+		return this.#preserveChanges && this.#picks.length ? this.#picks.filter(isPicked) : null
 	}
 
 	// Note the `open` value the morph means an accordion item to have, whatever the browser does to it:
@@ -3216,6 +3228,7 @@ class Morph {
 		this.#placeMovableDescendants(node, parent)
 		if (this.#targetOpensDetails && isElement(node)) this.#noteAddedDetails(node)
 		const radios = this.#uncheckRadiosNamingFormsIn(node, getRootNode(parent))
+		const held = this.#heldPicks()
 		const addedRadios =
 			this.#targetChecksInputs && isElement(node)
 				? this.#uncheckRadiosWithForm(node)
@@ -3228,6 +3241,7 @@ class Morph {
 		this.#checkRadios(radios)
 		this.#checkRadios(sourceRadios, true)
 		this.#checkRadios(addedRadios, true)
+		if (held) givePicksBack(held)
 		if (this.#targetChecksInputs && !this.#preserveChanges && isElement(node)) this.#noteAddedRadios(node)
 		this.#options.afterNodeAdded?.(node)
 		return true
@@ -3955,6 +3969,27 @@ function isTemplateElement(element: Element): element is HTMLTemplateElement {
 // Groups are found per form, or per tree for radios without one, and kept in `groups` so each is
 // only searched once.
 type RadioGroups = Map<Node, Map<string, Array<HTMLInputElement>>>
+
+type Pick = HTMLInputElement | HTMLOptionElement
+
+function isPick(element: Element): element is Pick {
+	if (isRadio(element)) return element.checked
+	if (!isOptionElement(element) || !element.selected) return false
+	const select = selectOf(element)
+	return select !== null && !select.multiple
+}
+
+function isPicked(pick: Pick): boolean {
+	return isOptionElement(pick) ? pick.selected : pick.checked
+}
+
+function givePicksBack(held: Array<Pick>): void {
+	for (const pick of held) {
+		if (isPicked(pick)) continue
+		if (isOptionElement(pick)) pick.selected = true
+		else pick.checked = true
+	}
+}
 
 function radioGroupOf(radio: HTMLInputElement, groups: RadioGroups): Array<HTMLInputElement> {
 	if (radio.name === "") return [radio]
