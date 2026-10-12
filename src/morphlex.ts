@@ -2536,26 +2536,13 @@ class Morph {
 		}
 
 		// The matches that move, which go after the kept nodes too, so a kept node never ends up after the nodes placed
-		// in front of one of them. Only those with a kept node after them, before the next node that stays put, so the
-		// insertion point never scans the same moving nodes again for every target.
+		// in front of one of them.
 		let moving: Set<ChildNode> | null = null
 		if (kept) {
-			const moves = new Set<ChildNode>()
+			moving = new Set()
 			for (let i = 0; i < to.length; i++) {
 				const matchInd = matches[i]
-				if (matchInd !== undefined && !shouldNotMove[matchInd]) moves.add(from[matchInd]!)
-			}
-			moving = new Set()
-			let run: Array<ChildNode> = []
-			for (let node = firstChildOf(parent); node; node = nextSiblingOf(node)) {
-				if (kept.has(node)) {
-					for (let i = 0; i < run.length; i++) moving.add(run[i]!)
-					run = []
-				} else if (moves.has(node)) {
-					run.push(node)
-				} else if (!liveWhitespace?.has(node)) {
-					run = []
-				}
+				if (matchInd !== undefined && !shouldNotMove[matchInd]) moving.add(from[matchInd]!)
 			}
 		}
 
