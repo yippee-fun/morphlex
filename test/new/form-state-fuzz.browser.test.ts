@@ -82,13 +82,14 @@ test("seeded fuzz: form state after a morph is what parsing the markup gives, or
 			if (scenario.preserveChanges) {
 				const dirty = recordDirtyControls(root, parse(targetHtml))
 				const untouched = recordUntouchedControls(root)
+				const pickedGroups = recordPickedGroups(root)
 				const targets = countFreeTargets(parse(targetHtml), root)
 
 				morph(root, parse(targetHtml), { preserveChanges: true })
 
 				expect(root.isEqualNode(parse(targetHtml)), message()).toBe(true)
 				assertUserChangesKept(dirty, targets, host, message)
-				assertUntouchedFollowMarkup(untouched, root, message)
+				assertUntouchedFollowMarkup(untouched, pickedGroups, root, message)
 			} else {
 				const outside = recordOutsideState(host, root)
 				const expected = parseExpectedDocument(scenario, targetHtml)
@@ -208,24 +209,45 @@ function assertUserChangesKept(
 }
 
 // An input or textarea the user didn't change follows its markup after the morph, unless it's a radio in a group where
-// the radio the user picked is still checked. Selects are left out, since their picks are checked above.
-function assertUntouchedFollowMarkup(untouched: Array<FormControl>, root: Element, message: () => string): void {
+// the radio the user picked is still checked. Firefox keeps whether the user changed a radio for its whole group, so
+// there a radio that joins a group the user picked in doesn't follow its markup either, even once the pick is gone.
+// Selects are left out, since their picks are checked above.
+function assertUntouchedFollowMarkup(
+	untouched: Array<FormControl>,
+	pickedGroups: Set<string>,
+	root: Element,
+	message: () => string,
+): void {
 	for (const control of untouched) {
 		if (!root.contains(control) || holdsUserPick(control)) continue
+		if (isFirefox() && isRadio(control) && control.name && pickedGroups.has(groupKey(control))) continue
 		expect(isDirty(control), `${message()}\nuntouched ${control.outerHTML}`).toBe(false)
 	}
 }
 
 function holdsUserPick(control: FormControl): boolean {
-	if (!isInput(control) || control.type !== "radio" || !control.name) return false
+	if (!isRadio(control) || !control.name) return false
 	return [...control.ownerDocument.querySelectorAll("input")].some(
-		(other) =>
-			(other as Element & { fuzzDirty?: boolean }).fuzzDirty &&
-			other.type === "radio" &&
-			other.checked &&
-			other.name === control.name &&
-			other.form === control.form,
+		(other) => isUserChanged(other) && isRadio(other) && other.checked && groupKey(other) === groupKey(control),
 	)
+}
+
+// The groups of the radios the user picked, before the morph.
+function recordPickedGroups(root: Element): Set<string> {
+	const radios = [...root.querySelectorAll("input")].filter((input) => isUserChanged(input) && isRadio(input))
+	return new Set(radios.map(groupKey))
+}
+
+function isUserChanged(control: Element): boolean {
+	return (control as Element & { fuzzDirty?: boolean }).fuzzDirty === true
+}
+
+function groupKey(radio: HTMLInputElement): string {
+	return JSON.stringify([radio.name, radio.form?.id ?? null])
+}
+
+function isFirefox(): boolean {
+	return navigator.userAgent.includes("Firefox")
 }
 
 type FormControl = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement

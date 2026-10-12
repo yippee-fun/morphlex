@@ -256,3 +256,41 @@ test("with preserveChanges, a radio the user picked stays checked beside a remov
 	expect(new FormData(from).get("g")).toBe("b")
 	from.remove()
 })
+
+test("with preserveChanges, a radio the user picked outside a partial morph stays checked when the markup checks one inside", () => {
+	const from = dom(
+		`<form><input type="radio" name="g" value="a"><div><input type="radio" name="g" value="b" checked><input type="radio" name="g" value="c"></div></form>`,
+	) as HTMLFormElement
+	document.body.append(from)
+	from.querySelector<HTMLInputElement>("[value=a]")!.click()
+
+	morph(
+		from.querySelector("div")!,
+		`<div><input type="radio" name="g" value="b"><input type="radio" name="g" value="c" checked></div>`,
+		{
+			preserveChanges: true,
+		},
+	)
+
+	expect(new FormData(from).get("g")).toBe("a")
+	from.remove()
+})
+
+test("with preserveChanges, a radio the user picked outside a partial morph stays checked when a new radio arrives checked", () => {
+	const from = dom(
+		`<form><input type="radio" name="g" value="a"><div><input type="radio" name="g" value="b" checked></div></form>`,
+	) as HTMLFormElement
+	document.body.append(from)
+	from.querySelector<HTMLInputElement>("[value=a]")!.click()
+
+	morph(
+		from.querySelector("div")!,
+		`<div><input type="radio" name="g" value="b"><input type="radio" name="g" value="c" checked></div>`,
+		{
+			preserveChanges: true,
+		},
+	)
+
+	expect(new FormData(from).get("g")).toBe("a")
+	from.remove()
+})

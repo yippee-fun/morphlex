@@ -1229,6 +1229,9 @@ class Morph {
 	// so with `preserveChanges` a radio the markup checks or an option it selects would take the pick, whether it gains
 	// the attribute or arrives with it. So the picks are given back.
 	readonly #picks: Array<Pick> = []
+	// Whether the radios the user picked outside the root have been added to the picks, which is left until a change
+	// could take one, since it looks through the whole document. A radio inside the root can take their group's pick.
+	#outsidePicksAdded = false
 	readonly #targetChoices: Map<Element, { counts: Map<string, number>; size: number }> = new Map()
 	// The select keying the target's options in a morph rooted at or inside a select, which the target's options
 	// don't have.
@@ -1661,7 +1664,12 @@ class Morph {
 	// The picks the user still holds, to give back any that the markup's next change takes. A pick the morph removes
 	// when it settles is left out, since giving it back would leave its group without a pick once it goes.
 	#heldPicks(): Array<Pick> | null {
-		if (!this.#preserveChanges || !this.#picks.length) return null
+		if (!this.#preserveChanges) return null
+		if (!this.#outsidePicksAdded) {
+			this.#outsidePicksAdded = true
+			this.#picks.push(...radiosPickedOutside(this.#root!))
+		}
+		if (!this.#picks.length) return null
 		return this.#picks.filter((pick) => isPicked(pick) && !this.#isRemovedOnSettle(pick))
 	}
 
@@ -3998,6 +4006,15 @@ function isPick(element: Element): element is Pick {
 	if (!isOptionElement(element) || !element.selected) return false
 	const select = selectOf(element)
 	return select !== null && !select.multiple
+}
+
+// The checked radios outside the node, in its document or shadow root, that the user picked rather than the markup.
+function radiosPickedOutside(node: Node): Array<HTMLInputElement> {
+	const picked: Array<HTMLInputElement> = []
+	for (const input of querySelectorAll(getRootNode(node) as ParentNode, "input:checked")) {
+		if (isRadio(input) && input.name !== "" && !input.defaultChecked && !contains(node, input)) picked.push(input)
+	}
+	return picked
 }
 
 function isPicked(pick: Pick): boolean {
