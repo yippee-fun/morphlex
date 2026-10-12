@@ -6,7 +6,7 @@ Morphlex is a DOM morphing library that transforms one DOM tree to match another
 
 ## It keeps what the user did
 
-Re-rendering a page from the server shouldn’t undo the user’s work. With [`preserveChanges`](#preserving-changes), it never does. Say the user picked a size and wrote a note on the second item of a list:
+Re-rendering a page from the server shouldn’t undo the user’s work. With [`preserveChanges`](#preserving-changes), what the user typed, checked, picked or opened survives it. Say the user picked a size and wrote a note on the second item of a list:
 
 ```javascript
 // <form>
@@ -30,19 +30,19 @@ The select still shows “M”, even though a new option arrived before it. “a
 
 With `preserveChanges`, Morphlex:
 
-- Keeps typed text, checked boxes and picked options and radios, and lets the browser decide what the user has touched, so controls the user hasn’t touched still follow the new markup.
+- Keeps typed text, checked boxes and picked options and radios, and lets the browser decide what the user has touched, so inputs and textareas the user hasn’t touched still follow the new markup. (A select keeps showing what it showed, unless the markup selects something new. See [Preserving changes](#preserving-changes).)
 - Keeps each change with its own item when items are added, removed or reordered around it, even in lists without ids.
-- Gives the user’s pick back when the new markup moves `checked` to another radio or `selected` to another option, which the browser alone would let it take.
+- Gives the user’s pick back when the new markup moves `checked` to another radio or `selected` to another option, which the browser alone would let it take. A user who picks the default again looks untouched to the browser, so then the markup decides.
 - Leaves `<details>` and `<dialog>` open or closed as the user left them.
-- Leaves the text in a focused `contenteditable` alone.
+- Leaves the text in a focused `contenteditable` alone. Once it loses focus, it follows the markup, since whether the user typed in it can’t be told.
 - Keeps focus, the caret and the selection when the focused element moves, even to another parent.
-- Moves elements with a unique `id` to wherever the new markup puts them, even under another parent, so they keep their state and listeners.
+- Moves elements with a unique `id` to wherever the new markup puts them, even under another parent, so they keep their state and listeners. Options, optgroups and the element you pass to `morph` don’t move.
 
 When the server does need to overwrite what the user typed, such as clearing a form after it’s submitted, mark that part of the markup with [`morphlex-clobber`](#discarding-changes-with-morphlex-clobber).
 
 ## It’s correct
 
-Whatever the user has or hasn’t touched, the morph ends with the markup you passed in, unless one of your callbacks says otherwise. That holds for the tricky parts of HTML too: `<template>` content, duplicate ids, SVG and MathML, forms with fields named like DOM properties (such as `<input name="remove">`), radio groups that span forms, and customizable selects.
+Whatever the user has or hasn’t touched, the morph ends with the markup you passed in, unless one of your callbacks says otherwise, or `preserveChanges` leaves a `<details>` or `<dialog>` open or closed as the user left it. That holds for the tricky parts of HTML too: `<template>` content, duplicate ids, SVG and MathML, forms with fields named like DOM properties (such as `<input name="remove">`), radio groups that span forms, and customizable selects.
 
 ### How it’s tested
 
