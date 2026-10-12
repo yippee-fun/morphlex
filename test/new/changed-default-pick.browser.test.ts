@@ -186,3 +186,37 @@ test("without preserveChanges, a new radio arriving checked takes the group", ()
 	expect(new FormData(from).get("g")).toBe("d")
 	from.remove()
 })
+
+test("with preserveChanges, a radio the user picked stays checked when a new form takes it into a group with a checked radio", () => {
+	const radio = (value: string, checked = false) =>
+		`<input type="radio" name="g" value="${value}" form="f"${checked ? " checked" : ""}>`
+	const from = dom(`<div>${radio("a", true)}${radio("b")}</div>`) as HTMLDivElement
+	document.body.append(from)
+	from.querySelector<HTMLInputElement>("[value=b]")!.click()
+
+	morph(from, `<div>${radio("a", true)}${radio("b")}<div><form id="f"></form>${radio("c", true)}</div></div>`, {
+		preserveChanges: true,
+	})
+
+	expect(from.querySelector<HTMLInputElement>("[value=b]")!.checked).toBe(true)
+	expect(from.querySelector<HTMLInputElement>("[value=c]")!.checked).toBe(false)
+	from.remove()
+})
+
+test("with preserveChanges, a new radio the markup checks keeps the group when the user's pick is removed later", () => {
+	const from = dom(
+		`<form><p><input type="radio" name="g" value="b"><span id="k">k</span></p><input type="radio" name="g" value="a" checked></form>`,
+	) as HTMLFormElement
+	document.body.append(from)
+	from.querySelector<HTMLInputElement>("[value=b]")!.click()
+
+	morph(
+		from,
+		`<form><span id="k">k</span><input type="radio" name="g" value="a"><input type="radio" name="g" value="c" checked></form>`,
+		{ preserveChanges: true },
+	)
+
+	expect(from.querySelector("[value=b]")).toBe(null)
+	expect(new FormData(from).get("g")).toBe("c")
+	from.remove()
+})

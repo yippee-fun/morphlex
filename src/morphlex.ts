@@ -1273,6 +1273,8 @@ class Morph {
 	#displacedRadios: Map<HTMLInputElement, HTMLInputElement> | null = null
 	// Only a target with a checked input can add a checked radio, so other morphs skip looking for one.
 	#targetChecksInputs = false
+	// Only a target with a checked input or a selected option can take a user's pick by inserting one.
+	#targetPicks = false
 
 	// Items of exclusive accordions (`details` with a name) the morph wants open, with their `open` value.
 	// Inserting an open item, or giving one a name, closes it while another in its group is open, so the
@@ -1656,9 +1658,12 @@ class Morph {
 		return false
 	}
 
-	// The picks the user still holds, to give back any that the markup's next change takes.
+	// The picks the user still holds, to give back any that the markup's next change takes. A pick the morph removes
+	// when it settles is left out, since giving it back would leave its group without a pick once it goes.
 	#heldPicks(): Array<Pick> | null {
-		return this.#preserveChanges && this.#picks.length ? this.#picks.filter(isPicked) : null
+		if (!this.#preserveChanges || !this.#picks.length) return null
+		const deferred = this.#deferredRemovals
+		return this.#picks.filter((pick) => isPicked(pick) && !deferred?.some((node) => contains(node, pick)))
 	}
 
 	// Note the `open` value the morph means an accordion item to have, whatever the browser does to it:
@@ -3219,6 +3224,8 @@ class Morph {
 		// and inside it, including forms that live elements claim out of it next. Those inside it are
 		// checked again straight away, since they're the target's own state, not markup the morph resets.
 		const live = isConnected(node)
+		// Before anything unchecks radios for a moment, which would leave a pick out.
+		const held = this.#targetPicks && isElement(node) ? this.#heldPicks() : null
 		const sourceRadios = live ? this.#uncheckRadiosNamingFormsIn(node, getRootNode(node), true) : null
 		// Before its claimed forms leave it, which takes them out of the radios' sight.
 		const unnamed = live ? unnameRadiosNamingFormsIn(node) : null
@@ -3228,7 +3235,6 @@ class Morph {
 		this.#placeMovableDescendants(node, parent)
 		if (this.#targetOpensDetails && isElement(node)) this.#noteAddedDetails(node)
 		const radios = this.#uncheckRadiosNamingFormsIn(node, getRootNode(parent))
-		const held = this.#heldPicks()
 		const addedRadios =
 			this.#targetChecksInputs && isElement(node)
 				? this.#uncheckRadiosWithForm(node)
@@ -3480,6 +3486,9 @@ class Morph {
 		if (!this.#targetChecksInputs) {
 			this.#targetChecksInputs =
 				isElement(node) && isInputElement(node) ? hasAttribute(node, "checked") : querySelector(node, "input[checked]") !== null
+		}
+		if (!this.#targetPicks) {
+			this.#targetPicks = (isElement(node) && matchesSelector(node, PICK_SELECTOR)) || querySelector(node, PICK_SELECTOR) !== null
 		}
 		if (!this.#targetOpensDetails) {
 			this.#targetOpensDetails =
@@ -3971,6 +3980,8 @@ function isTemplateElement(element: Element): element is HTMLTemplateElement {
 type RadioGroups = Map<Node, Map<string, Array<HTMLInputElement>>>
 
 type Pick = HTMLInputElement | HTMLOptionElement
+
+const PICK_SELECTOR = "input[checked], option[selected]"
 
 function isPick(element: Element): element is Pick {
 	if (isRadio(element)) return element.checked
