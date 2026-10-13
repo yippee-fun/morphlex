@@ -34,7 +34,7 @@ With `preserveChanges`, Morphlex:
 - Keeps each change with its own item when items are added, removed or reordered around it, even in lists without ids.
 - Gives the user’s pick back when the new markup moves `checked` to another radio or `selected` to another option, which the browser alone would let it take. A user who picks the default again looks untouched to the browser, so then the markup decides.
 - Leaves `<details>` and `<dialog>` open or closed as the user left them.
-- Leaves the text in a focused `contenteditable` alone. Once it loses focus, it follows the markup, since whether the user typed in it can’t be told.
+- Keeps what the user typed into a `contenteditable`, even after it loses focus. Browsers keep no record of this, so Morphlex notes the editors the user types into. Editors that only a script changed still follow the markup.
 - Keeps focus, the caret and the selection when the focused element moves, even to another parent.
 - Moves elements with a unique `id` to wherever the new markup puts them, even under another parent, so they keep their state and listeners. Options, optgroups and the element you pass to `morph` don’t move.
 
@@ -42,7 +42,7 @@ When the server does need to overwrite what the user typed, such as clearing a f
 
 ## It’s correct
 
-Whatever the user has or hasn’t touched, the morph ends with the markup you passed in, unless one of your callbacks says otherwise, or `preserveChanges` keeps what only the user decides: whether a `<details>` or `<dialog>` is open, and the content of a focused `contenteditable`. That holds for the tricky parts of HTML too: `<template>` content, duplicate ids, SVG and MathML, forms with fields named like DOM properties (such as `<input name="remove">`), radio groups that span forms, and customizable selects.
+Whatever the user has or hasn’t touched, the morph ends with the markup you passed in, unless one of your callbacks says otherwise, or `preserveChanges` keeps what only the user decides: whether a `<details>` or `<dialog>` is open, and the content of a `contenteditable` the user typed into or that has focus. That holds for the tricky parts of HTML too: `<template>` content, duplicate ids, SVG and MathML, forms with fields named like DOM properties (such as `<input name="remove">`), radio groups that span forms, and customizable selects.
 
 ### How it’s tested
 
@@ -67,11 +67,12 @@ In October 2026 we ran the same 33 scenarios against Morphlex and seven other mo
 | A picked radio stays picked when a radio is added before it                |    ✅    |     0 of 7     |
 | A `<details>` the user opened stays open when the page re-renders          |    ✅    |     0 of 7     |
 | An input with an `id` keeps its typed text when it moves to another parent |    ✅    |     0 of 7     |
+| Text typed into a `contenteditable` is kept after it loses focus           |    ✅    |     0 of 7     |
 | Adding an item before identical unkeyed items adds one node                |    ✅    |     0 of 7     |
 | Typed text stays in its row when a keyed row is added above                |    ✅    |     2 of 7     |
 | The caret stays put when the focused input’s row moves                     |    ✅    |     2 of 7     |
 
-Overall, Morphlex passed 31 of the 33 scenarios. The others passed between 14 and 21: idiomorph 21, set-dom 18, Alpine morph 17, nanomorph 16, morphdom 15, diffhtml 15 and micromorph 14. Morphlex fails two on purpose or along with everyone else. A form control without a `name` or `id` is replaced when its markup changes (see [Form controls need a `name` or `id`](#form-controls-need-a-name-or-id)), and no library keeps text typed into a `contenteditable` that has lost focus.
+Overall, Morphlex passed 32 of the 33 scenarios. The others passed between 14 and 21: idiomorph 21, set-dom 18, Alpine morph 17, nanomorph 16, morphdom 15, diffhtml 15 and micromorph 14. The one Morphlex fails is on purpose: a form control without a `name` or `id` is replaced when its markup changes (see [Form controls need a `name` or `id`](#form-controls-need-a-name-or-id)).
 
 ## How it changes the DOM
 
