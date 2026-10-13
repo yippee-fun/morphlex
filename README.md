@@ -6,7 +6,7 @@ Morphlex is a DOM morphing library that transforms one DOM tree to match another
 
 ## It keeps what the user did
 
-Re-rendering a page from the server shouldn’t undo the user’s work. With [`preserveChanges`](#preserving-changes), what the user typed, checked, picked or opened survives it, as long as each form control has a `name` or `id` so Morphlex can tell which is which (see [How matching works](#how-matching-works)). Say the user picked a size and wrote a note on the second item of a list:
+Re-rendering a page from the server shouldn’t undo the user’s work. With [`preserveChanges`](#preserving-changes), what the user typed, checked, picked or opened survives it, as long as each form control has a `name` or `id` so Morphlex can tell which is which (see [Form controls need a `name` or `id`](#form-controls-need-a-name-or-id)). Say the user picked a size and wrote a note on the second item of a list:
 
 ```javascript
 // <form>
@@ -71,7 +71,7 @@ In October 2026 we ran the same 33 scenarios against Morphlex and seven other mo
 | Typed text stays in its row when a keyed row is added above                |    ✅    |     2 of 7     |
 | The caret stays put when the focused input’s row moves                     |    ✅    |     2 of 7     |
 
-Overall, Morphlex passed 31 of the 33 scenarios. The others passed between 14 and 21: idiomorph 21, set-dom 18, Alpine morph 17, nanomorph 16, morphdom 15, diffhtml 15 and micromorph 14. Morphlex fails two on purpose or along with everyone else. A form control without a `name` or `id` is replaced when its attributes change (see [How matching works](#how-matching-works)), and no library keeps text typed into a `contenteditable` that has lost focus.
+Overall, Morphlex passed 31 of the 33 scenarios. The others passed between 14 and 21: idiomorph 21, set-dom 18, Alpine morph 17, nanomorph 16, morphdom 15, diffhtml 15 and micromorph 14. Morphlex fails two on purpose or along with everyone else. A form control without a `name` or `id` is replaced when its markup changes (see [Form controls need a `name` or `id`](#form-controls-need-a-name-or-id)), and no library keeps text typed into a `contenteditable` that has lost focus.
 
 ## How it changes the DOM
 
@@ -265,9 +265,27 @@ Elements are only paired with elements of the same tag name and namespace. Text 
 
 Paired nodes are morphed in place, existing nodes that weren’t paired are removed, and new nodes that weren’t paired are inserted. Morphlex then moves the fewest nodes it can to get them in the right order, using `moveBefore` where the browser supports it so moved elements keep their state. The focused element keeps focus and its caret or selection when it moves. In browsers without `moveBefore`, the element holding focus stays where it is and its siblings move around it, and if a move takes it anyway, for example to another parent, it gets focus and its caret or selection back straight after the move.
 
-Form controls are never paired by tag name alone, so give them an `id` or `name`. Otherwise a control the user has changed can be replaced with a fresh one when its markup changes, and its value is lost even with `preserveChanges`. In general, stable `id`s are the best way to help Morphlex match elements, especially in lists that get reordered.
+Stable `id`s are the best way to help Morphlex match elements, especially in lists that get reordered.
 
 The element you pass to `morph` is replaced rather than morphed in place if its tag name, namespace or `is` attribute differs from the target, if it’s a form control whose `id` differs, or if it’s an `<input>` whose `type` differs. Elements paired during a morph already share a tag name and namespace, and are replaced only when their `is` attribute differs.
+
+### Form controls need a `name` or `id`
+
+Morphlex keeps a form control (an `<input>`, `<textarea>`, `<select>` or form-associated custom element) only when it can tell that the control in the new markup is the same field. It tells by the control’s `id`, or else its `name`. Without either, all it has to go on is the markup itself, so it only keeps a control whose markup hasn’t changed. If anything about it changes, even a class, the control could just as well be a different field in the same spot, and Morphlex assumes it is. It removes the old control and inserts a fresh one, so what the user typed into one field never turns up in another, such as an email address in a phone number field.
+
+The same goes when a control’s `name` changes and it has no `id`, when its `id` changes, and when an `<input>`’s `type` changes, which always means a fresh input.
+
+A replaced control loses what the user typed and its focus, even with `preserveChanges`. To keep them, give the control a `name` or `id` that stays the same while the rest of its markup changes:
+
+```html
+<!-- Replaced when the class changes, losing what the user typed -->
+<input placeholder="Search" class="busy" />
+
+<!-- Morphed in place, keeping what the user typed -->
+<input name="q" placeholder="Search" class="busy" />
+```
+
+With `preserveChanges`, a `<select>` the user picked from can also be matched by the option they picked, as in step 5 above.
 
 ### Templates
 
