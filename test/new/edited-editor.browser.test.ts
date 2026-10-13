@@ -155,3 +155,16 @@ test("an edited contenteditable keeps what the user typed when the morph starts 
 
 	host.remove()
 })
+
+test("an edited contenteditable that the target makes read-only keeps what the user typed under preserveChanges", async () => {
+	const host = mount(`<div contenteditable="true">Hello</div>`)
+	const editor = host.querySelector("div")!
+	await typeInto(editor, " there")
+
+	morphInner(host, `<div><div>Server</div></div>`, { preserveChanges: true })
+
+	expect(editor.hasAttribute("contenteditable")).toBe(false)
+	expect(editor.textContent).toBe("Hello there")
+
+	host.remove()
+})

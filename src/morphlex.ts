@@ -616,9 +616,10 @@ function isInEditedHost(element: Element): boolean {
 	// Only HTML elements can be editing hosts, and `isContentEditable` throws for others, like SVG elements, which are
 	// passed over, since they can be edited inside an editing host too.
 	for (let node: Element | null = element; node; node = parentElementOf(node)) {
+		// An edited host keeps what the user typed even when the target makes it read-only, as a focused one does.
+		if (editedHosts.has(node)) return true
 		if (namespaceURIOf(node) !== HTML_NAMESPACE) continue
 		if (!isContentEditableOf(node as HTMLElement)) return false
-		if (editedHosts.has(node)) return true
 	}
 	return false
 }
