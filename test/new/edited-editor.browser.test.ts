@@ -188,3 +188,25 @@ test("a select the user changed still has its options morphed under preserveChan
 
 	host.remove()
 })
+
+test("typing in a textarea inside a contenteditable doesn't count as an edit of the editor or the textarea", async () => {
+	const host = mount(`<div contenteditable="true"><textarea>old</textarea></div>`)
+	const editor = host.querySelector("div")!
+	const textarea = host.querySelector("textarea")!
+	textarea.focus()
+	textarea.setSelectionRange(3, 3)
+	await userEvent.keyboard("!")
+	textarea.blur()
+	expect(textarea.value).toBe("old!")
+
+	morphInner(textarea, `<textarea>new</textarea>`, { preserveChanges: true })
+	expect(textarea.defaultValue).toBe("new")
+
+	morphInner(host, `<div><div contenteditable="true"><textarea>new</textarea><p>new</p></div></div>`, {
+		preserveChanges: true,
+	})
+	expect(host.querySelector("textarea")).toBe(textarea)
+	expect(editor.querySelector("p")!.textContent).toBe("new")
+
+	host.remove()
+})

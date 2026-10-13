@@ -602,9 +602,11 @@ if (typeof document !== "undefined") {
 		"input",
 		(event) => {
 			// The event is retargeted out of shadow roots, so the first node of its path is the editing host itself, or a
-			// form control, which keeps its own record of the user's changes.
+			// form control, which keeps its own record of the user's changes even inside an editing host.
 			const target = event.composedPath()[0] as HTMLElement
+			const parent = parentElementOf(target)
 			if (!event.isTrusted || !isContentEditableOf(target)) return
+			if (parent instanceof HTMLElement && isContentEditableOf(parent)) return
 			editedHosts.add(target)
 			editsSeen = true
 		},
@@ -612,18 +614,18 @@ if (typeof document !== "undefined") {
 	)
 }
 
-// An element inside a contenteditable the user edited, or that editing host itself.
-function isInEditedHost(element: Element): boolean {
-	if (!editsSeen) return false
+// The contenteditable the user edited that holds the element, or is the element.
+function editedHostAround(element: Element): Element | null {
+	if (!editsSeen) return null
 	// Only HTML elements can be editing hosts, and `isContentEditable` throws for others, like SVG elements, which are
 	// passed over, since they can be edited inside an editing host too.
 	for (let node: Element | null = element; node; node = parentElementOf(node)) {
 		// An edited host keeps what the user typed even when the target makes it read-only, as a focused one does.
-		if (editedHosts.has(node)) return true
+		if (editedHosts.has(node)) return node
 		if (namespaceURIOf(node) !== HTML_NAMESPACE) continue
-		if (!isContentEditableOf(node as HTMLElement)) return false
+		if (!isContentEditableOf(node as HTMLElement)) return null
 	}
-	return false
+	return null
 }
 
 // Focus inside an editable region goes to its editing host, so the active element is the one the user types in.
@@ -1326,6 +1328,9 @@ class Morph {
 	#focusHolders: Set<Node> | null = null
 	// The editing host that's focused when the morph starts.
 	#editor: Element | null = null
+	// The editing host the user edited that the morph is in, found around the root when the morph starts, and then
+	// whenever the morph visits one, so elements inside it don't each look for it.
+	#editedHost: Element | null = null
 	// Focus a move took to where it couldn't be put back straight away, such as into a closed `details` that the
 	// morph opens later. It's tried again when the morph settles.
 	#unrestoredFocus: Focus | null = null
@@ -1361,6 +1366,7 @@ class Morph {
 		this.#root = from
 		this.#focusHolders = focusHoldersIn(from)
 		this.#editor = focusedEditorOf(from)
+		this.#editedHost = isElement(from) ? editedHostAround(from) : null
 		// A detached root has no siblings, so it's its own scope.
 		this.#scope = parentNodeOf(from) ?? from
 		this.#scopeStart = previousSiblingOf(from)
@@ -1385,6 +1391,8 @@ class Morph {
 		this.#root = from
 		this.#focusHolders = focusHoldersIn(from)
 		this.#editor = focusedEditorOf(from)
+		// A shadow root's editing hosts are inside it.
+		this.#editedHost = isElement(from) ? editedHostAround(from) : null
 		this.#scope = from
 		this.#keyForm = closestForm(from)
 		this.#innerTarget = to
@@ -1819,13 +1827,15 @@ class Morph {
 			return
 		}
 
+		if (editedHosts.has(from)) this.#editedHost = from
 		// The focused editing host, or one the user edited, keeps what the user typed, as a typed-in input keeps its
 		// value, and nothing inside it moves elsewhere. So does an element inside it, when the morph starts there. When
 		// the target holds a `morphlex-clobber` element, its children are visited, so that element discards the user's
 		// changes.
 		const keepsEdits =
 			this.#preserveChanges &&
-			((this.#editor !== null && contains(this.#editor, from)) || isInEditedHost(from)) &&
+			((this.#editor !== null && contains(this.#editor, from)) ||
+				(this.#editedHost !== null && contains(this.#editedHost, from))) &&
 			!this.#holdsClobbered(to)
 		if (keepsEdits) this.#pinSubtree(from)
 		if (keepsEdits || isFilledSelectedContent(from)) {
