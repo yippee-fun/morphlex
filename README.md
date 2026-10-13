@@ -31,12 +31,12 @@ The select still shows “M”, even though a new option arrived before it. “a
 With `preserveChanges`, Morphlex:
 
 - Keeps typed text, checked boxes and picked options and radios, and lets the browser decide what the user has touched, so inputs and textareas the user hasn’t touched still follow the new markup. (A select keeps showing what it showed, unless the markup selects something new. See [Preserving changes](#preserving-changes).)
-- Keeps each change with its own item when items are added, removed or reordered around it, even in lists without ids.
+- Keeps each form control’s change with its own item when items are added, removed or reordered around it, even in lists without ids.
 - Gives the user’s pick back when the new markup moves `checked` to another radio or `selected` to another option, which the browser alone would let it take. A user who picks the default again looks untouched to the browser, so then the markup decides.
 - Leaves `<details>` and `<dialog>` open or closed as the user left them.
 - Keeps what the user typed into a `contenteditable`, even after it loses focus. Browsers keep no record of this, so Morphlex notes the editors the user types into, in the page and in open shadow roots (in a closed shadow root or an iframe, only while the editor has focus). Editors that only a script changed still follow the markup.
 - Keeps focus, the caret and the selection when the focused element moves, even to another parent.
-- Moves elements with a unique `id` to wherever the new markup puts them, even under another parent, so they keep their state and listeners. Options, optgroups and the element you pass to `morph` don’t move.
+- Moves elements with a unique `id` to wherever the new markup puts them, even under another parent, so they keep their state and listeners. Options, optgroups and the element you pass to `morph` don’t move. Safari has no `moveBefore`, so there a moved modal dialog stops being modal and a moved open popover closes.
 
 When the server does need to overwrite what the user typed, such as clearing a form after it’s submitted, mark that part of the markup with [`morphlex-clobber`](#discarding-changes-with-morphlex-clobber).
 
