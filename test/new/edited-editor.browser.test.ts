@@ -12,8 +12,11 @@ function mount(html: string): HTMLElement {
 // Types at the end of the element, then moves focus away, as clicking a save button would.
 async function typeInto(element: HTMLElement, text: string): Promise<void> {
 	element.focus()
-	getSelection()!.selectAllChildren(element)
-	getSelection()!.collapseToEnd()
+	// Browsers differ in where a caret after the last element types, so it goes at the end of the last text.
+	const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+	let last: Text | null = null
+	while (walker.nextNode()) last = walker.currentNode as Text
+	getSelection()!.collapse(last, last!.length)
 	await userEvent.keyboard(text)
 	;((element.getRootNode() as Document | ShadowRoot).activeElement as HTMLElement).blur()
 	expect(element.contains(document.activeElement)).toBe(false)
