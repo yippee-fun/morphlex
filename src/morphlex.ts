@@ -601,9 +601,11 @@ if (typeof document !== "undefined") {
 		document,
 		"input",
 		(event) => {
-			if (!event.isTrusted) return
-			// The event is retargeted out of shadow roots, so the first node of its path is the editing host itself.
-			editedHosts.add(event.composedPath()[0] as Node)
+			// The event is retargeted out of shadow roots, so the first node of its path is the editing host itself, or a
+			// form control, which keeps its own record of the user's changes.
+			const target = event.composedPath()[0] as HTMLElement
+			if (!event.isTrusted || !isContentEditableOf(target)) return
+			editedHosts.add(target)
 			editsSeen = true
 		},
 		true,

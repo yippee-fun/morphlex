@@ -168,3 +168,23 @@ test("an edited contenteditable that the target makes read-only keeps what the u
 
 	host.remove()
 })
+
+test("a select the user changed still has its options morphed under preserveChanges", async () => {
+	const host = mount(`<select><option>a</option><option>b</option></select>`)
+	const select = host.querySelector("select")!
+	// Picking with the keyboard fires a trusted input event, which `selectOptions` doesn't.
+	select.focus()
+	await userEvent.keyboard("{ArrowDown}")
+	select.blur()
+	expect(select.value).toBe("b")
+
+	morphInner(host, `<div><select><option>a</option><option>b</option><option>c</option></select></div>`, {
+		preserveChanges: true,
+	})
+
+	expect(host.querySelector("select")).toBe(select)
+	expect(select.options.length).toBe(3)
+	expect(select.value).toBe("b")
+
+	host.remove()
+})
