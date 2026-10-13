@@ -271,9 +271,9 @@ The element you pass to `morph` is replaced rather than morphed in place if its 
 
 ### Form controls need a `name` or `id`
 
-Morphlex keeps a form control (an `<input>`, `<textarea>`, `<select>` or form-associated custom element) only when it can tell that the control in the new markup is the same field. It tells by the control’s `id`, or else its `name`. Without either, all it has to go on is the markup itself, so it only keeps a control whose markup hasn’t changed. If anything about it changes, even a class, the control could just as well be a different field in the same spot, and Morphlex assumes it is. It removes the old control and inserts a fresh one, so what the user typed into one field never turns up in another, such as an email address in a phone number field.
+When matching children, Morphlex keeps a form control (an `<input>`, `<textarea>`, `<select>` or form-associated custom element) only when it can tell that the control in the new markup is the same field. It tells by the control’s `id`, or else its `name`. Without either, all it has to go on is the markup itself, so it only keeps a control whose markup hasn’t changed. If anything about it changes, even a class, the control could just as well be a different field in the same spot, and Morphlex assumes it is. It removes the old control and inserts a fresh one, so what the user typed into one field never turns up in another, such as an email address in a phone number field.
 
-The same goes when a control’s `name` changes and it has no `id`, when its `id` changes, and when an `<input>`’s `type` changes, which always means a fresh input.
+The same goes when a control’s `name` changes and it has no `id`, when its `id` changes, and when an `<input>`’s `type` changes, which always means a fresh input. The element you pass to `morph` follows the rules in the paragraph just before this section instead.
 
 A replaced control loses what the user typed and its focus, even with `preserveChanges`. To keep them, give the control a `name` or `id` that stays the same while the rest of its markup changes:
 
