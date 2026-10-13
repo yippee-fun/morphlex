@@ -2,9 +2,79 @@
   <img src="https://github.com/phlex-ruby/morphlex/assets/246692/128ebe6a-bdf3-4b88-8a40-f29df64b3ac8" alt="Morphlex" width="481">
 </p>
 
-Morphlex is a DOM morphing library that transforms one DOM tree to match another while preserving element state and making minimal changes.
+Morphlex is a DOM morphing library that transforms one DOM tree to match another. It keeps what the user did, ends with exactly the markup you asked for, and makes as few changes to the DOM as it can.
 
-## What makes Morphlex different?
+## It keeps what the user did
+
+Re-rendering a page from the server shouldn’t undo the user’s work. With [`preserveChanges`](#preserving-changes), what the user typed, checked, picked or opened survives it, as long as each form control has a `name` or `id` so Morphlex can tell which is which (see [Form controls need a `name` or `id`](#form-controls-need-a-name-or-id)). Say the user picked a size and wrote a note on the second item of a list:
+
+```javascript
+// <form>
+//   <select name="size"><option>S</option><option>M</option><option>L</option></select>
+//   <ul><li>Milk <input name="note"></li><li>Eggs <input name="note"></li></ul>
+// </form>
+//
+// The user picks “M”, then types “a dozen” next to Eggs and leaves the caret there.
+
+const html = `
+  <form>
+    <select name="size"><option>XS</option><option>S</option><option>M</option><option>L</option></select>
+    <ul><li>Bread <input name="note"></li><li>Milk <input name="note"></li><li>Eggs <input name="note"></li></ul>
+  </form>
+`
+
+morph(form, html, { preserveChanges: true })
+```
+
+The select still shows “M”, even though a new option arrived before it. “a dozen” is still next to Eggs, in the same input, which still has focus and its caret, even though a new row arrived above it and none of the rows have ids. Bread gets a fresh, empty input.
+
+With `preserveChanges`, Morphlex:
+
+- Keeps typed text, checked boxes and picked options and radios, and lets the browser decide what the user has touched, so inputs and textareas the user hasn’t touched still follow the new markup. (A select keeps showing what it showed, unless the markup selects something new. See [Preserving changes](#preserving-changes).)
+- Keeps each form control’s change with its own item when items are added, removed or reordered around it, even in lists without ids.
+- Gives the user’s pick back when the new markup moves `checked` to another radio or `selected` to another option, which the browser alone would let it take. A user who picks the default again looks untouched to the browser, so then the markup decides.
+- Leaves `<details>` and `<dialog>` open or closed as the user left them.
+- Keeps what the user typed into a `contenteditable`, even after it loses focus. Browsers keep no record of this, so Morphlex notes the editors the user types into, in the page and in open shadow roots (in a closed shadow root or an iframe, only while the editor has focus). Editors that only a script changed still follow the markup.
+- Keeps focus, the caret and the selection when the focused element moves, even to another parent.
+- Moves elements with a unique `id` to wherever the new markup puts them, even under another parent, so they keep their state and listeners. Options, optgroups and the element you pass to `morph` don’t move. Safari has no `moveBefore`, so there a moved modal dialog stops being modal and a moved open popover closes.
+
+When the server does need to overwrite what the user typed, such as clearing a form after it’s submitted, mark that part of the markup with [`morphlex-clobber`](#discarding-changes-with-morphlex-clobber).
+
+## It’s correct
+
+Whatever the user has or hasn’t touched, the morph ends with the markup you passed in, unless one of your callbacks says otherwise, or `preserveChanges` keeps what only the user decides: whether a `<details>` or `<dialog>` is open, and the content of a `contenteditable` the user typed into or that has focus. That holds for the tricky parts of HTML too: `<template>` content, duplicate ids, SVG and MathML, forms with fields named like DOM properties (such as `<input name="remove">`), radio groups that span forms, and customizable selects.
+
+### How it’s tested
+
+Every test runs in a real browser, through Vitest’s browser mode and Playwright, never in a simulated DOM. Most of what a morph can get wrong depends on how browsers really behave: which controls they count as changed, how radio groups and selects pick, where focus and the caret go when a node moves, and what `moveBefore` keeps.
+
+The suite has over 1,200 tests of several kinds:
+
+- **Examples** of each behaviour, including cases adapted from the morphdom and idiomorph test suites, and before-and-after fixtures of a whole app and a whole document.
+- **Exhaustive tests** that morph every small tree over a fixed set of nodes into every other one, where matching rules interact most, and check that a second morph changes nothing.
+- **Fuzzers** that morph random trees, lists and forms and check a property over every seed: the result matches the target; morphing again makes no mutations; a small change makes only that one mutation; callbacks that allow everything change nothing, and vetoes are respected; elements that move keep their node, focus and caret; and the user’s typed text, checked boxes, picked options and radios, and open `<details>` and `<dialog>` are kept with `preserveChanges` and reset without it. A failure names its seed, so it can be rerun on its own.
+
+On every pull request and every push to main, CI checks formatting, lint and types, then runs the whole suite in Chromium, Firefox and WebKit, each on its own runner. Most fuzzers try 2,000 fresh seeds inside the suite and 4,000 more in a separate job for each browser, starting from a new seed on every run. Coverage is measured in Chromium, and the build fails if it drops below 100% of lines, branches, functions and statements. Every night, they each run another 50,000 seeds.
+
+### Compared with other morphers
+
+In October 2026 we ran the same 33 scenarios against Morphlex and seven other morphing libraries, each in its most state-keeping mode, in Chromium, Firefox and WebKit. The results were the same in all three browsers.
+
+| Scenario                                                                   | Morphlex | Others passing |
+| -------------------------------------------------------------------------- | :------: | :------------: |
+| Typed text stays in its row when an unkeyed row is added above             |    ✅    |     0 of 7     |
+| A select keeps the user’s pick when an option is added before it           |    ✅    |     0 of 7     |
+| A picked radio stays picked when a radio is added before it                |    ✅    |     0 of 7     |
+| A `<details>` the user opened stays open when the page re-renders          |    ✅    |     0 of 7     |
+| An input with an `id` keeps its typed text when it moves to another parent |    ✅    |     0 of 7     |
+| Text typed into a `contenteditable` is kept after it loses focus           |    ✅    |     0 of 7     |
+| Adding an item before identical unkeyed items adds one node                |    ✅    |     0 of 7     |
+| Typed text stays in its row when a keyed row is added above                |    ✅    |     2 of 7     |
+| The caret stays put when the focused input’s row moves                     |    ✅    |     2 of 7     |
+
+Overall, Morphlex passed 32 of the 33 scenarios. The others passed between 14 and 21: idiomorph 21, set-dom 18, Alpine morph 17, nanomorph 16, morphdom 15, diffhtml 15 and micromorph 14. The one Morphlex fails is on purpose: a form control without a `name` or `id` is replaced when its markup changes (see [Form controls need a `name` or `id`](#form-controls-need-a-name-or-id)).
+
+## How it changes the DOM
 
 1. No cascading mutations from inserts. Each inserted node is one DOM operation.
 2. No cascading mutations from removes. Each removed node is one DOM operation.
@@ -196,9 +266,27 @@ Elements are only paired with elements of the same tag name and namespace. Text 
 
 Paired nodes are morphed in place, existing nodes that weren’t paired are removed, and new nodes that weren’t paired are inserted. Morphlex then moves the fewest nodes it can to get them in the right order, using `moveBefore` where the browser supports it so moved elements keep their state. The focused element keeps focus and its caret or selection when it moves. In browsers without `moveBefore`, the element holding focus stays where it is and its siblings move around it, and if a move takes it anyway, for example to another parent, it gets focus and its caret or selection back straight after the move.
 
-Form controls are never paired by tag name alone, so give them an `id` or `name`. Otherwise a control the user has changed can be replaced with a fresh one when its markup changes, and its value is lost even with `preserveChanges`. In general, stable `id`s are the best way to help Morphlex match elements, especially in lists that get reordered.
+Stable `id`s are the best way to help Morphlex match elements, especially in lists that get reordered.
 
 The element you pass to `morph` is replaced rather than morphed in place if its tag name, namespace or `is` attribute differs from the target, if it’s a form control whose `id` differs, or if it’s an `<input>` whose `type` differs. Elements paired during a morph already share a tag name and namespace, and are replaced only when their `is` attribute differs.
+
+### Form controls need a `name` or `id`
+
+When matching children, Morphlex keeps a form control (an `<input>`, `<textarea>`, `<select>` or form-associated custom element) only when it can tell that the control in the new markup is the same field. It tells by the control’s `id`, or else its `name`. Without either, all it has to go on is the markup itself, so it only keeps a control whose markup hasn’t changed. If anything about it changes, even a class, the control could just as well be a different field in the same spot, and Morphlex assumes it is. It removes the old control and inserts a fresh one, so what the user typed into one field never turns up in another, such as an email address in a phone number field.
+
+The same goes when a control’s `name` changes and it has no `id`, when its `id` changes, and when an `<input>`’s `type` changes, which always means a fresh input. The element you pass to `morph` follows the rules in the paragraph just before this section instead.
+
+A replaced control loses what the user typed and its focus, even with `preserveChanges`. To keep them, give the control a `name` or `id` that stays the same while the rest of its markup changes:
+
+```html
+<!-- Replaced when the class changes, losing what the user typed -->
+<input placeholder="Search" class="busy" />
+
+<!-- Morphed in place, keeping what the user typed -->
+<input name="q" placeholder="Search" class="busy" />
+```
+
+With `preserveChanges`, a `<select>` the user picked from can also be matched by the option they picked, as in step 5 above.
 
 ### Templates
 
