@@ -591,8 +591,8 @@ function selectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null>
 	return [...markup, null, ...select.selectedOptions]
 }
 
-// The browser keeps no record of the user editing a contenteditable, so the editing hosts that get an `input` event,
-// which only the user's editing fires, are noted from when morphlex loads.
+// The browser keeps no record of the user editing a contenteditable, so the editing hosts that get a trusted `input`
+// event, which only the user's editing fires, are noted from when morphlex loads.
 const editedHosts: WeakSet<Node> = new WeakSet()
 let editsSeen = false
 /* v8 ignore else -- morphlex can be imported where there's no document, like during server rendering */
@@ -601,6 +601,7 @@ if (typeof document !== "undefined") {
 		document,
 		"input",
 		(event) => {
+			if (!event.isTrusted) return
 			// The event is retargeted out of shadow roots, so the first node of its path is the editing host itself.
 			editedHosts.add(event.composedPath()[0] as Node)
 			editsSeen = true
@@ -612,7 +613,12 @@ if (typeof document !== "undefined") {
 // An element inside a contenteditable the user edited, or that editing host itself.
 function isInEditedHost(element: Element): boolean {
 	if (!editsSeen) return false
-	for (let node: Element | null = element; node && isContentEditableOf(node as HTMLElement); node = parentElementOf(node)) {
+	// Only HTML elements can be editing hosts, and `isContentEditable` throws for others, like SVG elements.
+	for (
+		let node: Element | null = element;
+		node && namespaceURIOf(node) === HTML_NAMESPACE && isContentEditableOf(node as HTMLElement);
+		node = parentElementOf(node)
+	) {
 		if (editedHosts.has(node)) return true
 	}
 	return false

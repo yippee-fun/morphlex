@@ -108,3 +108,30 @@ test("an untouched contenteditable next to an edited one follows the markup unde
 
 	host.remove()
 })
+
+test("an input event dispatched by script doesn't count as an edit under preserveChanges", () => {
+	const host = mount(`<div contenteditable="true">Hello</div>`)
+	const editor = host.querySelector("div")!
+	editor.textContent = "Script"
+	editor.dispatchEvent(new InputEvent("input", { bubbles: true }))
+
+	morphInner(host, `<div><div contenteditable="true">Server</div></div>`, { preserveChanges: true })
+
+	expect(editor.textContent).toBe("Server")
+
+	host.remove()
+})
+
+test("an SVG element is morphed under preserveChanges after the user edited a contenteditable", async () => {
+	const host = mount(`<div contenteditable="true">Hello</div><svg><circle r="1"></circle></svg>`)
+	await typeInto(host.querySelector("div")!, "!")
+
+	morphInner(host, `<div><div contenteditable="true">Hello</div><svg><circle r="2"></circle></svg></div>`, {
+		preserveChanges: true,
+	})
+
+	expect(host.querySelector("circle")!.getAttribute("r")).toBe("2")
+	expect(host.querySelector("div")!.textContent).toBe("Hello!")
+
+	host.remove()
+})
