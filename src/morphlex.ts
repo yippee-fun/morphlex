@@ -613,12 +613,11 @@ if (typeof document !== "undefined") {
 // An element inside a contenteditable the user edited, or that editing host itself.
 function isInEditedHost(element: Element): boolean {
 	if (!editsSeen) return false
-	// Only HTML elements can be editing hosts, and `isContentEditable` throws for others, like SVG elements.
-	for (
-		let node: Element | null = element;
-		node && namespaceURIOf(node) === HTML_NAMESPACE && isContentEditableOf(node as HTMLElement);
-		node = parentElementOf(node)
-	) {
+	// Only HTML elements can be editing hosts, and `isContentEditable` throws for others, like SVG elements, which are
+	// passed over, since they can be edited inside an editing host too.
+	for (let node: Element | null = element; node; node = parentElementOf(node)) {
+		if (namespaceURIOf(node) !== HTML_NAMESPACE) continue
+		if (!isContentEditableOf(node as HTMLElement)) return false
 		if (editedHosts.has(node)) return true
 	}
 	return false

@@ -131,7 +131,27 @@ test("an SVG element is morphed under preserveChanges after the user edited a co
 	})
 
 	expect(host.querySelector("circle")!.getAttribute("r")).toBe("2")
+
+	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+	svg.innerHTML = `<g><circle r="1"></circle></g>`
+	morphInner(svg, `<svg><g><circle r="2"></circle></g></svg>`, { preserveChanges: true })
+	expect(svg.querySelector("circle")!.getAttribute("r")).toBe("2")
 	expect(host.querySelector("div")!.textContent).toBe("Hello!")
+
+	host.remove()
+})
+
+test("an edited contenteditable keeps what the user typed when the morph starts at an SVG element inside it", async () => {
+	const host = mount(`<div contenteditable="true">Hello<svg><text>Label</text></svg></div>`)
+	const editor = host.querySelector("div")!
+	const text = editor.querySelector("text")!
+	await typeInto(editor, "!")
+	text.textContent = "Edited"
+
+	morph(text, `<text>Server</text>`, { preserveChanges: true })
+	morphInner(text, `<text>Server</text>`, { preserveChanges: true })
+
+	expect(text.textContent).toBe("Edited")
 
 	host.remove()
 })
