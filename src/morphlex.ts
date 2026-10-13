@@ -591,6 +591,33 @@ function selectionOf(select: HTMLSelectElement): Array<HTMLOptionElement | null>
 	return [...markup, null, ...select.selectedOptions]
 }
 
+// The browser keeps no record of the user editing a contenteditable, so the editing hosts that get an `input` event,
+// which only the user's editing fires, are noted from when morphlex loads.
+const editedHosts: WeakSet<Node> = new WeakSet()
+let editsSeen = false
+/* v8 ignore else -- morphlex can be imported where there's no document, like during server rendering */
+if (typeof document !== "undefined") {
+	EventTarget.prototype.addEventListener.call(
+		document,
+		"input",
+		(event) => {
+			// The event is retargeted out of shadow roots, so the first node of its path is the editing host itself.
+			editedHosts.add(event.composedPath()[0] as Node)
+			editsSeen = true
+		},
+		true,
+	)
+}
+
+// An element inside a contenteditable the user edited, or that editing host itself.
+function isInEditedHost(element: Element): boolean {
+	if (!editsSeen) return false
+	for (let node: Element | null = element; node && isContentEditableOf(node as HTMLElement); node = parentElementOf(node)) {
+		if (editedHosts.has(node)) return true
+	}
+	return false
+}
+
 // Focus inside an editable region goes to its editing host, so the active element is the one the user types in.
 function focusedEditorOf(node: Node): Element | null {
 	const element = activeElementIn(getRootNode(node))
@@ -1784,10 +1811,14 @@ class Morph {
 			return
 		}
 
-		// The focused editing host keeps what the user typed, as a typed-in input keeps its value, and nothing inside it
-		// moves elsewhere. So does an element inside it, when the morph starts there. When the target holds a
-		// `morphlex-clobber` element, its children are visited, so that element discards the user's changes.
-		const keepsEdits = this.#preserveChanges && this.#editor !== null && contains(this.#editor, from) && !this.#holdsClobbered(to)
+		// The focused editing host, or one the user edited, keeps what the user typed, as a typed-in input keeps its
+		// value, and nothing inside it moves elsewhere. So does an element inside it, when the morph starts there. When
+		// the target holds a `morphlex-clobber` element, its children are visited, so that element discards the user's
+		// changes.
+		const keepsEdits =
+			this.#preserveChanges &&
+			((this.#editor !== null && contains(this.#editor, from)) || isInEditedHost(from)) &&
+			!this.#holdsClobbered(to)
 		if (keepsEdits) this.#pinSubtree(from)
 		if (keepsEdits || isFilledSelectedContent(from)) {
 			this.#settleIfRoot(from)
