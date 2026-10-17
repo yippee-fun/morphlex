@@ -1646,10 +1646,10 @@ class Morph {
 						} else {
 							const radios = namespaceURI ? null : this.#uncheckRadiosForAttribute(from, name, null)
 							// A multiple select that becomes a drop-down keeps only one option, which needn't be the user's pick.
-							const held = name === "multiple" && namespaceURI === null ? this.#heldPicks() : null
+							const held = name === "multiple" && namespaceURI === null && isSelectElement(to) ? this.#heldPicks() : null
 							removeAttributeNS(from, namespaceURI, localName)
 							this.#checkRadios(radios)
-							if (held) givePicksBack(held)
+							if (held) givePicksBack(picksKeptLast(held, to as HTMLSelectElement))
 							// The markup unchecks it, so it doesn't get back a check another radio took from it.
 							if (name === "checked") this.#displacedRadios?.delete(from as HTMLInputElement)
 						}
@@ -4056,6 +4056,14 @@ function radiosPickedOutside(node: Node): Array<HTMLInputElement> {
 
 function isPicked(pick: Pick): boolean {
 	return isOptionElement(pick) ? pick.selected : pick.checked
+}
+
+// The last pick given back stays selected in a drop-down, so it's one whose value the target still has, rather than
+// one the morph is about to remove, which would leave the drop-down showing neither.
+function picksKeptLast(held: Array<Pick>, to: HTMLSelectElement): Array<Pick> {
+	const values = new Set(Array.from(to.options, (option) => option.value))
+	const kept = (pick: Pick) => isOptionElement(pick) && values.has(pick.value)
+	return [...held.filter((pick) => !kept(pick)), ...held.filter(kept)]
 }
 
 function givePicksBack(held: Array<Pick>): void {

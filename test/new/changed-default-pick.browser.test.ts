@@ -137,6 +137,20 @@ test("with preserveChanges, an option the user picked in a multiple select stays
 	expect(new FormData(from).getAll("s")).toEqual(["c"])
 })
 
+test("with preserveChanges, an option the user picked in a multiple select stays selected when it becomes a drop-down that drops another pick", () => {
+	const from = dom(
+		`<form><select name="s" multiple><option value="a">a</option><option value="b">b</option><option value="c">c</option></select></form>`,
+	) as HTMLFormElement
+	from.querySelector<HTMLOptionElement>("[value=b]")!.selected = true
+	from.querySelector<HTMLOptionElement>("[value=c]")!.selected = true
+
+	morph(from, `<form><select name="s"><option value="a">a</option><option value="b">b</option></select></form>`, {
+		preserveChanges: true,
+	})
+
+	expect(new FormData(from).getAll("s")).toEqual(["b"])
+})
+
 test("with preserveChanges, an untouched select follows its markup", () => {
 	const from = select("a")
 
