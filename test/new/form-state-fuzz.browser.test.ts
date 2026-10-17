@@ -295,13 +295,29 @@ function countFreeTargets(target: Element, root: Element): Map<string, number> {
 		const key = keyOf(control, liveIds, formAroundMorph)
 		free.set(key, [...(free.get(key) ?? []), control])
 	}
+	const displaced: Array<FormControl> = []
 	for (const control of controls) {
 		if (isDirty(control)) continue
 		const key = keyOf(control, targetIds)
-		if (controls.some((other) => isDirty(other) && keyOf(other, targetIds) === key && other.isEqualNode(control))) continue
+		if (controls.some((other) => isDirty(other) && keyOf(other, targetIds) === key && other.isEqualNode(control))) {
+			displaced.push(control)
+			continue
+		}
 		const candidates = free.get(key) ?? []
 		const index = candidates.findIndex((candidate) => control.isEqualNode(candidate))
 		if (index >= 0) candidates.splice(index, 1)
+	}
+	// A textarea's outline is its text, and the morph gives the targets with an outline to the elements with that outline
+	// first, changed ones before untouched ones. So an untouched textarea whose target a changed twin took still takes a
+	// target with its text, if there's one left over, before a changed textarea with other text can.
+	for (const control of displaced) {
+		if (!isTextarea(control)) continue
+		const key = keyOf(control, targetIds)
+		const sameText = (other: Element) => isTextarea(other) && other.defaultValue === control.defaultValue
+		const candidates = free.get(key) ?? []
+		const changed = controls.filter((other) => isDirty(other) && keyOf(other, targetIds) === key && sameText(other))
+		const index = candidates.findIndex(sameText)
+		if (index >= 0 && candidates.filter(sameText).length > changed.length) candidates.splice(index, 1)
 	}
 	return new Map([...free].map(([key, candidates]) => [key, candidates.length]))
 }
@@ -768,6 +784,10 @@ function isRadio(control: Element): control is HTMLInputElement {
 
 function isSelect(control: Element): control is HTMLSelectElement {
 	return control.localName === "select"
+}
+
+function isTextarea(control: Element): control is HTMLTextAreaElement {
+	return control.localName === "textarea"
 }
 
 function shuffle<T>(random: Random, values: Array<T>): Array<T> {
