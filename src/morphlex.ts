@@ -1688,7 +1688,11 @@ class Morph {
 			// Checking a radio unchecks the rest of its group, which gets its check back if the radio then leaves.
 			const group =
 				name === "checked" && namespaceURI === null && isRadio(from) && !from.checked ? checkedRadiosInGroup(from) : null
-			const held = namespaceURI === null && (name === "checked" || name === "selected") ? this.#heldPicks() : null
+			// An option gaining `selected` in a multiple select takes nothing from the others.
+			const held =
+				namespaceURI === null && (name === "checked" || (name === "selected" && !selectOf(from)?.multiple))
+					? this.#heldPicks()
+					: null
 			const existing = getAttributeNodeNS(from, namespaceURI, localName)
 			if (existing) {
 				existing.value = value
