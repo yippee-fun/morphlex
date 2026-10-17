@@ -1262,7 +1262,7 @@ class Morph {
 	// morph from a callback can clear their flags.
 	readonly #dirtyElements: Set<Element> | null = null
 	readonly #flagged: Set<Element> = new Set()
-	// The radios and the options of single selects the user picked. The browser only tracks those, not their groups,
+	// The radios and the options the user picked. The browser only tracks those, not their groups,
 	// so with `preserveChanges` a radio the markup checks or an option it selects would take the pick, whether it gains
 	// the attribute or arrives with it. So the picks are given back.
 	readonly #picks: Array<Pick> = []
@@ -1645,8 +1645,11 @@ class Morph {
 							from.close()
 						} else {
 							const radios = namespaceURI ? null : this.#uncheckRadiosForAttribute(from, name, null)
+							// A multiple select that becomes a drop-down keeps only one option, which needn't be the user's pick.
+							const held = name === "multiple" && namespaceURI === null ? this.#heldPicks() : null
 							removeAttributeNS(from, namespaceURI, localName)
 							this.#checkRadios(radios)
+							if (held) givePicksBack(held)
 							// The markup unchecks it, so it doesn't get back a check another radio took from it.
 							if (name === "checked") this.#displacedRadios?.delete(from as HTMLInputElement)
 						}
@@ -4039,9 +4042,7 @@ const PICK_SELECTOR = "input[checked], option[selected]"
 
 function isPick(element: Element): element is Pick {
 	if (isRadio(element)) return element.checked
-	if (!isOptionElement(element) || !element.selected) return false
-	const select = selectOf(element)
-	return select !== null && !select.multiple
+	return isOptionElement(element) && element.selected && selectOf(element) !== null
 }
 
 // The checked radios outside the node, in its document or shadow root, that the user picked rather than the markup.
