@@ -136,7 +136,7 @@ All three functions accept an optional third argument for configuration:
 ```javascript
 morph(currentNode, newNode, {
   preserveChanges: true,
-  getNodeKey: (node) => node.getAttribute("data-key"),
+  keyAttribute: "data-key",
   beforeNodeAdded: (parent, node, insertionPoint) => {
     console.log("Adding node:", node)
     return true // return false to prevent addition
@@ -146,7 +146,7 @@ morph(currentNode, newNode, {
 
 - **`preserveChanges`**: When `true`, form controls the user has changed keep their values, and the `open` state of `<details>` and `<dialog>` elements is left alone. See [Preserving changes](#preserving-changes). Default: `false`
 
-- **`getNodeKey(node)`**: Returns an element’s unique key. Morphlex uses keyed elements to keep the right node when siblings are reordered and to move elements across parents instead of recreating them. A falsy return value means the element is unkeyed. By default, Morphlex uses the element’s `id`, so providing this option replaces `id` as the key rather than adding another kind of key.
+- **`keyAttribute`**: The attribute whose value uniquely identifies an element. Morphlex uses keyed elements to keep the right node when siblings are reordered and to move elements across parents instead of recreating them. An absent or empty attribute leaves the element unkeyed. Default: `"id"`
 
 - **`beforeNodeVisited(fromNode, toNode)`**: Called before a node is visited during morphing. Return `false` to skip morphing this node. Nodes that already match their target are left alone without being visited, so this isn’t called for them.
 
@@ -257,7 +257,7 @@ When morphing the children of an element, Morphlex pairs each new child with an 
 
 1. An existing node that is already identical.
 2. An element that only differs by what the user changed in its form controls, unless the new element is or holds a `morphlex-clobber` element.
-3. An element with the same key. The key is its `id` by default, or the value from `getNodeKey` when provided.
+3. An element with the same key. The key is the value of its `id` attribute by default, or of `keyAttribute` when configured.
 4. An element that contains one of the same keys somewhere inside it.
 5. With `preserveChanges`, a checkbox, radio or option the user changed is paired with one making the same choice, such as the same name and value in the same form, and an element such as a `<label>` holding one is paired with an element holding the same choice. This keeps the user’s pick in place when items are added or reordered around it.
 6. An element with the same non-empty `name`, `href` or `src` attribute.
@@ -269,7 +269,7 @@ Elements are only paired with elements of the same tag name and namespace. Text 
 
 Paired nodes are morphed in place, existing nodes that weren’t paired are removed, and new nodes that weren’t paired are inserted. Morphlex then moves the fewest nodes it can to get them in the right order, using `moveBefore` where the browser supports it so moved elements keep their state. The focused element keeps focus and its caret or selection when it moves. In browsers without `moveBefore`, the element holding focus stays where it is and its siblings move around it, and if a move takes it anyway, for example to another parent, it gets focus and its caret or selection back straight after the move.
 
-Stable keys are the best way to help Morphlex match elements, especially in lists that get reordered. These are stable `id`s by default, or whatever `getNodeKey` returns when you customize it.
+Stable keys are the best way to help Morphlex match elements, especially in lists that get reordered. These are stable `id`s by default, or values of the configured `keyAttribute`.
 
 The element you pass to `morph` is replaced rather than morphed in place if its tag name, namespace or `is` attribute differs from the target, if it’s a form control whose key differs, or if it’s an `<input>` whose `type` differs. Elements paired during a morph already share a tag name and namespace, and are replaced only when their `is` attribute differs.
 

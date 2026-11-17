@@ -51,9 +51,8 @@ const Operation = {
 
 type Operation = (typeof Operation)[keyof typeof Operation]
 
-type KeySetMap = WeakMap<Node, Set<unknown>>
-type KeyArrayMap = WeakMap<Node, Array<unknown>>
-type GetNodeKey = (node: Element) => unknown
+type KeySetMap = WeakMap<Node, Set<string>>
+type KeyArrayMap = WeakMap<Node, Array<string>>
 // What the markup selects in each option's single select, or undefined for an option of a multiple select.
 type DefaultOptionMap = Map<Element, HTMLOptionElement | null | undefined>
 
@@ -62,11 +61,11 @@ type DefaultOptionMap = Map<Element, HTMLOptionElement | null | undefined>
  */
 export interface Options {
 	/**
-	 * Returns an element's unique key, used to match and move it instead of recreating it.
-	 * A falsy return value means the element is unkeyed.
-	 * @default (node) => node.id
+	 * The attribute whose value uniquely identifies an element, so it can be matched and moved instead of recreated.
+	 * An absent or empty attribute leaves the element unkeyed.
+	 * @default "id"
 	 */
-	getNodeKey?: GetNodeKey
+	keyAttribute?: string
 
 	/**
 	 * When `true`, preserves modified form inputs during morphing.
@@ -1005,7 +1004,7 @@ class Siblings {
 	readonly to: Array<ChildNode>
 	readonly candidateNodes: Array<number> = []
 	readonly candidateElements: Array<number> = []
-	readonly candidateElementsByKey: Map<unknown, Array<number>> = new Map()
+	readonly candidateElementsByKey: Map<string, Array<number>> = new Map()
 	readonly whitespace: Array<number> = []
 	readonly unmatchedNodes: Array<number> = []
 	readonly unmatchedElements: Array<number> = []
@@ -1035,7 +1034,7 @@ class Siblings {
 		return shape
 	}
 
-	constructor(from: ParentNode, to: ParentNode, ignoresOpen: boolean, getNodeKey: GetNodeKey) {
+	constructor(from: ParentNode, to: ParentNode, ignoresOpen: boolean, keyAttribute: string) {
 		this.#ignoresOpen = ignoresOpen
 		this.from = nodeListToArray(childNodesOf(from))
 		this.to = nodeListToArray(childNodesOf(to))
@@ -1048,7 +1047,7 @@ class Siblings {
 				this.candidateActive[i] = 1
 				this.#fromLocalNames[i] = localNameOf(candidate)
 				this.#fromNamespaces[i] = namespaceURIOf(candidate)
-				const key = keyOf(candidate, getNodeKey)
+				const key = keyOf(candidate, keyAttribute)
 				if (key === null) {
 					this.candidateElements.push(i)
 				} else {
@@ -1241,7 +1240,8 @@ class ChoiceMatching {
 
 class Morph {
 	readonly #options: Options
-	readonly #getNodeKey: GetNodeKey
+	readonly #keyAttribute: string
+	readonly #keySelector: string
 	#preserveChanges: boolean
 	// Pending moves and removals are settled when the root's children have been visited, or when
 	// the root is replaced, so the root's own callbacks see the finished DOM.
@@ -1290,9 +1290,9 @@ class Morph {
 	// whose key appears once in each tree is moved to wherever the target puts that key, even under another parent.
 	readonly #keyArrayMap: KeyArrayMap = new WeakMap()
 	readonly #keySetMap: KeySetMap = new WeakMap()
-	readonly #liveElementsByKey: Map<unknown, Element | null> = new Map()
-	readonly #targetKeyCounts: Map<unknown, number> = new Map()
-	readonly #targetElementsByKey: Map<unknown, Element> = new Map()
+	readonly #liveElementsByKey: Map<string, Element | null> = new Map()
+	readonly #targetKeyCounts: Map<string, number> = new Map()
+	readonly #targetElementsByKey: Map<string, Element> = new Map()
 	// Movable elements left where they were, to be removed at the end unless they moved.
 	#unplacedElements: Array<Element> | null = null
 	// Approved removals put off until the end, because the node holds an element that may move out.
@@ -1302,7 +1302,7 @@ class Morph {
 	readonly #claimedElements: Map<Element, PendingMove> = new Map()
 	readonly #movesInProgress: Set<PendingMove> = new Set()
 	// The latest pending move whose target holds each key.
-	readonly #movesByTargetKey: Map<unknown, PendingMove> = new Map()
+	readonly #movesByTargetKey: Map<string, PendingMove> = new Map()
 
 	// Selects synced to their markup, synced again when the morph settles, after options have moved or gone.
 	#syncedSelects: Set<HTMLSelectElement> | null = null
@@ -1355,7 +1355,9 @@ class Morph {
 		keySelect: HTMLSelectElement | null = null,
 	) {
 		this.#options = options
-		this.#getNodeKey = options.getNodeKey ?? defaultGetNodeKey
+		this.#keyAttribute = options.keyAttribute ?? "id"
+		if (this.#keyAttribute === "") throw new TypeError("keyAttribute must not be empty")
+		this.#keySelector = `[${CSS.escape(this.#keyAttribute)}]`
 		this.#keySelect = keySelect
 		this.#clobbered = clobbered
 		this.#preserveChanges = options.preserveChanges ?? false
@@ -1372,16 +1374,16 @@ class Morph {
 		}
 	}
 
-	#keyOf(element: Element): unknown {
-		return keyOf(element, this.#getNodeKey)
+	#keyOf(element: Element): string | null {
+		return keyOf(element, this.#keyAttribute)
 	}
 
 	#canMorphElementInPlace(from: Element, to: Element): boolean {
-		return canMorphElementInPlace(from, to, this.#getNodeKey)
+		return canMorphElementInPlace(from, to, this.#keyAttribute)
 	}
 
 	#canSoftMatchByTagName(element: Element): boolean {
-		return canSoftMatchByTagName(element, this.#getNodeKey)
+		return canSoftMatchByTagName(element, this.#keyAttribute)
 	}
 
 	morph(from: ChildNode, to: ChildNode | NodeListOf<ChildNode>): void {
@@ -1438,7 +1440,8 @@ class Morph {
 		if (unplaced) {
 			for (let i = 0; i < unplaced.length; i++) {
 				const element = unplaced[i]!
-				if (this.#liveElementsByKey.has(this.#keyOf(element))) this.#removeNode(element, true)
+				const key = this.#keyOf(element)
+				if (key !== null && this.#liveElementsByKey.has(key)) this.#removeNode(element, true)
 			}
 			this.#unplacedElements = null
 		}
@@ -1925,7 +1928,7 @@ class Morph {
 			const targetChild = firstChildOf(to) as Element
 			if (!isEqualNode(child, targetChild)) this.#visitNode(child, targetChild, hasSameIs(child, targetChild))
 		} else {
-			const siblings = new Siblings(from, to, this.#preserveChanges, this.#getNodeKey)
+			const siblings = new Siblings(from, to, this.#preserveChanges, this.#keyAttribute)
 			this.#matchEqualElements(siblings)
 			this.#matchDirtyElements(siblings)
 			this.#matchElementsByKey(siblings)
@@ -3191,6 +3194,7 @@ class Morph {
 	#movesWithin(control: Element, wrapper: Element): boolean {
 		for (let node: Element = control; node !== wrapper; node = parentElementOf(node)!) {
 			const key = this.#keyOf(node)
+			if (key === null) continue
 			const live = this.#movableElement(key)
 			const target = live && this.#targetElementsByKey.get(key)
 			if (target && this.#canMorphElementInPlace(live, target)) return true
@@ -3374,7 +3378,7 @@ class Morph {
 		if (!preserveChanges && this.#options.preserveChanges) this.#clobberedScope = live
 
 		const targetKey = this.#keyOf(target)
-		if (!inCycle && this.#liveElementsByKey.get(targetKey) === live && !contains(live, parent)) {
+		if (targetKey !== null && !inCycle && this.#liveElementsByKey.get(targetKey) === live && !contains(live, parent)) {
 			this.#liveElementsByKey.delete(targetKey)
 			const radios = this.#uncheckRadiosForMove(live, parent)
 			const insideRadios = this.#uncheckRadiosInFormsIn(live)
@@ -3456,7 +3460,7 @@ class Morph {
 		}
 	}
 
-	#movableElement(key: unknown): Element | null {
+	#movableElement(key: string | null): Element | null {
 		if (key === null || this.#targetKeyCounts.get(key) !== 1) return null
 
 		// Options and optgroups don't move, because an option's selection belongs to its select.
@@ -3474,6 +3478,21 @@ class Morph {
 			if (live && live !== node && contains(node, live)) return true
 		}
 		return false
+	}
+
+	// Whether the live element can be morphed into the element with its key inside `target`, which holds one,
+	// and moved there. The target element comes from the index built before the morph, so this doesn't rescan the
+	// target's descendants. `select` is the live select that `target` ends up in.
+	#canMoveInto(live: Element, target: Element, select: HTMLSelectElement | null): boolean {
+		const key = this.#keyOf(live)
+		const element = key === null ? undefined : this.#targetElementsByKey.get(key)
+		if (!element || !contains(target, element)) return false
+
+		const innerSelect = selectOf(element)
+		return (
+			this.#canMorphElementInPlace(live, element) &&
+			!movesOptionsBetweenSelects(live, innerSelect && contains(target, innerSelect) ? innerSelect : select)
+		)
 	}
 
 	// Whether the live element with the target's key can be morphed into the target where the target goes.
@@ -3500,7 +3519,7 @@ class Morph {
 				key !== null &&
 				this.#movableElement(key) === ancestor &&
 				keys.includes(key) &&
-				canMoveInto(ancestor, target, select, this.#getNodeKey)
+				this.#canMoveInto(ancestor, target, select)
 			)
 				return true
 		}
@@ -3511,7 +3530,7 @@ class Morph {
 	// place, where the move completes when the morph settles.
 	#claimMovableElement(target: Element, parent: ParentNode, select?: HTMLSelectElement | null, approved = false): Comment | null {
 		if (!this.#canClaim(target, parent, select)) return null
-		const live = this.#liveElementsByKey.get(this.#keyOf(target))!
+		const live = this.#liveElementsByKey.get(this.#keyOf(target)!)!
 		if (select === undefined) select = selectAt(parent)
 
 		const placeholder = createComment(ownerDocumentOf(live)!, "")
@@ -3527,11 +3546,9 @@ class Morph {
 	// The pending move whose target holds the target of this live element, if it's still to be placed there.
 	#moveReaching(element: Element): PendingMove | undefined {
 		const key = this.#keyOf(element)
-		if (this.#movableElement(key) !== element) return undefined
+		if (key === null || this.#movableElement(key) !== element) return undefined
 		const move = this.#movesByTargetKey.get(key)
-		return move && this.#claimedElements.has(move.live) && canMoveInto(element, move.target, move.select, this.#getNodeKey)
-			? move
-			: undefined
+		return move && this.#claimedElements.has(move.live) && this.#canMoveInto(element, move.target, move.select) ? move : undefined
 	}
 
 	// A new node can hold targets for live elements elsewhere. Claim each live element, leaving a
@@ -3543,7 +3560,7 @@ class Morph {
 
 		const keys = this.#keyArrayMap.get(node)
 		const nodeKey = this.#keyOf(node)
-		if (!keys?.some((key) => !keysEqual(key, nodeKey) && this.#movableElement(key))) return
+		if (!keys?.some((key) => key !== nodeKey && this.#movableElement(key))) return
 
 		this.#placeMovableChildren(node, selectAt(parent))
 	}
@@ -3598,7 +3615,7 @@ class Morph {
 			if (key !== null) targetKeyCounts.set(key, (targetKeyCounts.get(key) ?? 0) + 1)
 		}
 
-		forEachKeyedDescendantElement(node, this.#getNodeKey, (element, key) => {
+		forEachKeyedDescendantElement(node, this.#keyAttribute, this.#keySelector, (element, key) => {
 			targetKeyCounts.set(key, (targetKeyCounts.get(key) ?? 0) + 1)
 			this.#targetElementsByKey.set(key, element)
 
@@ -3628,7 +3645,7 @@ class Morph {
 			if (key !== null) liveElementsByKey.set(key, null)
 		}
 
-		forEachKeyedDescendantElement(node, this.#getNodeKey, (element, key) => {
+		forEachKeyedDescendantElement(node, this.#keyAttribute, this.#keySelector, (element, key) => {
 			liveElementsByKey.set(key, liveElementsByKey.has(key) ? null : element)
 
 			let currentElement: Element | null = element
@@ -3647,35 +3664,16 @@ class Morph {
 	}
 }
 
-// Whether the live element can be morphed into the element with its key inside `target`, which holds one,
-// and moved there. `select` is the live select that `target` ends up in. A select inside `target` is a new one.
-function canMoveInto(live: Element, target: Element, select: HTMLSelectElement | null, getNodeKey: GetNodeKey): boolean {
-	const liveKey = keyOf(live, getNodeKey)
-	const element = Array.from(keyedDescendantElements(target, getNodeKey)).find(
-		(element) => liveKey !== null && keysEqual(keyOf(element, getNodeKey), liveKey),
-	)!
-	const innerSelect = selectOf(element)
-	return (
-		canMorphElementInPlace(live, element, getNodeKey) &&
-		!movesOptionsBetweenSelects(live, innerSelect && contains(target, innerSelect) ? innerSelect : select)
-	)
-}
-
 function forEachKeyedDescendantElement(
 	node: ParentNode,
-	getNodeKey: GetNodeKey,
-	callback: (element: Element, key: unknown) => void,
+	keyAttribute: string,
+	keySelector: string,
+	callback: (element: Element, key: string) => void,
 ): void {
-	for (const element of keyedDescendantElements(node, getNodeKey)) {
-		const key = keyOf(element, getNodeKey)
+	for (const element of querySelectorAll(node, keySelector)) {
+		const key = keyOf(element, keyAttribute)
 		if (key !== null) callback(element, key)
 	}
-}
-
-// Keep the default path on the browser's narrower selector. A custom callback can key any element, so all of them
-// have to be checked.
-function keyedDescendantElements(node: ParentNode, getNodeKey: GetNodeKey): NodeListOf<Element> {
-	return querySelectorAll(node, getNodeKey === defaultGetNodeKey ? "[id]" : "*")
 }
 
 function hasExcessAttributes(from: Element, to: Element): boolean {
@@ -4210,27 +4208,19 @@ function hasSameIs(from: Element, to: Element): boolean {
 	return getAttribute(from, "is") === getAttribute(to, "is")
 }
 
-function defaultGetNodeKey(node: Element): string {
-	return idOf(node)
+function keyOf(element: Element, keyAttribute: string): string | null {
+	return getAttribute(element, keyAttribute) || null
 }
 
-function keyOf(element: Element, getNodeKey: GetNodeKey): unknown {
-	return getNodeKey(element) || null
-}
-
-function keysEqual(a: unknown, b: unknown): boolean {
-	return Object.is(a, b)
-}
-
-function canMorphElementInPlace(from: Element, to: Element, getNodeKey: GetNodeKey): boolean {
+function canMorphElementInPlace(from: Element, to: Element, keyAttribute: string): boolean {
 	if (localNameOf(from) !== localNameOf(to)) return false
 	if (namespaceURIOf(from) !== namespaceURIOf(to)) return false
 	if (!hasSameIs(from, to)) return false
 	if (isFormControl(from) && isFormControl(to)) {
-		const fromKey = keyOf(from, getNodeKey)
-		const toKey = keyOf(to, getNodeKey)
+		const fromKey = keyOf(from, keyAttribute)
+		const toKey = keyOf(to, keyAttribute)
 
-		if ((fromKey !== null || toKey !== null) && !keysEqual(fromKey, toKey)) {
+		if ((fromKey !== null || toKey !== null) && fromKey !== toKey) {
 			return false
 		}
 	}
@@ -4246,9 +4236,9 @@ function canMorphElementInPlace(from: Element, to: Element, getNodeKey: GetNodeK
 // `src` pairs elements sharing it first, but doesn't stop one matching by its tag, so a link or an iframe whose
 // address changes is updated in place. A script doesn't run again when its `src` (or an SVG script's `href`)
 // changes, and a media element doesn't look at a source again, so they're still replaced.
-function canSoftMatchByTagName(element: Element, getNodeKey: GetNodeKey): boolean {
+function canSoftMatchByTagName(element: Element, keyAttribute: string): boolean {
 	return (
-		keyOf(element, getNodeKey) === null &&
+		keyOf(element, keyAttribute) === null &&
 		!isFormControl(element) &&
 		!getAttribute(element, "name") &&
 		!(REPLACED_ON_ADDRESS_CHANGE.has(localNameOf(element)) && (getAttribute(element, "src") || getAttribute(element, "href")))
