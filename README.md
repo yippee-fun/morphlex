@@ -6,7 +6,7 @@ Morphlex is a DOM morphing library that transforms one DOM tree to match another
 
 ## It keeps what the user did
 
-Re-rendering a page from the server shouldn’t undo the user’s work. With [`preserveChanges`](#preserving-changes), what the user typed, checked, picked or opened survives it, as long as each form control has a `name` or `id` so Morphlex can tell which is which (see [Form controls need a `name` or `id`](#form-controls-need-a-name-or-id)). Say the user picked a size and wrote a note on the second item of a list:
+Re-rendering a page from the server shouldn’t undo the user’s work. With [`preserveChanges`](#preserving-changes), what the user typed, checked, picked or opened survives it, as long as each form control has a `name` or key (`id` by default) so Morphlex can tell which is which (see [Form controls need a `name` or key](#form-controls-need-a-name-or-key)). Say the user picked a size and wrote a note on the second item of a list:
 
 ```javascript
 // <form>
@@ -72,7 +72,7 @@ In October 2026 we ran the same 33 scenarios against Morphlex and seven other mo
 | Typed text stays in its row when a keyed row is added above                |    ✅    |     2 of 7     |
 | The caret stays put when the focused input’s row moves                     |    ✅    |     2 of 7     |
 
-Overall, Morphlex passed 32 of the 33 scenarios. The others passed between 14 and 21: idiomorph 21, set-dom 18, Alpine morph 17, nanomorph 16, morphdom 15, diffhtml 15 and micromorph 14. The one Morphlex fails is on purpose: a form control without a `name` or `id` is replaced when its markup changes (see [Form controls need a `name` or `id`](#form-controls-need-a-name-or-id)).
+Overall, Morphlex passed 32 of the 33 scenarios. The others passed between 14 and 21: idiomorph 21, set-dom 18, Alpine morph 17, nanomorph 16, morphdom 15, diffhtml 15 and micromorph 14. The one Morphlex fails is on purpose: a form control without a `name` or key (`id` by default) is replaced when its markup changes (see [Form controls need a `name` or key](#form-controls-need-a-name-or-key)).
 
 ## How it changes the DOM
 
@@ -136,6 +136,7 @@ All three functions accept an optional third argument for configuration:
 ```javascript
 morph(currentNode, newNode, {
   preserveChanges: true,
+  getNodeKey: (node) => node.getAttribute("data-key"),
   beforeNodeAdded: (parent, node, insertionPoint) => {
     console.log("Adding node:", node)
     return true // return false to prevent addition
@@ -144,6 +145,8 @@ morph(currentNode, newNode, {
 ```
 
 - **`preserveChanges`**: When `true`, form controls the user has changed keep their values, and the `open` state of `<details>` and `<dialog>` elements is left alone. See [Preserving changes](#preserving-changes). Default: `false`
+
+- **`getNodeKey(node)`**: Returns an element’s unique key. Morphlex uses keyed elements to keep the right node when siblings are reordered and to move elements across parents instead of recreating them. A falsy return value means the element is unkeyed. By default, Morphlex uses the element’s `id`, so providing this option replaces `id` as the key rather than adding another kind of key.
 
 - **`beforeNodeVisited(fromNode, toNode)`**: Called before a node is visited during morphing. Return `false` to skip morphing this node. Nodes that already match their target are left alone without being visited, so this isn’t called for them.
 
@@ -178,7 +181,7 @@ This can be useful for preserving UI state that your backend does not track. `pr
 
 When a node can’t be morphed in place and has to be replaced, `beforeNodeRemoved` is called first, then `beforeNodeAdded` only if the removal was allowed. Returning `false` from either one leaves the original node where it is, even when the replacement is an element that would move in from elsewhere.
 
-An element with a unique id can move to a new parent during a morph (except `<option>` and `<optgroup>` elements, whose selection belongs to their `<select>`), and it moves once the rest of the morph is done. Until then, callbacks for other nodes, including `afterNodeAdded`, may see an empty comment where the element will go, or the element still in its old place. The after callbacks for the node you passed to `morph` see the finished DOM.
+An element with a unique key can move to a new parent during a morph (except `<option>` and `<optgroup>` elements, whose selection belongs to their `<select>`), and it moves once the rest of the morph is done. Until then, callbacks for other nodes, including `afterNodeAdded`, may see an empty comment where the element will go, or the element still in its old place. The after callbacks for the node you passed to `morph` see the finished DOM.
 
 ## Scripts
 
@@ -254,29 +257,29 @@ When morphing the children of an element, Morphlex pairs each new child with an 
 
 1. An existing node that is already identical.
 2. An element that only differs by what the user changed in its form controls, unless the new element is or holds a `morphlex-clobber` element.
-3. An element with the same `id`.
-4. An element that contains one of the same `id`s somewhere inside it.
+3. An element with the same key. The key is its `id` by default, or the value from `getNodeKey` when provided.
+4. An element that contains one of the same keys somewhere inside it.
 5. With `preserveChanges`, a checkbox, radio or option the user changed is paired with one making the same choice, such as the same name and value in the same form, and an element such as a `<label>` holding one is paired with an element holding the same choice. This keeps the user’s pick in place when items are added or reordered around it.
 6. An element with the same non-empty `name`, `href` or `src` attribute.
-7. Any element with the same tag name, as long as neither element has an `id` or a non-empty `name`, and neither is a form control. Ids inside the elements don’t count, so a wrapper without its own identity still pairs by position, and an `href` or `src` doesn’t either, so a link, image or iframe whose address changes is updated in place. A `<script>` or media `<source>` with a `src` still isn’t paired by tag, since it wouldn’t be loaded again.
+7. Any element with the same tag name, as long as neither element has a key or a non-empty `name`, and neither is a form control. Keys inside the elements don’t count, so a wrapper without its own identity still pairs by position, and an `href` or `src` doesn’t either, so a link, image or iframe whose address changes is updated in place. A `<script>` or media `<source>` with a `src` still isn’t paired by tag, since it wouldn’t be loaded again.
 
-When a new child’s unique `id` belongs to a live element under another parent that can be morphed into it, the new child isn’t paired here. That element moves to the new child’s place instead (see [Options](#options)).
+When a new child’s unique key belongs to a live element under another parent that can be morphed into it, the new child isn’t paired here. That element moves to the new child’s place instead (see [Options](#options)).
 
 Elements are only paired with elements of the same tag name and namespace. Text and comment nodes are paired with nodes of the same type, except text nodes that are only whitespace. Those are never paired with other nodes. Existing whitespace that sits where the new children have whitespace is kept, with its text updated if it differs. Other whitespace is removed or inserted fresh.
 
 Paired nodes are morphed in place, existing nodes that weren’t paired are removed, and new nodes that weren’t paired are inserted. Morphlex then moves the fewest nodes it can to get them in the right order, using `moveBefore` where the browser supports it so moved elements keep their state. The focused element keeps focus and its caret or selection when it moves. In browsers without `moveBefore`, the element holding focus stays where it is and its siblings move around it, and if a move takes it anyway, for example to another parent, it gets focus and its caret or selection back straight after the move.
 
-Stable `id`s are the best way to help Morphlex match elements, especially in lists that get reordered.
+Stable keys are the best way to help Morphlex match elements, especially in lists that get reordered. These are stable `id`s by default, or whatever `getNodeKey` returns when you customize it.
 
-The element you pass to `morph` is replaced rather than morphed in place if its tag name, namespace or `is` attribute differs from the target, if it’s a form control whose `id` differs, or if it’s an `<input>` whose `type` differs. Elements paired during a morph already share a tag name and namespace, and are replaced only when their `is` attribute differs.
+The element you pass to `morph` is replaced rather than morphed in place if its tag name, namespace or `is` attribute differs from the target, if it’s a form control whose key differs, or if it’s an `<input>` whose `type` differs. Elements paired during a morph already share a tag name and namespace, and are replaced only when their `is` attribute differs.
 
-### Form controls need a `name` or `id`
+### Form controls need a `name` or key
 
-When matching children, Morphlex keeps a form control (an `<input>`, `<textarea>`, `<select>` or form-associated custom element) only when it can tell that the control in the new markup is the same field. It tells by the control’s `id`, or else its `name`. Without either, all it has to go on is the markup itself, so it only keeps a control whose markup hasn’t changed. If anything about it changes, even a class, the control could just as well be a different field in the same spot, and Morphlex assumes it is. It removes the old control and inserts a fresh one, so what the user typed into one field never turns up in another, such as an email address in a phone number field.
+When matching children, Morphlex keeps a form control (an `<input>`, `<textarea>`, `<select>` or form-associated custom element) only when it can tell that the control in the new markup is the same field. It tells by the control’s key, or else its `name`. Without either, all it has to go on is the markup itself, so it only keeps a control whose markup hasn’t changed. If anything about it changes, even a class, the control could just as well be a different field in the same spot, and Morphlex assumes it is. It removes the old control and inserts a fresh one, so what the user typed into one field never turns up in another, such as an email address in a phone number field.
 
-The same goes when a control’s `name` changes and it has no `id`, when its `id` changes, and when an `<input>`’s `type` changes, which always means a fresh input. The element you pass to `morph` follows the rules in the paragraph just before this section instead.
+The same goes when a control’s `name` changes and it has no key, when its key changes, and when an `<input>`’s `type` changes, which always means a fresh input. The element you pass to `morph` follows the rules in the paragraph just before this section instead.
 
-A replaced control loses what the user typed and its focus, even with `preserveChanges`. To keep them, give the control a `name` or `id` that stays the same while the rest of its markup changes:
+A replaced control loses what the user typed and its focus, even with `preserveChanges`. To keep them, give the control a `name` or key that stays the same while the rest of its markup changes:
 
 ```html
 <!-- Replaced when the class changes, losing what the user typed -->
