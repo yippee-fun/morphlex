@@ -1357,7 +1357,7 @@ class Morph {
 		this.#options = options
 		this.#keyAttribute = options.keyAttribute ?? "id"
 		if (this.#keyAttribute === "") throw new TypeError("keyAttribute must not be empty")
-		this.#keySelector = `[${CSS.escape(this.#keyAttribute)}]`
+		this.#keySelector = this.#keyAttribute === "id" ? "[id]" : `[${CSS.escape(this.#keyAttribute)}]`
 		this.#keySelect = keySelect
 		this.#clobbered = clobbered
 		this.#preserveChanges = options.preserveChanges ?? false

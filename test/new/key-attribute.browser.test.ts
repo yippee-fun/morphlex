@@ -110,6 +110,25 @@ test("keyAttribute is escaped when selecting keyed descendants", () => {
 	expect(item.textContent).toBe("new")
 })
 
+test("the default id key does not require CSS.escape", () => {
+	const escape = CSS.escape
+	CSS.escape = () => {
+		throw new Error("CSS.escape was called")
+	}
+
+	try {
+		const from = dom(`<main><section><p id="item">old</p></section><aside></aside></main>`)
+		const item = from.querySelector("p")!
+
+		morph(from, `<main><section></section><aside><p id="item">new</p></aside></main>`)
+
+		expect(from.querySelector("aside p")).toBe(item)
+		expect(item.textContent).toBe("new")
+	} finally {
+		CSS.escape = escape
+	}
+})
+
 test("keyAttribute cannot be empty", () => {
 	const from = dom(`<p>old</p>`)
 
